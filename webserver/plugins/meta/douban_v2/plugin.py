@@ -33,14 +33,16 @@ class DoubanV2MetaPlugin(MetaSourcePlugin):
 
     @classmethod
     def throttle_wait_seconds(cls):
-        """预算耗尽时返回距当前窗口重置的秒数，否则 None。
+        """预算耗尽时返回距预算真正可用的秒数，否则 None。
 
-        供批量抓取方（autofill）在请求前主动让路：与其让本插件静默跳过
-        （书拿不到元数据且无感知），不如暂停等窗口重置后继续。
+        用 seconds_until_budget_available 而非 seconds_until_window_end：
+        突发额度耗尽后下一窗口整体拒绝，只等到本窗尾会展示过早的恢复时间。
+        供批量抓取方（autofill）主动让路：与其让本插件静默跳过（书拿不到
+        元数据且无感知），不如暂停等预算恢复后继续。
         """
         if not cls._counter.is_exceeded():
             return None
-        return cls._counter.seconds_until_window_end()
+        return cls._counter.seconds_until_budget_available()
 
     @classmethod
     def _acquire(cls):

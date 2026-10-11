@@ -115,19 +115,23 @@ class AutoFillService(AsyncService):
             # 第二阶段：网络请求获取信息（不持有数据库锁）
             updates = []
             for book_id, mi in books_to_update:
-                if pause_on_throttle and not self._throttle_pause():
-                    # 单次等待/连续暂停轮数超上限：源持续不可用，中止剩余待处理
-                    # 书目（已完成保留，任务照常收尾），下轮重扫或手动触发再补。
-                    logging.error(_("元数据源限流暂停超过上限，中止本轮自动填充，剩余书目下轮重扫或手动触发"))
-                    self._restore_progress()
-                    throttle_aborted = True
-                    break
                 time.sleep(sleep_seconds)
                 try:
-                    if only_tags:
-                        refer_mi = mi
-                    else:
-                        refer_mi = BookSearch.search_best_book(mi)
+                    refer_mi = self._fetch_refer(mi, only_tags)
+                    if refer_mi is None and pause_on_throttle and BookSearch.throttle_wait_seconds():
+                        # 落空且恰有限流源预算耗尽：大概率本次请求被限流源静默
+                        # 跳过（排在它前面的后备源未命中才会轮到它）。等预算
+                        # 恢复后重试一次——否则每个限流窗口边界都白丢一本书的
+                        # 元数据。后备源仍健康的场景不会走到这里（取到了就不
+                        # 检查），不与限流源无关的正常无结果冲突。
+                        logging.warning(_("书籍 id=%d 获取信息落空且限流源预算耗尽，暂停等待预算恢复后重试"), book_id)
+                        if not self._throttle_pause():
+                            logging.error(_("元数据源限流暂停超过上限，中止本轮自动填充，剩余书目下轮重扫或手动触发"))
+                            self._restore_progress()
+                            throttle_aborted = True
+                            break
+                        time.sleep(sleep_seconds)
+                        refer_mi = self._fetch_refer(mi, only_tags)
 
                     if refer_mi and refer_mi.cover_data is not None and refer_mi.title and refer_mi.title != "验证":
                         # 准备更新数据
@@ -194,6 +198,12 @@ class AutoFillService(AsyncService):
         self.current_book_id = None
         self.task_id = None
 
+    def _fetch_refer(self, mi, only_tags):
+        """单次元数据网络获取（only_tags 路径无网络请求，直接用本地 mi）。"""
+        if only_tags:
+            return mi
+        return BookSearch.search_best_book(mi)
+
     def _throttle_pause(self):
         """元数据源（豆瓣 v2 等）预算耗尽时暂停批任务，定时自动续跑。
 
@@ -206,6 +216,9 @@ class AutoFillService(AsyncService):
         while True:
             wait = BookSearch.throttle_wait_seconds()
             if not wait:
+                # 预算恢复：连续不可用计数清零（保险丝只拦"持续不可用"，
+                # 间歇性正常限流不累计）
+                self._throttle_pause_rounds = 0
                 return True
             wait = int(wait)
             if wait > PAUSE_MAX_SECONDS or self._throttle_pause_rounds >= PAUSE_MAX_ROUNDS:

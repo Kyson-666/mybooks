@@ -60,3 +60,20 @@ class RequestCounter:
             self._roll(time.monotonic())
             remain = self._start + self.window_seconds - time.monotonic()
             return max(0, -int(-remain // 1))
+
+    def seconds_until_budget_available(self):
+        """距预算可用的秒数（向上取整；预算可用返回 0），计入突发后果。
+
+        与 is_exceeded 判定对齐：窗口内突发额度耗尽（count ≥ 2×limit）时，
+        本窗剩余之后还有一整个被拒窗口（_roll 的 _blocked 规则）→ 等待 =
+        本窗剩余 + 整窗；已处于被拒窗口（_blocked）时只等本窗剩余。
+        供“暂停到预算真正恢复”的调用方使用，避免展示过早的恢复时间。
+        """
+        with self._lock:
+            self._roll(time.monotonic())
+            if not self._blocked and self._count < self.limit * 2:
+                return 0
+            remain = self._start + self.window_seconds - time.monotonic()
+            if self._count >= self.limit * 2:
+                remain += self.window_seconds
+            return max(0, -int(-remain // 1))

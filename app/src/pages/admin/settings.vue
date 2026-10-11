@@ -1394,12 +1394,6 @@ export default {
             label: "settings.auto_fill_qpm",
           },
           {
-            icon: "mdi-pause-octagon",
-            key: "auto_fill_pause_on_throttle",
-            label: "settings.auto_fill_pause_on_throttle",
-            type: "checkbox",
-          },
-          {
             icon: "mdi-source-branch",
             key: "META_SELECTED_SOURCES",
             label: "settings.meta_selected_source",
@@ -1510,6 +1504,12 @@ export default {
             icon: "mdi-shape-plus",
             key: "IMPORT_CATEGORY_WITH_FOLDER",
             label: "settings.category_with_folder",
+            type: "checkbox",
+          },
+          {
+            icon: "mdi-pause-octagon",
+            key: "auto_fill_pause_on_throttle",
+            label: "settings.auto_fill_pause_on_throttle",
             type: "checkbox",
           },
           {
