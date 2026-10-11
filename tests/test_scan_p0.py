@@ -426,6 +426,26 @@ class TestHashParallel(ScanP0TestBase):
         self.assertEqual(len(seen_threads), 4)
         self.assertTrue(all(name.startswith("scan_hash") for name in seen_threads), seen_threads)
 
+    def test_serial_branch_workers_1_end_to_end(self):
+        # scan_hash_workers=1（NAS 兜底模式，注释/文档明示的用法）走 hash_pool
+        # is None 串行分支。回归钉：曾把 fpath(str) 当 ctx 传给 _scan_finalize
+        # 直接 TypeError，整轮 0 行落库——该分支此前零覆盖。
+        db = FakeCalibreDB()
+        self.svc.db = db
+        files = [self._touch("s%d.txt" % i, b"s-%d" % i) for i in range(2)]
+        delivered = []
+
+        def fake_import_one_file(row, user_id, scan_upload_path, session, force, sole=False, pending_fields=None, staged_ops=None):
+            delivered.append(row.path)
+            return None, None
+
+        self.svc._import_one_file = fake_import_one_file
+        self.addCleanup(self._restore_import_one_file)
+        with mock.patch.dict(scan_service.CONF, {"scan_hash_workers": 1}):
+            self.svc.do_import_internal(files, 9)
+        self.assertEqual(sorted(delivered), sorted(files))
+        self.assertEqual(self.session.query(ScanFile).filter(ScanFile.status == ScanFile.READY).count(), 2)
+
     def test_abort_mid_run_still_finalizes_submitted(self):
         # abort 在 prepare 内置位（主线程同步，无竞态）：循环下一轮头部退出；
         # 已提交进流水线的文件仍被收尾收割 finalize 并落行（快照反正不提交）。

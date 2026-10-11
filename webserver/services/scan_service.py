@@ -907,6 +907,12 @@ class ScanService(AsyncService):
         visited: dict = {}
         skipped_dirs = 0
         for p in dirs:
+            # 归一化扫描根：尾斜杠/冗余斜杠会让下面「根一次 realpath + 后缀拼接」
+            # 产生坏键（realpath 吞尾斜杠而 dirpath 切片不随——"…/imports/" 的
+            # 子目录键会变成 "…/importssub"，随后被快照 vacuum 以 under_root 判定
+            # 删除，增量剪枝静默失效；官方默认 scan_upload_path 即带尾斜杠）。
+            # 顺带让隐藏根目录与 walk 内的隐藏目录过滤同口径。
+            p = os.path.normpath(p)
             if os.path.basename(p).startswith("."):
                 logging.info(f"[SCAN]Ignore {p}")
                 continue
@@ -1854,7 +1860,7 @@ class ScanService(AsyncService):
                     continue
                 if hash_pool is None:
                     result = self._hash_job(ctx)
-                    self._scan_finalize(fpath, result, session, processed_paths, processed_hashes, staged=staged)
+                    self._scan_finalize(ctx, result, session, processed_paths, processed_hashes, staged=staged)
                     if len(staged) >= PHASE1_BATCH_SIZE:
                         _commit_phase1_stage()
                     continue

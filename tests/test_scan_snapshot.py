@@ -58,6 +58,9 @@ class SnapshotTestBase(unittest.TestCase):
     def _collect(self, use_snapshot=True):
         return self.svc._collect_files([self.tmpdir], use_snapshot=use_snapshot)
 
+    def _collect_paths(self, paths, use_snapshot=True):
+        return self.svc._collect_files(paths, use_snapshot=use_snapshot)
+
     def _commit(self, visited):
         self.svc._commit_dir_snapshots(self.session, visited, self.root)
 
@@ -112,6 +115,25 @@ class TestSnapshotPrune(SnapshotTestBase):
         # 必须出现——“剪下钻”的错误实现在这里返回 []。
         old_path = os.path.join(self.tmpdir, "d1", "sub", "old.txt")
         self.assertEqual(sorted(files2), sorted([old_path, new_path]))
+
+    def test_trailing_slash_root_snapshot_keys(self):
+        # 扫描根带尾斜杠（官方默认 scan_upload_path 即 "/data/books/imports/"）：
+        # normpath 归一后快照键必须与逐目录 realpath 一致、第二轮正常剪枝。
+        # 回归钉：曾因「realpath 吞尾斜杠而 dirpath 切片不随」产生 "…/importssub"
+        # 坏键，被 vacuum 以 under_root 判定同事务删除，增量剪枝静默失效。
+        self._touch(os.path.join("d1", "sub", "a.txt"), b"a")
+        self._touch(os.path.join("d2", "b.txt"), b"b")
+        slash_root = self.tmpdir + os.sep
+        files, visited = self._collect_paths([slash_root])
+        real_realpath = os.path.realpath
+        self.assertEqual(len(files), 2)
+        for key in visited:
+            self.assertEqual(key, real_realpath(key), key)
+        self.assertIn(os.path.join(self.root, "d1", "sub"), visited)
+        self.assertIn(os.path.join(self.root, "d2"), visited)
+        self._commit(visited)
+        files2, _v2 = self._collect_paths([slash_root])
+        self.assertEqual(files2, [])  # 第二轮剪枝生效（坏键时这里会全量重走）
 
     def test_new_subdir_detected(self):
         self._touch(os.path.join("d1", "a.txt"), b"a")
