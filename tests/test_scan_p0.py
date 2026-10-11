@@ -5,6 +5,7 @@
 - 走真实 _import_one_file 的用例（同标题加格式、set_field 攒批、行失败诚实）
   需要 calibre（函数头 import Metadata），缺 calibre 时自动跳过，WSL 全量跑。
 """
+import hashlib
 import os
 import shutil
 import sqlite3
@@ -31,7 +32,7 @@ from sqlalchemy.orm import scoped_session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from webserver import models
-from webserver.models import ScanFile
+from webserver.models import Item, ScanFile
 from webserver.services import scan_service
 from webserver.services.scan_service import ScanService
 from webserver import constants
@@ -453,6 +454,90 @@ class TestHashParallel(ScanP0TestBase):
         self.assertEqual(delivered, [])
         ready_paths = sorted(r.path for r in self.session.query(ScanFile).filter(ScanFile.status == ScanFile.READY).all())
         self.assertEqual(ready_paths, sorted(files[:2]))
+
+
+class TestPhase2Batching(ScanP0TestBase):
+    """C3 Phase2 行/链接真批量：暂存语义 / 批节奏与免逐条 commit / 行级失败隔离。"""
+
+    def _restore_import_one_file(self):
+        if "_import_one_file" in self.svc.__dict__:
+            del self.svc._import_one_file
+
+    def _make_ready_row(self, name, content=b"txt-body"):
+        fpath = self._touch(name, content)
+        row = ScanFile(fpath, "sha256:" + hashlib.md5(fpath.encode("utf-8")).hexdigest(), 1)
+        row.status = ScanFile.READY
+        self.session.add(row)
+        self.session.commit()
+        return row
+
+    @unittest.skipUnless(HAS_CALIBRE, "requires calibre Metadata")
+    def test_staged_ops_apply_outcomes_and_item_links(self):
+        # 走真实 _import_one_file 的暂存路径：行+Item 全部进 staged_ops，apply 前
+        # Item 表为空（证明未逐条落库），apply+commit 后行 IMPORTED、链接齐全。
+        db = FakeCalibreDB()
+        self.svc.db = db
+        row1 = self._make_ready_row("b1.txt")
+        row2 = self._make_ready_row("b2.txt")
+        staged_ops = []
+        for row in (row1, row2):
+            new_id, status = self.svc._import_one_file(row, 9, self.tmpdir, self.session, False, staged_ops=staged_ops)
+            self.assertEqual(status, ScanFile.IMPORTED)
+            self.assertIsNotNone(new_id)
+        self.assertEqual(len(staged_ops), 4)  # 2 save_row + 2 save_item
+        self.assertEqual(self.session.query(Item).count(), 0)
+        outcomes = self.svc._apply_phase2_batch(self.session, staged_ops)
+        self.session.commit()
+        self.assertEqual(outcomes["saved_rows"], {row1.id, row2.id})
+        self.assertEqual(outcomes["dropped_rows"], set())
+        self.assertEqual(outcomes["dropped_items"], 0)
+        self.assertEqual(self.session.query(ScanFile).filter(ScanFile.status == ScanFile.IMPORTED).count(), 2)
+        self.assertEqual(self.session.query(Item).count(), 2)
+
+    def test_phase2_batch_cadence_no_per_book_commit(self):
+        # 20 本书：mid-loop 恰好一批 [20]（batch_size=20），且暂存路径下
+        # save_or_rollback（逐条 commit）一次都不被调用。
+        db = FakeCalibreDB()
+        self.svc.db = db
+        files = [self._touch("c%d.txt" % i, b"c-%d" % i) for i in range(20)]
+        batches = []
+        orig_apply2 = ScanService._apply_phase2_batch
+
+        def spying_apply2(svc_self, session, staged_ops):
+            batches.append(len(staged_ops))
+            return orig_apply2(svc_self, session, staged_ops)
+
+        def fake_import_one_file(row, user_id, scan_upload_path, session, force, sole=False, pending_fields=None, staged_ops=None):
+            row.status = ScanFile.IMPORTED
+            staged_ops.append(("save_row", row))
+            return None, ScanFile.IMPORTED
+
+        self.svc._import_one_file = fake_import_one_file
+        self.addCleanup(self._restore_import_one_file)
+        with mock.patch.object(ScanService, "_apply_phase2_batch", spying_apply2):
+            with mock.patch.object(ScanService, "save_or_rollback") as mock_save:
+                self.svc.do_import_internal(files, 9)
+        self.assertEqual(batches, [20])
+        mock_save.assert_not_called()
+        self.assertEqual(self.session.query(ScanFile).filter(ScanFile.status == ScanFile.IMPORTED).count(), 20)
+
+    def test_phase2_row_isolation_on_integrity_error(self):
+        # UNIQUE(hash) 冲突的暂存行只丢自己（SAVEPOINT 行级隔离），同批其余行照常落库。
+        # 新 schema 无该约束，这里按 legacy 库口径手工建唯一索引注入真实 IntegrityError。
+        good_anchor = self._make_ready_row("iso0.txt")
+        good_anchor.hash = "sha256:dup-hash"
+        self.session.commit()
+        self.session.execute(text("CREATE UNIQUE INDEX uniq_hash_iso ON scanfiles (hash)"))
+        self.session.commit()
+        other = ScanFile(self._touch("iso3.txt", b"iso3"), "sha256:unique-3", 1)
+        other.status = ScanFile.IMPORTED
+        bad = ScanFile(self._touch("iso2.txt", b"iso2"), "sha256:dup-hash", 1)
+        bad.status = ScanFile.IMPORTED
+        outcomes = self.svc._apply_phase2_batch(self.session, [("save_row", bad), ("save_row", other)])
+        self.session.commit()
+        self.assertEqual(outcomes["dropped_rows"], {None})
+        self.assertEqual(outcomes["saved_rows"], {other.id})
+        self.assertEqual(self.session.query(ScanFile).filter(ScanFile.hash == "sha256:unique-3").count(), 1)
 
 
 class TestPersistFailureGate(ScanP0TestBase):

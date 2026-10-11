@@ -240,6 +240,73 @@ class ScanService(AsyncService):
         except Exception as err:
             logging.debug("[SCAN] Begin scan batch skipped: %s", err)
 
+    def _apply_phase2_batch(self, session, staged_ops):
+        """在短写事务内执行一批 Phase2 行/链接写操作，返回对账结果。
+
+        staged_ops 元素：("save_row", row) | ("save_item", item)，由 _import_one_file
+        在 worker 内暂存；本方法逐 op SAVEPOINT（单个失败只丢该操作，不毒化整批），
+        持写锁窗口亚秒级。调用方负责 commit 并按 outcomes 对账计数：
+        {"saved_rows": set(row_id), "dropped_rows": set(row_id), "dropped_items": n}。
+        """
+        outcomes = {"saved_rows": set(), "dropped_rows": set(), "dropped_items": 0}
+        if not staged_ops:
+            return outcomes
+        self._begin_scan_batch(session)
+        for op in staged_ops:
+            kind, obj = op
+            try:
+                with session.begin_nested():
+                    session.add(obj)
+                    session.flush()
+                if kind == "save_row":
+                    outcomes["saved_rows"].add(obj.id)
+            except Exception as err:
+                if kind == "save_row":
+                    logging.error("[IMPORT] Phase2 row save dropped (id=%s): %s", getattr(obj, "id", "?"), err)
+                    outcomes["dropped_rows"].add(getattr(obj, "id", None))
+                else:
+                    logging.error("[IMPORT] Phase2 item link save dropped: %s", err)
+                    outcomes["dropped_items"] += 1
+        return outcomes
+
+    def _apply_phase2_batch_checked(self, session, staged_ops, batch_row_status):
+        """_apply_phase2_batch + commit + 计数对账：被丢/整批丢的行把 worker 先行
+        计入的状态数回调（净效果等价旧 save_or_rollback 失败 → (None, None) 不计数）。
+        batch_row_status: row_id → status（本批暂存过的行）。操作后两个暂存容器清空。"""
+        if not staged_ops:
+            return
+
+        def _uncount_all(ids):
+            for rid in ids:
+                status = batch_row_status.pop(rid, None)
+                if status and ScanService.static_status_cnt.get(status, 0) > 0:
+                    ScanService.static_status_cnt[status] -= 1
+
+        try:
+            outcomes = self._apply_phase2_batch(session, staged_ops)
+        except Exception as err:
+            logging.error("[IMPORT] Phase2 batch apply error, drop %d staged ops: %s", len(staged_ops), err)
+            try:
+                session.rollback()
+            except Exception:
+                pass
+            _uncount_all(list(batch_row_status.keys()))
+            staged_ops.clear()
+            return
+        staged_ops.clear()
+        try:
+            session.commit()
+        except Exception as err:
+            logging.error("[IMPORT] Phase2 batch commit error, drop %d staged rows: %s", len(batch_row_status), err)
+            session.rollback()
+            _uncount_all(list(batch_row_status.keys()))
+            return
+        if outcomes["dropped_rows"] or outcomes["dropped_items"]:
+            _uncount_all(outcomes["dropped_rows"])
+            if outcomes["dropped_items"]:
+                logging.error("[IMPORT] Phase2 dropped %d item link(s): books exist but user link lost, next run re-links", outcomes["dropped_items"])
+        batch_row_status.clear()
+
     def _apply_phase1_batch(self, session, staged):
         """在短写事务内执行一批 staged 写操作，返回成功落库的 [(row_id, state)]（按暂存顺序）。
 
@@ -990,7 +1057,7 @@ class ScanService(AsyncService):
             logging.error("[IMPORT] Error reading file %s: %s", fpath, e)
             return None, ScanFile.INVALID
 
-    def _import_one_file(self, row, user_id, scan_upload_path, session, force, sole=False, pending_fields=None):
+    def _import_one_file(self, row, user_id, scan_upload_path, session, force, sole=False, pending_fields=None, staged_ops=None):
         """
             Read metadata and import one READY ScanFile into calibre.
 
@@ -999,6 +1066,11 @@ class ScanService(AsyncService):
 
             pending_fields: worker 内累积的 calibre 自定义列缓冲（dynamic_cover 列表/
                 translators 与 category 字典），为 None 时走旧的逐本 set_field。
+            staged_ops: worker 内累积的 ("save_row", row) | ("save_item", item) 暂存，
+                为 None 时行/链接走旧的逐条 commit（save_or_rollback/item.save）；
+                提供时写操作全部暂存，由 worker 攒批经 _apply_phase2_batch 在短写
+                事务内统一落库（2-3 次 fsync/本 → ≤1 次/批）。暂存路径下返回的
+                status 是乐观值，落库失败由调用方按 outcomes 对账回调。
         """
         from calibre.ebooks.metadata.book.base import Metadata
 
@@ -1015,7 +1087,10 @@ class ScanService(AsyncService):
             logging.error("[IMPORT] Invalid book file %s: %s", fpath, e)
             row.status = ScanFile.INVALID
             row.title = None
-            self.save_or_rollback(row, session)
+            if staged_ops is None:
+                self.save_or_rollback(row, session)
+            else:
+                staged_ops.append(("save_row", row))
             return None, ScanFile.INVALID
 
         if fmt == "txt":
@@ -1037,7 +1112,10 @@ class ScanService(AsyncService):
             except Exception as e:
                 logging.error("[IMPORT] Error reading metadata from %s: %s", fpath, e)
                 row.status = ScanFile.INVALID
-                self.save_or_rollback(row, session)
+                if staged_ops is None:
+                    self.save_or_rollback(row, session)
+                else:
+                    staged_ops.append(("save_row", row))
                 return None, ScanFile.INVALID
 
             if mi is not None and mi.title and mi.title == CALIBRE_ERROR_FLAG:
@@ -1048,7 +1126,10 @@ class ScanService(AsyncService):
                     logging.error("[IMPORT] Failed to get metadata for %s", fpath)
                     row.status = ScanFile.INVALID
                     row.title = None
-                    self.save_or_rollback(row, session)
+                    if staged_ops is None:
+                        self.save_or_rollback(row, session)
+                    else:
+                        staged_ops.append(("save_row", row))
                     return None, ScanFile.INVALID
 
             # Normalize title/author for pdf (PDF_TILE_WITH_FILE_NAME=False)
@@ -1149,11 +1230,15 @@ class ScanService(AsyncService):
                 item.collector_id = user_id
                 item.sole = bool(sole)
                 item.src_path = fpath
-                try:
-                    item.save()
+                if staged_ops is None:
+                    try:
+                        item.save()
+                        new_book_id = row.book_id
+                    except Exception as err:
+                        logging.error("[IMPORT] save link error: %s", err)
+                else:
+                    staged_ops.append(("save_item", item))
                     new_book_id = row.book_id
-                except Exception as err:
-                    logging.error("[IMPORT] save link error: %s", err)
 
                 if CONF.get("IMPORT_CATEGORY_WITH_FOLDER", False):
                     rel = os.path.relpath(os.path.realpath(fpath), scan_upload_path)
@@ -1184,11 +1269,15 @@ class ScanService(AsyncService):
             logging.error(traceback.format_exc())
 
         status = row.status
-        # 行落库失败必须诚实返回 (None, None)：worker 据此跳过计数/入库名单，避免
-        # “已计数但未持久化”的虚假成功；行保持旧状态，下轮重扫经标题命中收敛自愈。
-        if not self.save_or_rollback(row, session):
-            logging.error("[IMPORT] Failed to save ScanFile record for %s, will retry next run", fpath)
-            return None, None
+        # 行落库失败必须诚实返回 (None, None)（旧逐行路径）：worker 据此跳过计数/
+        # 入库名单，避免“已计数但未持久化”的虚假成功；行保持旧状态，下轮重扫经
+        # 标题命中收敛自愈。批量路径先乐观计数，落库失败由 worker 按 outcomes 回调。
+        if staged_ops is None:
+            if not self.save_or_rollback(row, session):
+                logging.error("[IMPORT] Failed to save ScanFile record for %s, will retry next run", fpath)
+                return None, None
+        else:
+            staged_ops.append(("save_row", row))
 
         logging.info("[IMPORT] File done, status=%s [total %.3fs]: %s", row.status, time.time() - start_time, fpath)
         if time.time() - start_time > 0.25:
@@ -1199,12 +1288,16 @@ class ScanService(AsyncService):
         """Worker thread for Phase 2: consumes row IDs from work_queue and imports each file.
 
         pending_fields 把 calibre 自定义列写回攒批落库（水位/批提交/尾批与异常路径
-        在 finally 里兜底 flush）。
+        在 finally 里兜底 flush）。行/Item 链接写走 staged_ops 攒批（每 batch_size 本
+        一个短写事务 + 计数对账，尾批与异常路径 finally 兜底）——旧逐条 commit
+        （2-3 次 fsync/本）降为 ≤1 次/批。
         """
         importing_session = self.scoped_session()
         importing_index = 0
         total_count = 0
         pending_fields = {"dynamic_cover": [], "translators": {}, "category": {}}
+        staged_ops = []       # ("save_row", row) | ("save_item", item)，本批待落库
+        batch_row_status = {}  # row_id → status，落库对账用（本批暂存过的行）
 
         try:
             while True:
@@ -1237,24 +1330,23 @@ class ScanService(AsyncService):
                         except Exception as e:
                             logging.error("[IMPORT] Failed to update progress: %s", e)
 
-                    new_book_id, status = self._import_one_file(row, user_id, scan_upload_path, importing_session, force, sole, pending_fields)
+                    new_book_id, status = self._import_one_file(row, user_id, scan_upload_path, importing_session, force, sole, pending_fields, staged_ops)
                     if status:
                         if status in ScanService.static_status_cnt:
                             ScanService.static_status_cnt[status] += 1
                         else:
                             ScanService.static_status_cnt[status] = 1
+                        if row.id is not None:
+                            batch_row_status[row.id] = status
 
                     if new_book_id is not None:
                         importing_imported.append(new_book_id)
 
                     if importing_index % batch_size == 0:
-                        # 行已在 _import_one_file 内逐行落库，此处只是安全网（正常无 pending）。
-                        try:
-                            importing_session.commit()
-                            logging.info("[IMPORT] Batch committed at index %d", importing_index)
-                        except Exception as err:
-                            logging.error("[IMPORT] Batch commit error: %s", err)
-                            importing_session.rollback()
+                        # 行/链接在 _import_one_file 内已暂存，此处短写事务统一落库
+                        # 并按 outcomes 对账（被丢行回调状态计数，净效果等价旧的
+                        # save_or_rollback 失败 → (None, None) 不计数）。
+                        self._apply_phase2_batch_checked(importing_session, staged_ops, batch_row_status)
                         self._flush_pending_calibre_fields(pending_fields)
                 finally:
                     work_queue.task_done()
@@ -1266,6 +1358,12 @@ class ScanService(AsyncService):
                 self._flush_pending_calibre_fields(pending_fields)
             except Exception as err:
                 logging.error("[IMPORT] Final fields flush error: %s", err)
+            # 尾批（<batch_size）与 abort/异常残留的暂存操作照常落库——与旧逐行
+            # commit 下“已处理行全部持久化”净效果等价。
+            try:
+                self._apply_phase2_batch_checked(importing_session, staged_ops, batch_row_status)
+            except Exception as err:
+                logging.error("[IMPORT] Final Phase2 batch error: %s", err)
             try:
                 importing_session.commit()
                 logging.info("[IMPORT] Final commit completed")
