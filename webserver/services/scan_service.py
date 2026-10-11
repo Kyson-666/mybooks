@@ -40,9 +40,12 @@ import os
 import logging
 import queue as _queue
 import shutil
+import sqlite3
+import tempfile
 import threading
 import time
 import traceback
+import weakref
 from collections import deque
 from concurrent.futures import ThreadPoolExecutor
 
@@ -84,6 +87,97 @@ LEGACY_SKIP_SCOPES = (1, 2)
 # ScanFile.data 内文件签名的键：[size, mtime_ns, ctime_ns, ino]，一次 os.stat 全取。
 # ctime 专防 cp -p/rsync -a 类“保 mtime 换内容”（mtime 能保住，ctime 保不住）。
 FILE_SIG_KEY = "file_sig"
+# 标题判重索引的批量门限：本轮待导入书目 ≥ 该值才构建运行级落盘索引（一次 O(库)
+# 构建 + 每本 O(log) 点查），否则逐本走 calibre 全库扫描（每本 O(库) icu_lower）。
+# 划算与否只跟批量有关（legacy 总成本≈批量×库，建索引≈库，比值≈批量），与库
+# 大小无关——单本/几本上传到百万库为一次判重建索引是纯浪费。
+TITLE_INDEX_MIN_BOOKS = 50
+
+
+class _TitleDedupIndex:
+    """运行级标题判重索引：icu_lower 规范化后落盘 SQLite。
+
+    语义与 calibre LegacyDB.books_with_same_title 逐位一致：键与查询用同一个
+    calibre.utils.icu.lower 折叠 + 等值比较（icu_lower 不做 NFC/NFD 规范化，
+    SQLite BINARY 比较对同码点序列与 Python str == 等价，全角/半角、组合字符
+    等边界两侧行为相同）。取代 calibre 的"每次调用全库 icu_lower"线性扫描
+    （百万库每次 1-2s，Phase2 最大的既有瓶颈）：构建一次 O(库)，点查 O(log)。
+
+    可丢弃派生数据：journal_mode=OFF + synchronous=OFF 换构建速度，崩溃安全
+    不需要（崩溃即丢，下轮重建）；内存只占 SQLite 页缓存——与已试败的
+    title_map 常驻内存方案（350-700MB/百万书）的本质区别。线程约定：仅
+    Phase2 worker 线程构建/查询/回填，不加锁。运行结束 close() 销毁；
+    weakref.finalize 兜底异常路径的临时文件清理。
+    """
+
+    def __init__(self, db):
+        from calibre import force_unicode
+        from calibre.utils.icu import lower as icu_lower
+
+        self._icu_lower = icu_lower
+        self._force_unicode = force_unicode
+        self._conn = None
+        title_map = db.new_api.get_id_map("title")
+        fd, self._path = tempfile.mkstemp(prefix="scan_title_idx_", suffix=".sqlite")
+        weakref.finalize(self, _title_index_cleanup, self._path)
+        try:
+            conn = sqlite3.connect(self._path)
+            conn.execute("PRAGMA journal_mode=OFF")
+            conn.execute("PRAGMA synchronous=OFF")
+            conn.execute("CREATE TABLE t (title_lc TEXT NOT NULL, book_id INTEGER NOT NULL)")
+            conn.execute("CREATE INDEX ix_title_lc ON t (title_lc)")
+            conn.executemany(
+                "INSERT INTO t VALUES (?, ?)",
+                ((icu_lower(t), bid) for bid, t in title_map.items() if t),
+            )
+            conn.commit()
+            self._conn = conn
+            self.size = len(title_map)
+        except Exception:
+            try:
+                conn.close()
+            except Exception:
+                pass
+            try:
+                os.unlink(self._path)
+            except OSError:
+                pass
+            raise
+
+    def lookup(self, title):
+        """同名候选书 id 集合；语义与 books_with_same_title 相同（空标题 → 空集）。"""
+        key = self._icu_lower(self._force_unicode(title))
+        if not key:
+            return set()
+        rows = self._conn.execute("SELECT book_id FROM t WHERE title_lc = ?", (key,)).fetchall()
+        return {r[0] for r in rows}
+
+    def add(self, title, book_id):
+        """运行内增量回填：import_book 新建书后调用，同批次同名书判重要能命中。"""
+        key = self._icu_lower(self._force_unicode(title))
+        if key and book_id is not None:
+            self._conn.execute("INSERT INTO t VALUES (?, ?)", (key, book_id))
+            self._conn.commit()
+
+    def close(self):
+        try:
+            if self._conn is not None:
+                self._conn.close()
+        finally:
+            self._conn = None
+            try:
+                os.unlink(self._path)
+            except OSError:
+                pass
+
+
+def _title_index_cleanup(path):
+    """weakref.finalize 兜底：索引对象被回收时临时文件必须消失（异常路径未走
+    显式 close 也不留盘）。"""
+    try:
+        os.unlink(path)
+    except OSError:
+        pass
 
 
 class ScanService(AsyncService):
@@ -93,6 +187,12 @@ class ScanService(AsyncService):
     # 全量重走自愈；若照常提交快照，这些路径会被剪枝永久漏掉（union-pending 救不了
     # 没有行的文件）。
     static_phase1_persist_failed = False
+    # 运行级标题判重索引（_TitleDedupIndex）：None=未尝试，False=构建失败不再
+    # 重试（回退 calibre 全库扫描），对象=可用。仅 Phase2 worker 线程读写，
+    # do_import_internal 收尾销毁。
+    static_title_index = None
+    # 本轮待导入书目数（索引构建门限的输入），do_import_internal 每轮重置。
+    static_title_index_total = 0
     static_is_importing = False
     static_import_id = 0
     static_import_files_cnt = 0
@@ -222,6 +322,29 @@ class ScanService(AsyncService):
         except Exception as err:
             logging.warning("[SCAN] Existence check failed for book_id=%s, treat as missing: %s", book_id, err)
             return False
+
+    def _title_dedup_ids(self, mi):
+        """标题判重入口：批量达标时用运行级落盘索引点查（语义与 calibre
+        books_with_same_title 逐位一致——同 icu_lower 折叠 + 等值比较），未达
+        门限/构建失败/查询异常一律回退 calibre 全库扫描（百万库每次调用全量
+        icu_lower，Phase2 最大的既有瓶颈）。索引为可丢弃派生数据，
+        do_import_internal 收尾销毁。"""
+        index = ScanService.static_title_index
+        if index is None and ScanService.static_title_index_total >= TITLE_INDEX_MIN_BOOKS:
+            try:
+                index = _TitleDedupIndex(self.db)
+                ScanService.static_title_index = index
+                logging.info("[IMPORT] Title dedup index built for %d books", index.size)
+            except Exception as err:
+                # False 哨兵：构建失败本轮不再重试（每次重试都是一次全库遍历）
+                ScanService.static_title_index = False
+                logging.warning("[IMPORT] Title dedup index build failed, fallback to calibre scan: %s", err)
+        if index:
+            try:
+                return index.lookup(mi.title)
+            except Exception as err:
+                logging.warning("[IMPORT] Title index lookup failed, fallback to calibre scan: %s", err)
+        return self.db.books_with_same_title(mi)
 
     @staticmethod
     def _begin_scan_batch(session):
@@ -1159,7 +1282,7 @@ class ScanService(AsyncService):
             if force or CONF.get("UPLOAD_IGNORE_TITLE_CHECKING", False):
                 ids = []
             else:
-                ids = self.db.books_with_same_title(mi)
+                ids = self._title_dedup_ids(mi)
                 logging.info("[IMPORT] Same title %d book(s) for: %s", len(ids) if ids else 0, fpath)
             if ids and fmt in SCANNED_DOCUMENT_FORMATS and len(ids) > 1:
                 # 扫描版无可信作者元数据：多个同名候选一律按新书入库，避免误并。
@@ -1211,6 +1334,10 @@ class ScanService(AsyncService):
                     mi.languages = CONF.get("DEFAULT_LANGUAGE", constants.DEFAULT_LANGUAGE_CODE)
                 row.book_id = self.db.import_book(mi, [fpath], notify=False, import_hooks=False)
                 if row.book_id is not None:
+                    idx = ScanService.static_title_index
+                    if idx:
+                        # 运行内增量回填：本批后导入的同名书判重要能命中新书
+                        idx.add(mi.title, row.book_id)
                     if dynamic_cover:
                         if pending_fields is None:
                             self.db.new_api.set_field(CALIBRE_COLUMN_DYNAMIC_COVER, {row.book_id: 1})
@@ -1596,8 +1723,10 @@ class ScanService(AsyncService):
         import_id = int(time.time()) if imported_id == 0 else imported_id
         ScanService.static_import_id = import_id
         ScanService.static_phase1_persist_failed = False
+        ScanService.static_title_index = None
         scan_upload_path = os.path.realpath(CONF.get("scan_upload_path", ""))
         total_count = len(filelist)
+        ScanService.static_title_index_total = total_count
         batch_size = 20
 
         # 有界工作队列：Phase1 攒批提交后一次性入队可达数百 id，上界防止百万级导入
@@ -1758,6 +1887,16 @@ class ScanService(AsyncService):
                 logging.error("[IMPORT] Worker did not exit after cancel; abandoning daemon thread")
         else:
             importing_thread.join()
+
+        # 标题判重索引为可丢弃派生数据：无论成败收尾即销毁（weakref.finalize 兜底
+        # 异常路径——对象被回收时临时文件自动清理）。
+        title_index = ScanService.static_title_index
+        if title_index:
+            try:
+                title_index.close()
+            except Exception as err:
+                logging.warning("[IMPORT] Title index close failed: %s", err)
+        ScanService.static_title_index = None
 
         if put_failure is not None and not ScanService.static_abort_flag:
             # worker 意外死亡（非取消）：保持旧行为——本轮显式失败，而不是被当成功收尾。

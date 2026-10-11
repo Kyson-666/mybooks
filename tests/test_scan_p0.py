@@ -49,6 +49,7 @@ class FakeNewAPI:
         self._db = db
         self.has_id_calls = []
         self.set_field_calls = []
+        self.get_id_map_calls = []
         self.fail_set_field = False
 
     def has_id(self, book_id):
@@ -62,7 +63,10 @@ class FakeNewAPI:
 
     def add_book(self, book_id, title):
         self._db._ids.add(book_id)
-        self._db._titles[book_id] = title
+
+    def get_id_map(self, field):
+        self.get_id_map_calls.append(field)
+        return dict(self._db._titles)
 
 
 class FakeBookMeta:
@@ -538,6 +542,156 @@ class TestPhase2Batching(ScanP0TestBase):
         self.assertEqual(outcomes["dropped_rows"], {None})
         self.assertEqual(outcomes["saved_rows"], {other.id})
         self.assertEqual(self.session.query(ScanFile).filter(ScanFile.hash == "sha256:unique-3").count(), 1)
+
+
+@unittest.skipUnless(HAS_CALIBRE, "needs calibre icu")
+class TestTitleDedupIndex(ScanP0TestBase):
+    """标题判重索引：语义与 calibre books_with_same_title 逐位一致
+    （同 icu_lower 折叠 + 等值），运行内回填可见，close 销毁临时文件。"""
+
+    def _make(self, titles):
+        db = FakeCalibreDB(titles=titles)
+        return scan_service._TitleDedupIndex(db)
+
+    def test_semantics_parity_with_icu_lower(self):
+        index = self._make({
+            1: "A", 2: "a", 4: "Abc",
+            3: "ＡＢＣ",
+            5: "红楼梦", 6: "红楼梦（上下册）",
+            7: "école", 8: "e\u0301cole",
+        })
+        try:
+            probes = {
+                "a": {1, 2},          # icu_lower 折叠后等值（同源语义）
+                "Abc": {4},
+                "abc": {4},
+                "ＡＢＣ": {3},         # icu_lower 不做 NFKC：全角不与半角互撞
+                "红楼梦": {5},         # 带书名号副标题不算同名
+                "ÉCOLE": {7},         # icu_lower 只做大小写映射不做规范化
+                "E\u0301COLE": {8},   # NFC/NFD 不互撞（原路径同行为）
+                "": set(),
+                "不存在": set(),
+            }
+            for probe, expected in probes.items():
+                self.assertEqual(index.lookup(probe), expected, repr(probe))
+        finally:
+            index.close()
+
+    def test_add_visible_to_lookup_and_close_removes_file(self):
+        index = self._make({1: "x"})
+        path = index._path
+        self.assertTrue(os.path.exists(path))
+        index.add("新书", 99)
+        self.assertEqual(index.lookup("新书"), {99})
+        self.assertEqual(index.lookup("X"), {1})
+        index.close()
+        self.assertFalse(os.path.exists(path))
+        self.assertRaises(AttributeError, index.lookup, "x")  # 关闭后连接不可用
+
+
+class TestTitleDedupDispatch(ScanP0TestBase):
+    """判重入口门限分发（索引对象 mock，Windows 直跑）：
+    小批量回退 / 达标只建一次 / 构建失败不重试 / 运行收尾销毁。"""
+
+    def _restore_import_one_file(self):
+        if "_import_one_file" in self.svc.__dict__:
+            del self.svc._import_one_file
+
+    def setUp(self):
+        super().setUp()
+        ScanService.static_title_index = None
+        ScanService.static_title_index_total = 0
+
+    def tearDown(self):
+        ScanService.static_title_index = None
+        ScanService.static_title_index_total = 0
+        super().tearDown()
+
+    def test_small_batch_falls_back_without_building(self):
+        db = FakeCalibreDB(titles={1: "t"})
+        self.svc.db = db
+        ScanService.static_title_index_total = 10
+        self.assertEqual(self.svc._title_dedup_ids(mock.MagicMock(title="t")), {1})
+        self.assertIsNone(ScanService.static_title_index)
+        self.assertEqual(db.same_title_calls, ["t"])  # 走的是 calibre 全库扫描
+
+    def test_large_batch_builds_once_and_uses_index(self):
+        db = FakeCalibreDB()
+        self.svc.db = db
+        ScanService.static_title_index_total = 60
+        mock_index = mock.MagicMock()
+        mock_index.lookup.return_value = {7}
+        with mock.patch.object(scan_service, "_TitleDedupIndex", return_value=mock_index) as mock_cls:
+            self.assertEqual(self.svc._title_dedup_ids(mock.MagicMock(title="x")), {7})
+            self.assertEqual(self.svc._title_dedup_ids(mock.MagicMock(title="y")), {7})
+        mock_cls.assert_called_once()  # 整个运行只构建一次
+        mock_index.lookup.assert_called_with("y")
+        self.assertIs(ScanService.static_title_index, mock_index)
+
+    def test_build_failure_falls_back_without_retry(self):
+        db = FakeCalibreDB(titles={1: "t"})
+        self.svc.db = db
+        ScanService.static_title_index_total = 60
+        with mock.patch.object(scan_service, "_TitleDedupIndex", side_effect=RuntimeError("boom")) as mock_cls:
+            self.assertEqual(self.svc._title_dedup_ids(mock.MagicMock(title="t")), {1})
+            self.assertEqual(self.svc._title_dedup_ids(mock.MagicMock(title="t")), {1})
+        mock_cls.assert_called_once()  # False 哨兵：本轮不再重试构建
+        self.assertIs(ScanService.static_title_index, False)
+
+    def test_do_import_internal_destroys_index_after_run(self):
+        db = FakeCalibreDB()
+        self.svc.db = db
+        files = [self._touch("ti%d.txt" % i, b"ti-%d" % i) for i in range(3)]
+
+        svc = self.svc
+
+        def fake_import_one_file(row, user_id, scan_upload_path, session, force, sole=False, pending_fields=None, staged_ops=None):
+            # 仿真实流程：Phase2 每本书都走一次判重入口（索引在此首次构建）
+            svc._title_dedup_ids(type("MI", (), {"title": row.path})())
+            row.status = ScanFile.IMPORTED
+            staged_ops.append(("save_row", row))
+            return None, ScanFile.IMPORTED
+
+        self.svc._import_one_file = fake_import_one_file
+        self.addCleanup(self._restore_import_one_file)
+        mock_index = mock.MagicMock()
+
+        def fake_dedup(mi):
+            if ScanService.static_title_index is None:
+                ScanService.static_title_index = mock_index
+            return set()
+
+        self.svc._title_dedup_ids = fake_dedup
+        self.addCleanup(self._restore_dedup_ids)
+        ScanService.static_title_index_total = 60
+        self.svc.do_import_internal(files, 9)
+        mock_index.close.assert_called_once()
+        self.assertIsNone(ScanService.static_title_index)
+        self.assertEqual(ScanService.static_title_index_total, 3)  # 每轮按本轮书目数重置
+
+    def _restore_dedup_ids(self):
+        if "_title_dedup_ids" in self.svc.__dict__:
+            del self.svc._title_dedup_ids
+
+
+class TestTitleIndexEndToEnd(ScanP0TestBase):
+    """运行内回填端到端（门限 patch 到 1 强制走索引）：同批同名第二本经索引
+    命中并入已有书，一次都不走 calibre 全库扫描，也不重复建书。"""
+
+    def test_same_title_second_book_merges_via_index(self):
+        db = FakeCalibreDB()
+        self.svc.db = db
+        f1 = self._touch(os.path.join("d1", "同名书.txt"), b"first-content-aaa")
+        f2 = self._touch(os.path.join("d2", "同名书.txt"), b"second-content-bbb")
+        with mock.patch.object(scan_service, "TITLE_INDEX_MIN_BOOKS", 1):
+            self.svc.do_import_internal([f1, f2], 9)
+        self.assertEqual(len(db.import_calls), 1)  # 第二本并入，不重复建书
+        self.assertEqual(len(db.add_format_calls), 1)
+        self.assertEqual(db.same_title_calls, [])  # 两次判重全部走索引，零全库扫描
+        self.assertEqual(db.new_api.get_id_map_calls, ["title"])  # 库映射只取一次
+        statuses = sorted(r.status for r in self.session.query(ScanFile).all())
+        self.assertEqual(statuses, [ScanFile.IMPORTED, ScanFile.IMPORTED])
+        self.assertIsNone(ScanService.static_title_index)  # 收尾销毁
 
 
 class TestPersistFailureGate(ScanP0TestBase):
