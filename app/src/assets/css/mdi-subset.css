@@ -858,6 +858,10 @@
   content: "\F03EB";
 }
 
+.mdi-pencil-box-outline::before {
+  content: "\F03ED";
+}
+
 .mdi-pencil-circle-outline::before {
   content: "\F0776";
 }

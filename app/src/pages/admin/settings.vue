@@ -1,5 +1,5 @@
 <template>
-  <div>
+  <div class="settings-page-root">
     <div class="d-flex justify-end flex-wrap mb-2" style="gap: 8px">
       <v-btn
         class="settings-hint-btn"
@@ -20,22 +20,86 @@
         {{ $t('settings.hint') }}
       </v-btn>
     </div>
-    <v-card class="my-2 elevation-4" v-for="card in cards" :key="card.title">
-      <v-card-title @click="card.show = !card.show">
-        <v-btn @click.once="card.show = !card.show" icon>
-          <v-icon>{{
-            card.show ? "mdi-chevron-down" : "mdi-chevron-right"
-          }}</v-icon>
-        </v-btn>
-        {{ $t(card.title) }}
-      </v-card-title>
-      <v-expand-transition>
-        <!-- v-card-text的padding导致动画收起时卡顿，置为 0，内部用一个div来控制-->
-        <v-card-text v-show="card.show" style="padding: 0">
-          <div style="padding: 0 16px 16px">
-            <p v-if="card.subtitle" class="">{{ $t(card.subtitle) }}</p>
-            <template v-if="card.tips">
-              <p v-for="t in card.tips" :key="t.text">
+
+    <v-sheet elevation="2" class="settings-group-bar">
+      <div class="settings-group-bar-row d-flex align-center">
+        <v-text-field
+          v-model="searchQ"
+          class="settings-search"
+          dense
+          outlined
+          rounded
+          hide-details
+          prepend-inner-icon="mdi-magnify"
+          :placeholder="$t('settings.search_placeholder')"
+        ></v-text-field>
+        <v-chip v-if="dirtyCount > 0" color="orange" text-color="white" small class="settings-status-chip">
+          {{ $t('settings.unsaved_changes', { n: dirtyCount }) }}
+        </v-chip>
+        <v-chip v-else color="green" text-color="white" small class="settings-status-chip">
+          {{ $t('settings.all_saved') }}
+        </v-chip>
+      </div>
+      <div class="settings-group-chips">
+        <v-chip
+          v-for="g in groups"
+          :key="g.id"
+          :color="activeGroup === g.id && !searchQuery ? 'primary' : ''"
+          :text-color="activeGroup === g.id && !searchQuery ? 'white' : ''"
+          @click="selectGroup(g.id)"
+        >
+          <v-icon x-small left>{{ g.icon }}</v-icon>
+          {{ $t(g.title) }}
+          <span class="settings-group-count ml-1">{{ g.count }}</span>
+        </v-chip>
+      </div>
+    </v-sheet>
+
+    <v-card v-if="searchQuery" class="my-2 elevation-4">
+      <v-card-title>{{ $t('settings.search_results', { n: results.length }) }}</v-card-title>
+      <v-card-text style="padding: 0 16px 16px">
+        <p v-if="results.length === 0" class="grey--text">{{ $t('settings.search_no_results') }}</p>
+        <template v-else>
+          <div
+            v-for="r in results"
+            :key="r.key"
+            class="settings-result d-flex align-center py-2"
+            @click="jumpTo(r)"
+          >
+            <v-icon small class="mr-3" :color="r.red ? 'red' : 'grey'">{{ r.icon }}</v-icon>
+            <div class="flex-grow-1">
+              <div>{{ r.label }}</div>
+              <div class="text-caption grey--text">{{ r.path }}</div>
+            </div>
+            <v-icon small color="grey">mdi-chevron-right</v-icon>
+          </div>
+        </template>
+      </v-card-text>
+    </v-card>
+
+    <template v-else>
+      <div v-for="g in currentGroups" :key="g.id">
+        <div class="d-flex align-center flex-wrap mt-4 mb-2">
+          <v-icon large color="primary" class="mr-3">{{ g.icon }}</v-icon>
+          <div class="flex-grow-1">
+            <div class="text-h5 font-weight-medium">{{ $t(g.title) }}</div>
+          </div>
+        </div>
+
+        <v-card
+          v-for="s in g.sections"
+          :key="g.id + '-' + s.id"
+          :id="'sec-' + g.id + '-' + s.id"
+          class="my-2 elevation-4"
+        >
+          <v-card-title>
+            <v-icon small color="primary" class="mr-2">{{ s.icon }}</v-icon>
+            {{ $t(s.title) }}
+          </v-card-title>
+          <v-card-text style="padding: 8px 20px 20px">
+            <p v-if="s.desc">{{ $t(s.desc) }}</p>
+            <template v-if="s.tips">
+              <p v-for="t in s.tips" :key="t.text">
                 {{ $t(t.text) }}
                 <a v-if="t.link" target="_blank" :href="t.link">{{
                   $t("settings.link")
@@ -43,8 +107,9 @@
               </p>
             </template>
 
-            <div class="pl-6" v-if="card.fields && card.fields.length">
-            <template v-for="f in card.fields">
+            <div class="pl-6" v-if="s.fields && s.fields.length">
+            <template v-for="f in s.fields">
+              <div :key="'w-' + f.key" :id="'f-' + f.key">
               <v-checkbox
                 small
                 hide-details
@@ -68,17 +133,32 @@
                 </div>
                 <div v-if="f.tips" class="text-caption grey--text ml-8">{{ $t(f.tips) }}</div>
                 <div class="pl-8">
-                  <v-checkbox
-                    v-for="opt in f.items"
-                    :key="f.key + '-' + opt.value"
-                    v-model="settings[f.key]"
-                    :value="opt.value"
-                    :label="$t(opt.text)"
-                    dense
-                    hide-details
-                    class="mt-0"
-                  ></v-checkbox>
+                  <v-row dense>
+                    <v-col
+                      v-for="opt in f.items"
+                      :key="f.key + '-' + opt.value"
+                      cols="12"
+                      sm="6"
+                    >
+                      <v-checkbox
+                        v-model="settings[f.key]"
+                        :value="opt.value"
+                        :label="$t(opt.text)"
+                        dense
+                        hide-details
+                        class="mt-0"
+                      ></v-checkbox>
+                    </v-col>
+                  </v-row>
                 </div>
+              </div>
+              <div
+                v-else-if="f.type === 'subtitle'"
+                :key="f.key + '-subtitle'"
+                class="d-flex align-center mt-2 mb-1"
+              >
+                <v-icon small class="mr-2" :color="f.color">{{ f.icon }}</v-icon>
+                <span class="text-body-1">{{ $t(f.label) }}</span>
               </div>
               <v-textarea
                 outlined
@@ -213,30 +293,32 @@
                   <v-icon :color="f.color">{{ f.icon }}</v-icon>
                 </template>
               </v-text-field>
+              </div>
             </template>
             </div>
 
-            <template v-for="b in card.buttons">
+            <template v-for="b in (s.actions || [])">
               <v-btn :key="b.label" @click="run(b.action)" color="primary"
                 ><v-icon>{{ b.icon }}</v-icon
                 >{{ $t(b.label) }}</v-btn
               >
             </template>
 
-            <div class="pl-6" v-if="card.groups && card.groups.length">
-            <template v-for="g in card.groups">
+            <div class="pl-6" v-if="s.groups && s.groups.length">
+            <template v-for="grp in s.groups">
               <v-checkbox
-                :key="g.label"
+                :key="grp.key"
                 small
                 hide-details
-                v-model="settings[g.key]"
-                :label="$t(g.label)"
-                :prepend-icon="g.icon"
+                v-model="settings[grp.key]"
+                :label="$t(grp.label)"
+                :prepend-icon="grp.icon"
               >
               </v-checkbox>
-              <template v-if="settings[g.key]">
-                <div class="pl-6" :key="g.label + '-fields'">
-                <template v-for="f in g.fields">
+              <template v-if="settings[grp.key]">
+                <div class="pl-6" :key="grp.key + '-fields'">
+                <template v-for="f in grp.fields">
+                  <div :key="'w-' + f.key" :id="'f-' + f.key">
                   <v-checkbox
                     small
                     hide-details
@@ -275,13 +357,14 @@
                     :label="$t(f.label)"
                     type="text"
                   ></v-text-field>
+                  </div>
                 </template>
                 </div>
               </template>
             </template>
             </div>
 
-            <template v-if="card.show_friends">
+            <template v-if="s.special === 'friends'">
               <div class="pl-6">
               <v-row
                 v-for="(friend, idx) in settings.FRIENDS"
@@ -298,7 +381,7 @@
                     type="text"
                   ></v-text-field>
                 </v-col>
-                <v-col class="pa-0" cols="9">
+                <v-col class="py-0" cols="9">
                   <v-text-field
                     flat
                     small
@@ -324,7 +407,7 @@
               </div>
             </template>
 
-            <template v-if="card.show_reader_dicts">
+            <template v-if="s.special === 'reader_dicts'">
               <reader-dict-editor
                 v-model="settings.READER_MYDICTS"
                 :mybooks-enabled.sync="settings.READER_DICT_MYBOOKS_ENABLED"
@@ -332,7 +415,7 @@
               ></reader-dict-editor>
             </template>
 
-            <template v-if="card.show_devices">
+            <template v-if="s.special === 'devices'">
               <div class="pl-6">
               <template v-for="(device, idx) in settings.DEVICES">
                 <div :key="'device-' + idx" class="device-item mb-3">
@@ -495,7 +578,7 @@
               </div>
             </template>
 
-            <template v-if="card.show_bookbarn">
+            <template v-if="s.special === 'bookbarn'">
               <p>{{ $t("settings.book_barn_description") }}</p>
               <div class="pl-6">
               <v-checkbox
@@ -524,7 +607,7 @@
               </div>
             </template>
 
-            <template v-if="card.show_ai_capabilities">
+            <template v-if="s.special === 'ai_capabilities'">
               <p>{{ $t("settings.ai_capabilities_description") }}</p>
               <div class="pl-6">
               <v-checkbox
@@ -599,7 +682,7 @@
               </div>
             </template>
 
-            <template v-if="card.show_socials">
+            <template v-if="s.special === 'socials'">
               <p>{{ $t("settings.socials_description") }}</p>
               <div class="pl-6">
               <v-combobox
@@ -625,13 +708,13 @@
                   </v-chip>
                 </template>
               </v-combobox>
-              <v-row v-for="s in settings.SOCIALS" :key="'social-' + s.value">
+              <v-row v-for="s2 in settings.SOCIALS" :key="'social-' + s2.value">
                 <v-col class="py-0" cols="12" sm="2">
                   <v-subheader
                     class="px-0 pt-4"
                     :class="$vuetify.breakpoint.smAndUp ? 'float-right' : ''"
                   >
-                    {{ s.text }} (<a @click="showSNSConfig(s)">{{
+                    {{ s2.text }} (<a @click="showSNSConfig(s2)">{{
                       $t("settings.description")
                     }}</a
                     >)
@@ -643,7 +726,7 @@
                     hide-details
                     single-line
                     v-model="
-                      settings['SOCIAL_AUTH_' + s.value.toUpperCase() + '_KEY']
+                      settings['SOCIAL_AUTH_' + s2.value.toUpperCase() + '_KEY']
                     "
                     :label="Key"
                     placeholder="Key/AppID"
@@ -657,7 +740,7 @@
                     single-line
                     v-model="
                       settings[
-                        'SOCIAL_AUTH_' + s.value.toUpperCase() + '_SECRET'
+                        'SOCIAL_AUTH_' + s2.value.toUpperCase() + '_SECRET'
                       ]
                     "
                     :label="Secert"
@@ -669,7 +752,7 @@
               </div>
             </template>
 
-            <template v-if="card.show_trash">
+            <template v-if="s.special === 'trash'">
               <div class="text-center">
                 <p v-html="$t('settings.trash_description')"></p>
                 <div style="font-size: 1.2em; margin-bottom: 8px">
@@ -702,7 +785,8 @@
                 </p>
               </div>
             </template>
-            <template v-if="card.show_perf">
+
+            <template v-if="s.special === 'perf'">
               <div class="pl-6">
                 <v-checkbox
                   small
@@ -743,7 +827,8 @@
                 </div>
               </div>
             </template>
-            <template v-if="card.show_stamp">
+
+            <template v-if="s.special === 'stamp'">
               <div class="pl-6">
               <v-checkbox
                 small
@@ -802,15 +887,16 @@
               </div>
               </div>
             </template>
-            <template v-if="card.show_ssl">
+
+            <template v-if="s.special === 'ssl'">
               <div class="pl-6">
               <ssl-manager />
               </div>
             </template>
-          </div>
-        </v-card-text>
-      </v-expand-transition>
-    </v-card>
+          </v-card-text>
+        </v-card>
+      </div>
+    </template>
 
     <v-card class="my-2 elevation-4" v-if="thanksToNames.length > 0">
       <v-card-title @click="thanksToShow = !thanksToShow">
@@ -863,35 +949,41 @@
       {{ $t("settings.restart_confirm_message") }}
     </AppDialog>
 
-    <br />
-    <div class="text-center">
-      <p>{{ $t("settings.save_hints") }}</p>
-      <v-btn
-        color="primary"
-        @click="saveSettings"
-        class="save-btn"
-        large
-        elevation="4"
-      >
-        {{ $t("settings.save") }}
-      </v-btn>
-      <v-btn
-        color="orange"
-        @click="restartConfirmDialog = true"
-        class="save-btn restart-btn"
-        large
-        elevation="4"
-      >
-        {{ $t("settings.restart_server") }}
-      </v-btn>
-    </div>
-
     <reading-range-dialog
       ref="defaultReadRangeDialog"
       :title="$t('settings.default_read_range_dialog_title')"
       :saving="savingDefaultReadRange"
       @save="saveDefaultReadRange"
     ></reading-range-dialog>
+
+    <div class="settings-savebar">
+      <v-icon small :color="dirtyCount > 0 ? 'orange' : 'green'" class="mr-2">
+        {{ dirtyCount > 0 ? "mdi-pencil-box-outline" : "mdi-check-circle" }}
+      </v-icon>
+      <span
+        class="text-caption"
+        :class="dirtyCount > 0 ? 'orange--text font-weight-bold' : 'grey--text'"
+      >
+        {{
+          dirtyCount > 0
+            ? $t("settings.savebar_unsaved", { n: dirtyCount })
+            : $t("settings.all_saved")
+        }}
+      </span>
+      <span class="text-caption grey--text ml-4 hidden-sm-and-down">{{ $t("settings.save_hints") }}</span>
+      <v-spacer></v-spacer>
+      <v-btn color="orange" dark @click="restartConfirmDialog = true">
+        <v-icon left>mdi-restart</v-icon>{{ $t("settings.restart_server") }}
+      </v-btn>
+      <v-btn
+        color="primary"
+        class="ml-3"
+        :disabled="dirtyCount === 0"
+        @click="saveSettings"
+      >
+        <v-icon left>mdi-content-save</v-icon>{{ $t("settings.save") }}
+      </v-btn>
+    </div>
   </div>
 </template>
 
@@ -909,6 +1001,162 @@ const LITE_GROUPS = [
   "LITE_GROUP_BACKGROUND",
   "LITE_GROUP_RESOURCES",
 ];
+
+// 特殊块（动态列表/子组件）不在 groups.fields 里，搜索索引需在此手动注册
+const SPECIAL_BLOCKS = [
+  { key: "FRIENDS", label: "settings.friend_links", icon: "mdi-link-variant", gid: "site", sid: "site-friends" },
+  { key: "READER_MYDICTS", label: "settings.sec_reader_dict", icon: "mdi-book-alphabet", gid: "reading", sid: "reader-dict", al: ["翻译"] },
+  { key: "READER_DICT_MYBOOKS_ENABLED", label: "settings.reader_dict_mybooks", icon: "mdi-book-alphabet", gid: "reading", sid: "reader-dict" },
+  { key: "READER_DICT_BAIKE_ENABLED", label: "settings.reader_dict_baike", icon: "mdi-book-alphabet", gid: "reading", sid: "reader-dict" },
+  { key: "ENABLE_STAMP_FEATURE", label: "settings.enable_stamp_feature", icon: "mdi-picture-in-picture-bottom-right-outline", gid: "reading", sid: "reader-physical" },
+  { key: "SOCIALS", label: "settings.select_socials", icon: "mdi-at", gid: "users", sid: "users-social", al: ["qq", "微信", "微博", "github", "oauth"] },
+  { key: "DEVICES", label: "settings.device_mgt", icon: "mdi-tablet-cellphone", gid: "push", sid: "push-devices", al: ["kindle", "文石", "掌阅", "汉王", "当当", "koreader", "duokan", "ireader", "boox", "ftp"] },
+  { key: "ENABLE_BOOKBARN", label: "settings.bookbarn_enable", icon: "mdi-key", gid: "services", sid: "svc-bookbarn" },
+  { key: "BOOKBARN_TOKEN", label: "settings.bookbarn_token", icon: "mdi-key", gid: "services", sid: "svc-bookbarn" },
+  { key: "AI_ENABLED", label: "settings.ai_enabled", icon: "mdi-scatter-plot-outline", gid: "services", sid: "svc-ai" },
+  { key: "AI_DEEPSEEK_API_KEY", label: "settings.ai_api_key", icon: "mdi-key", gid: "services", sid: "svc-ai" },
+  { key: "AI_API_URL", label: "settings.ai_api_url", icon: "mdi-link", gid: "services", sid: "svc-ai" },
+  { key: "AI_MODEL", label: "settings.ai_model", icon: "mdi-function", gid: "services", sid: "svc-ai" },
+  { key: "AI_MCP_TOKEN", label: "settings.ai_mcp_token", icon: "mdi-key", gid: "services", sid: "svc-ai" },
+  { key: "AI_ALLOW_SET_CATEGORY", label: "settings.ai_allow_set_category", icon: "mdi-scatter-plot-outline", gid: "services", sid: "svc-ai" },
+  { key: "SSL", label: "settings.ssl_certificate_management", icon: "mdi-lock", gid: "protocols", sid: "proto-net", al: ["证书", "https"] },
+  { key: "PERFORMANCE_MODE", label: "settings.perf_mode_lite", icon: "mdi-speedometer", gid: "ops", sid: "ops-perf", al: ["性能", "速度"] },
+  { key: "LITE_GROUP_LISTING", label: "settings.lite_group_listing", icon: "mdi-speedometer", gid: "ops", sid: "ops-perf" },
+  { key: "LITE_GROUP_RECOMMEND", label: "settings.lite_group_recommend", icon: "mdi-speedometer", gid: "ops", sid: "ops-perf" },
+  { key: "LITE_GROUP_FILES", label: "settings.lite_group_files", icon: "mdi-speedometer", gid: "ops", sid: "ops-perf" },
+  { key: "LITE_GROUP_BACKGROUND", label: "settings.lite_group_background", icon: "mdi-speedometer", gid: "ops", sid: "ops-perf" },
+  { key: "LITE_GROUP_RESOURCES", label: "settings.lite_group_resources", icon: "mdi-speedometer", gid: "ops", sid: "ops-perf" },
+  { key: "THUMB_CACHE", label: "settings.thumb_cache", icon: "mdi-image-multiple-outline", gid: "ops", sid: "ops-perf" },
+  { key: "CACHE_MAX_MB", label: "settings.thumb_cache_size", icon: "mdi-image-multiple-outline", gid: "ops", sid: "ops-perf" },
+  { key: "TRASH", label: "settings.trash_clear_button", icon: "mdi-delete", gid: "ops", sid: "ops-trash", al: ["回收站", "磁盘", "清理"] },
+];
+
+// 用户口语搜索词（中文为主）→ 设置项 key
+const SEARCH_ALIASES = {
+  // 站点标识
+  站名: ["site_title"], 名称: ["site_title", "DEVICES"], 标题: ["site_title", "push_title"],
+  图标: ["site_icon"], favicon: ["site_icon"], logo: ["site_icon"],
+  公告: ["HEADER"], 通知: ["HEADER", "SEND_MAIL_FOR_NEW_BOOKS"],
+  脚注: ["FOOTER"], 页脚: ["FOOTER"],
+  水印: ["FOOTER_WATERMARK"],
+  语言: ["site_language", "DEFAULT_LANGUAGE"], 中文: ["site_language"], english: ["site_language"], 繁体: ["site_language"], 切换: ["site_language"],
+  主页: ["INDEX_PAGE_TYPE", "MAIN_PAGE_RANDOM_COUNT", "MAIN_PAGE_RECENT_COUNT"], 默认页: ["INDEX_PAGE_TYPE"],
+  项目链接: ["HIDE_PROJECT_LINKS"], 隐藏链接: ["HIDE_PROJECT_LINKS"],
+  // 首页与列表
+  随机: ["MAIN_PAGE_RANDOM_COUNT"], 推荐: ["RECOMMEND_ENABLE", "RECOMMEND_USE_CROWD", "ENABLE_BOOK_RECOMMEND_TO_OTHERS", "MAIN_PAGE_RANDOM_COUNT"], 智能: ["RECOMMEND_ENABLE"],
+  协同: ["RECOMMEND_USE_CROWD"],
+  分页: ["DEFAULT_PAGE_SIZE"], 每页: ["DEFAULT_PAGE_SIZE"],
+  侧边栏: ["SIDEBAR_ITEMS"], 侧栏: ["SIDEBAR_ITEMS"], 菜单: ["SIDEBAR_ITEMS"],
+  统计: ["ENABLE_HOMEPAGE_READING_STATS", "ALLOW_USER_DISABLE_STATISTIC"], banner: ["ENABLE_HOMEPAGE_READING_STATS"],
+  在读: ["ENABLE_HOMEPAGE_READING_BOOKS"],
+  书单: ["ENABLE_HOMEPAGE_BOOKLISTS", "BOOK_NAV"],
+  // 分类设置
+  分类: ["BOOK_NAV", "IMPORT_CATEGORY_WITH_FOLDER", "ENABLE_FOLDER_BROWSE", "AI_ALLOW_SET_CATEGORY"], 导航: ["BOOK_NAV"], 标签: ["BOOK_NAV"],
+  // 阅读器与同步
+  阅读器: ["EPUB_VIEWER", "DEVICES"], epub: ["EPUB_VIEWER"], epubjs: ["EPUB_VIEWER"], myreader: ["EPUB_VIEWER", "ENABLE_DATA_SYNC"],
+  同步: ["ENABLE_DATA_SYNC", "ENABLE_WEBDAV_SERVICE", "WEBDAV_SYNC_FOLDER"], 进度: ["ENABLE_DATA_SYNC"],
+  封面: ["USE_DYNAMIC_COVER", "ENABLE_STAMP_FEATURE", "THUMB_CACHE"],
+  作者: ["ENABLE_AUTHOR_INFO"], 简介: ["ENABLE_AUTHOR_INFO"], 头像: ["ENABLE_AUTHOR_INFO"],
+  隐私: ["ALLOW_USER_DISABLE_STATISTIC"], 采集: ["ALLOW_USER_DISABLE_STATISTIC"],
+  笔记: ["ENABLE_SHARED_NOTES"], 划线: ["ENABLE_SHARED_NOTES"], 标注: ["ENABLE_SHARED_NOTES"],
+  // 词典
+  词典: ["READER_MYDICTS", "READER_DICT_MYBOOKS_ENABLED", "READER_DICT_BAIKE_ENABLED"],
+  字典: ["READER_MYDICTS", "READER_DICT_MYBOOKS_ENABLED", "READER_DICT_BAIKE_ENABLED"],
+  翻译: ["READER_MYDICTS", "READER_DICT_MYBOOKS_ENABLED", "READER_DICT_BAIKE_ENABLED"],
+  生词: ["READER_MYDICTS"],
+  百科: ["READER_DICT_BAIKE_ENABLED"], 百度百科: ["READER_DICT_BAIKE_ENABLED"],
+  // 书评与互动
+  评论: ["ENABLE_BOOK_REVIEW", "REVIEW_REQUIRES_APPROVAL", "ENABLE_BOOK_RECOMMEND_TO_OTHERS"], 评分: ["ENABLE_BOOK_REVIEW"], 书评: ["ENABLE_BOOK_REVIEW"], 打分: ["ENABLE_BOOK_REVIEW"],
+  审核: ["REVIEW_REQUIRES_APPROVAL", "ENABLE_AUTO_NEW_USER_APPROVAL"],
+  // 实体书与图章
+  实体书: ["ENABLE_PHYSICAL_BOOKS", "ENABLE_BOOKS_TYPE_CONVERT_DIRECT"], 纸书: ["ENABLE_PHYSICAL_BOOKS"], 纸质书: ["ENABLE_PHYSICAL_BOOKS"],
+  类型转换: ["ENABLE_BOOKS_TYPE_CONVERT_DIRECT"],
+  文件夹: ["ENABLE_FOLDER_BROWSE"], 层级: ["ENABLE_FOLDER_BROWSE"],
+  图章: ["ENABLE_STAMP_FEATURE"], 盖章: ["ENABLE_STAMP_FEATURE"], 印章: ["ENABLE_STAMP_FEATURE"],
+  // 访客权限
+  访客: ["ALLOW_GUEST_READ", "ALLOW_GUEST_DOWNLOAD", "ALLOW_GUEST_UPLOAD", "ALLOW_GUEST_PUSH"],
+  游客: ["ALLOW_GUEST_READ", "ALLOW_GUEST_DOWNLOAD", "ALLOW_GUEST_UPLOAD", "ALLOW_GUEST_PUSH"],
+  匿名: ["ALLOW_GUEST_READ", "ALLOW_GUEST_DOWNLOAD"], 免登录: ["ALLOW_GUEST_READ", "ALLOW_GUEST_DOWNLOAD", "ALLOW_GUEST_UPLOAD", "ALLOW_GUEST_PUSH"],
+  // 注册与邀请
+  邀请: ["INVITE_MODE", "INVITE_CODE"], 私人: ["INVITE_MODE"], 访问码: ["INVITE_MODE", "INVITE_CODE"], 注册码: ["INVITE_CODE", "INVITE_MODE"], 邀请码: ["INVITE_CODE", "INVITE_MODE"], 封闭: ["INVITE_MODE"],
+  提示语: ["INVITE_MESSAGE"], 欢迎语: ["INVITE_MESSAGE"],
+  注册: ["ALLOW_REGISTER", "SIGNUP_MAIL_TITLE", "ENABLE_AUTO_NEW_USER_APPROVAL"], 开放注册: ["ALLOW_REGISTER"],
+  激活: ["SIGNUP_MAIL_TITLE", "SIGNUP_MAIL_CONTENT"],
+  重置: ["RESET_MAIL_TITLE", "RESET_MAIL_CONTENT"], 找回: ["RESET_MAIL_TITLE", "RESET_MAIL_CONTENT"],
+  密码: ["smtp_password", "cookie_secret", "INVITE_CODE", "AI_DEEPSEEK_API_KEY", "BOOKBARN_TOKEN", "RESET_MAIL_TITLE"],
+  审批: ["ENABLE_AUTO_NEW_USER_APPROVAL"], 自动审批: ["ENABLE_AUTO_NEW_USER_APPROVAL"],
+  // 默认权限与配额
+  新用户: ["ALLOW_NEW_USER_MANAGE_BOOK", "ALLOW_NEW_USER_PUSH_BOOK", "ENABLE_AUTO_NEW_USER_APPROVAL", "DEFAULT_READ_RANGE"],
+  权限: ["ALLOW_NEW_USER_MANAGE_BOOK", "ALLOW_NEW_USER_PUSH_BOOK", "ALLOW_READ_RANGE_SETTING"],
+  白名单: ["ALLOW_READ_RANGE_SETTING", "DEFAULT_READ_RANGE"], 黑名单: ["ALLOW_READ_RANGE_SETTING", "DEFAULT_READ_RANGE"],
+  可见: ["ALLOW_READ_RANGE_SETTING", "DEFAULT_READ_RANGE"], 屏蔽: ["ALLOW_READ_RANGE_SETTING", "DEFAULT_READ_RANGE"],
+  范围: ["ALLOW_READ_RANGE_SETTING", "DEFAULT_READ_RANGE"],
+  配额: ["ENABLE_DOWNLOAD_QUOTA", "GLOBAL_DOWNLOAD_QUOTA"], 下载: ["ENABLE_DOWNLOAD_QUOTA", "GLOBAL_DOWNLOAD_QUOTA", "ALLOW_GUEST_DOWNLOAD"], 每日: ["ENABLE_DOWNLOAD_QUOTA", "GLOBAL_DOWNLOAD_QUOTA"],
+  // 社交登录
+  登录: ["SOCIALS", "ALLOW_REGISTER", "INVITE_MODE"], 第三方: ["SOCIALS"], 社交: ["SOCIALS"], oauth: ["SOCIALS"], qq: ["SOCIALS"], 微信: ["SOCIALS"], 微博: ["SOCIALS"], github: ["SOCIALS"],
+  // 上传
+  扫描: ["scan_upload_path", "PDF_TILE_WITH_FILE_NAME"], 批量: ["scan_upload_path", "BATCH_ADD_IN_FORCE"],
+  上传: ["MAX_UPLOAD_SIZE", "CHUNK_UPLOAD_SIZE", "scan_upload_path", "ALLOW_GUEST_UPLOAD", "KEEP_UPLOAD_SOURCE_FILE"],
+  大小: ["MAX_UPLOAD_SIZE", "CACHE_MAX_MB"], 文件大小: ["MAX_UPLOAD_SIZE"],
+  分片: ["CHUNK_UPLOAD_SIZE"], 大文件: ["CHUNK_UPLOAD_SIZE"],
+  元数据: ["auto_fill_meta", "META_SELECTED_SOURCES", "DEFAULT_LANGUAGE"],
+  源文件: ["KEEP_UPLOAD_SOURCE_FILE", "REMOVE_IMPORTED_FILE"], 保留: ["KEEP_UPLOAD_SOURCE_FILE"],
+  // 导入规则
+  pdf: ["PDF_TILE_WITH_FILE_NAME"], 文件名: ["PDF_TILE_WITH_FILE_NAME", "BOOK_NAMES_FORMAT"], 书名: ["PDF_TILE_WITH_FILE_NAME"],
+  txt: ["ENABLE_TXT_TO_TXTZ_PLUGIN"], txtz: ["ENABLE_TXT_TO_TXTZ_PLUGIN"], 转换: ["ENABLE_TXT_TO_TXTZ_PLUGIN", "convert_timeout"],
+  服务端: ["ENABLE_SERVER_FILE_IMPORT"],
+  isbn: ["BATCH_ADD_IN_FORCE"], 强制: ["BATCH_ADD_IN_FORCE"], 无效: ["BATCH_ADD_IN_FORCE"],
+  重复: ["UPLOAD_IGNORE_TITLE_CHECKING"], 同书: ["UPLOAD_IGNORE_TITLE_CHECKING"], 查重: ["UPLOAD_IGNORE_TITLE_CHECKING"],
+  // 自动导入
+  监控: ["IMPORT_BY_INOTIFY", "UPDATE_CATEGORY_WITH_FOLDER_RENAME"], 自动导入: ["IMPORT_BY_INOTIFY"], inotify: ["IMPORT_BY_INOTIFY"], 监视: ["IMPORT_BY_INOTIFY"],
+  重命名: ["UPDATE_CATEGORY_WITH_FOLDER_RENAME"],
+  // 存储布局
+  拼音: ["BOOK_NAMES_FORMAT"], utf8: ["BOOK_NAMES_FORMAT"], 存储: ["BOOK_NAMES_FORMAT", "TRASH"],
+  // 邮件服务
+  smtp: ["smtp_server", "smtp_username", "smtp_password", "smtp_encryption"], 服务器: ["smtp_server"], 账号: ["smtp_username"],
+  授权码: ["smtp_password"], 加密: ["smtp_encryption"], ssl: ["smtp_encryption", "SSL"], tls: ["smtp_encryption"], 端口: ["smtp_server", "smtp_encryption"],
+  邮件: ["smtp_server", "smtp_username", "smtp_password", "smtp_encryption", "push_title", "push_content", "SEND_MAIL_FOR_NEW_BOOKS", "SIGNUP_MAIL_TITLE", "SIGNUP_MAIL_CONTENT", "RESET_MAIL_TITLE", "RESET_MAIL_CONTENT"],
+  邮箱: ["smtp_server", "smtp_username", "smtp_password", "smtp_encryption", "push_title", "SEND_MAIL_FOR_NEW_BOOKS"],
+  推送: ["DEVICES", "push_title", "push_content", "SEND_MAIL_FOR_NEW_BOOKS", "ALLOW_GUEST_PUSH", "ALLOW_NEW_USER_PUSH_BOOK", "smtp_server"],
+  kindle: ["DEVICES", "push_title", "smtp_server"], 正文: ["push_content"],
+  提醒: ["SEND_MAIL_FOR_NEW_BOOKS"], 新书: ["MAIN_PAGE_RECENT_COUNT", "SEND_MAIL_FOR_NEW_BOOKS"],
+  // 推送设备
+  设备: ["DEVICES"], 文石: ["DEVICES"], 掌阅: ["DEVICES"], 汉王: ["DEVICES"], 当当: ["DEVICES"], koreader: ["DEVICES"], duokan: ["DEVICES"], ireader: ["DEVICES"], boox: ["DEVICES"], purelibro: ["DEVICES"], ftp: ["DEVICES"],
+  // 信息源
+  信息: ["auto_fill_meta"], 刮削: ["auto_fill_meta", "META_SELECTED_SOURCES"],
+  豆瓣: ["auto_fill_meta", "META_SELECTED_SOURCES", "douban_baseurl", "douban_apikey", "douban_max_count"], 书源: ["META_SELECTED_SOURCES", "auto_fill_meta"], 来源: ["META_SELECTED_SOURCES"],
+  镜像: ["douban_baseurl"], api: ["AI_API_URL", "AI_DEEPSEEK_API_KEY", "douban_apikey", "douban_baseurl"],
+  密钥: ["douban_apikey", "AI_DEEPSEEK_API_KEY", "cookie_secret", "AI_MCP_TOKEN", "BOOKBARN_TOKEN"],
+  数量: ["douban_max_count", "MAIN_PAGE_RANDOM_COUNT", "MAIN_PAGE_RECENT_COUNT"],
+  // 书栈
+  书栈: ["ENABLE_BOOKBARN", "BOOKBARN_TOKEN"], barn: ["ENABLE_BOOKBARN"], token: ["BOOKBARN_TOKEN", "AI_MCP_TOKEN"], 令牌: ["BOOKBARN_TOKEN", "AI_MCP_TOKEN"],
+  // AI 助手
+  ai: ["AI_ENABLED", "AI_DEEPSEEK_API_KEY", "AI_API_URL", "AI_MODEL", "AI_MCP_TOKEN", "AI_ALLOW_SET_CATEGORY"],
+  人工智能: ["AI_ENABLED"], 助手: ["AI_ENABLED"], deepseek: ["AI_ENABLED", "AI_DEEPSEEK_API_KEY", "AI_MODEL"],
+  模型: ["AI_MODEL"], 接口: ["AI_API_URL"], url: ["AI_API_URL", "douban_baseurl"],
+  mcp: ["AI_MCP_TOKEN"], 自动分类: ["AI_ALLOW_SET_CATEGORY"],
+  // 服务与协议
+  webdav: ["ENABLE_WEBDAV_SERVICE", "WEBDAV_SYNC_FOLDER"], 挂载: ["ENABLE_WEBDAV_SERVICE"], 可写: ["WEBDAV_SYNC_FOLDER"],
+  opds: ["ENABLE_OPDS_SERVICE", "ENABLE_OPDS_AUTH"], 认证: ["ENABLE_OPDS_AUTH"],
+  订阅: ["ENABLE_PODCAST_SERVICE", "ENABLE_OPDS_SERVICE"], 播客: ["ENABLE_PODCAST_SERVICE"], podcast: ["ENABLE_PODCAST_SERVICE"], 听书: ["ENABLE_PODCAST_SERVICE", "ALLOW_GUEST_READ"], 有声: ["ENABLE_AUDIO_CONVERSION_LOG", "ENABLE_AUDIO_SUBTITLE", "ENABLE_PODCAST_SERVICE"],
+  cdn: ["static_host"], 域名: ["static_host"], 加速: ["static_host", "PERFORMANCE_MODE"], 静态: ["static_host"],
+  cookie: ["cookie_secret"], 安全: ["cookie_secret", "INVITE_MODE", "ENABLE_OPDS_AUTH", "SSL", "AI_MCP_TOKEN"],
+  证书: ["SSL", "static_host"], https: ["SSL", "static_host"],
+  // 性能与缓存
+  极速: ["PERFORMANCE_MODE"], 性能: ["PERFORMANCE_MODE", "THUMB_CACHE"], 低配: ["PERFORMANCE_MODE"], 卡: ["PERFORMANCE_MODE", "THUMB_CACHE"], 慢: ["PERFORMANCE_MODE", "THUMB_CACHE"], 速度: ["PERFORMANCE_MODE"],
+  缓存: ["THUMB_CACHE", "CACHE_MAX_MB"], 缩略图: ["THUMB_CACHE"], 容量: ["CACHE_MAX_MB"], mb: ["CACHE_MAX_MB"],
+  内存: ["LITE_GROUP_RESOURCES"], cpu: ["LITE_GROUP_RESOURCES", "PERFORMANCE_MODE"], 资源: ["LITE_GROUP_RESOURCES"],
+  精简: ["LITE_GROUP_RECOMMEND", "LITE_GROUP_FILES", "LITE_GROUP_BACKGROUND"], 后台: ["LITE_GROUP_BACKGROUND"],
+  // 日志与调试
+  日志: ["LOG_LEVEL_DEBUG", "ENABLE_AUDIO_CONVERSION_LOG"], 调试: ["LOG_LEVEL_DEBUG"], debug: ["LOG_LEVEL_DEBUG"], 排错: ["LOG_LEVEL_DEBUG"],
+  字幕: ["ENABLE_AUDIO_SUBTITLE"], srt: ["ENABLE_AUDIO_SUBTITLE"],
+  重启: ["autoreload"], 生效: ["autoreload"], 超时: ["convert_timeout"], 时间: ["convert_timeout"],
+  // 更新与工具箱
+  更新: ["AUTO_CHECKING_NEW_VERSION", "ENABLE_TOOLBOX_STORE"], 版本: ["AUTO_CHECKING_NEW_VERSION"], 升级: ["AUTO_CHECKING_NEW_VERSION"], 检查: ["AUTO_CHECKING_NEW_VERSION"],
+  工具箱: ["ENABLE_TOOLBOX_DEV_MODE", "ENABLE_TOOLBOX_STORE"], 开发者: ["ENABLE_TOOLBOX_DEV_MODE"], 商店: ["ENABLE_TOOLBOX_STORE"], 插件: ["ENABLE_TOOLBOX_STORE", "ENABLE_TXT_TO_TXTZ_PLUGIN"],
+  // 维护与清理
+  回收站: ["TRASH"], 清理: ["TRASH", "REMOVE_IMPORTED_FILE"], 磁盘: ["TRASH"], 空间: ["TRASH", "CACHE_MAX_MB"], 删除: ["TRASH", "REMOVE_IMPORTED_FILE"],
+};
 
 export default {
   components: {
@@ -936,331 +1184,243 @@ export default {
       { text: this.$t("settings.device_type_ftp"), value: "ftp" },
     ];
 
-    this.cards = [
+    // al = 搜索别名，供搜索匹配用
+    this.groups = [
       {
-        show: false,
-        title: "settings.basic_info",
-        fields: [
-          { icon: "mdi-home", key: "site_title", label: "settings.site_title" },
+        id: "site",
+        icon: "mdi-web",
+        title: "settings.group_site",
+        sections: [
           {
-            icon: "mdi-information",
-            key: "site_icon",
-            label: "settings.site_icon",
-            type: "select_image",
-            items: Array.from({ length: 9 }, (_, i) => ({
-              image_file: "favicon_" + i.toString(),
-              value: "favicon_" + i.toString(),
-            })),
-          },
-          {
-            icon: "mdi-copyright",
-            key: "HEADER",
-            label: "settings.site_header",
-            type: "textarea",
-          },
-          {
-            icon: "mdi-copyright",
-            key: "FOOTER",
-            label: "settings.site_footer",
-            type: "textarea",
-          },
-          {
-            icon: "mdi-closed-caption-outline",
-            key: "FOOTER_WATERMARK",
-            label: "settings.footer_watermark",
-          },
-          {
-            icon: "mdi-web",
-            key: "site_language",
-            label: "settings.language_switch",
-            type: "select",
-            items: [
-              { text: this.$t('language.zh'), value: "zh" },
-              { text: this.$t('language.zh_TW'), value: "zh-TW" },
-              { text: this.$t('language.en'), value: "en" },
-            ],
-          },
-          {
+            id: "site-id",
             icon: "mdi-home",
-            key: "INDEX_PAGE_TYPE",
-            label: "settings.index_page_type",
-            type: "select",
-            items: [
-              {
-                text: this.$t("settings.index_page_type_index"),
-                value: "index",
-              },
-              { text: this.$t("settings.index_page_type_all"), value: "all" },
-              {
-                text: this.$t("settings.index_page_type_categories"),
-                value: "categories",
-              },
-            ],
-          },
-          {
-            icon: "mdi-shuffle",
-            key: "MAIN_PAGE_RANDOM_COUNT",
-            label: "settings.main_page_random_count",
-            type: "select",
-            items: [0, 12, 24, 48, 96, 192, 768].map((v) => ({
-              text: String(v),
-              value: v,
-            })),
-          },
-          {
-            icon: "mdi-book-multiple",
-            key: "MAIN_PAGE_RECENT_COUNT",
-            label: "settings.main_page_recent_count",
-            type: "select",
-            items: [12, 24, 48, 96, 192].map((v) => ({
-              text: String(v),
-              value: v,
-            })),
-          },
-          {
-            icon: "mdi-auto-fix",
-            key: "RECOMMEND_ENABLE",
-            label: "settings.recommend_enable",
-            type: "checkbox",
-          },
-          {
-            icon: "mdi-account-group-outline",
-            key: "RECOMMEND_USE_CROWD",
-            label: "settings.recommend_use_crowd",
-            type: "checkbox",
-          },
-          {
-            icon: "mdi-book-multiple",
-            key: "DEFAULT_PAGE_SIZE",
-            label: "settings.default_page_size",
-            type: "select",
-            items: [60, 100, 200, 500, 1000].map((v) => ({
-              text: String(v),
-              value: v,
-            })),
-          },
-          {
-            icon: "mdi-star-off-outline",
-            key: "HIDE_PROJECT_LINKS",
-            label: "settings.hide_project_link_in_footer",
-            type: "checkbox",
-          },
-          {
-            icon: "mdi-page-layout-sidebar-left",
-            key: "SIDEBAR_ITEMS",
-            label: "settings.sidebar_items",
-            type: "checkbox_list",
-            tips: "settings.sidebar_items_tips",
-            items: [
-              { value: "audiobooks", text: "appHeader.audioBooks" },
-              { value: "printbooks", text: "appHeader.physicalBooks" },
-              { value: "publishers", text: "appHeader.publishers" },
-              { value: "folders", text: "appHeader.folders" },
-              { value: "categories", text: "nav.categories" },
-              { value: "tags", text: "appHeader.tags" },
-              { value: "series", text: "appHeader.series" },
-              { value: "languages", text: "appHeader.languages" },
-              { value: "rating", text: "appHeader.rating" },
-              { value: "memo", text: "appHeader.memo" },
-            ],
-          },
-        ],
-        groups: [
-          {
-            key: "INVITE_MODE",
-            icon: "mdi-security",
-            label: "settings.private_library_mode",
+            title: "settings.sec_site_id",
             fields: [
+              { icon: "mdi-home", key: "site_title", label: "settings.site_title" },
               {
-                icon: "mdi-lock",
-                key: "INVITE_CODE",
-                label: "settings.access_code",
+                icon: "mdi-information",
+                key: "site_icon",
+                label: "settings.site_icon",
+                type: "select_image",
+                items: Array.from({ length: 9 }, (_, i) => ({
+                  image_file: "favicon_" + i.toString(),
+                  value: "favicon_" + i.toString(),
+                })),
+              },
+              { icon: "mdi-copyright", key: "HEADER", label: "settings.site_header", type: "textarea" },
+              { icon: "mdi-copyright", key: "FOOTER", label: "settings.site_footer", type: "textarea" },
+              { icon: "mdi-closed-caption-outline", key: "FOOTER_WATERMARK", label: "settings.footer_watermark" },
+              {
+                icon: "mdi-web",
+                key: "site_language",
+                label: "settings.language_switch",
+                type: "select",
+                al: ["中文", "english", "繁體"],
+                items: [
+                  { text: this.$t('language.zh'), value: "zh" },
+                  { text: this.$t('language.zh_TW'), value: "zh-TW" },
+                  { text: this.$t('language.en'), value: "en" },
+                ],
               },
               {
-                icon: "mdi-account",
-                key: "INVITE_MESSAGE",
-                type: "textarea",
-                label: "settings.invite_message",
+                icon: "mdi-home",
+                key: "INDEX_PAGE_TYPE",
+                label: "settings.index_page_type",
+                type: "select",
+                items: [
+                  {
+                    text: this.$t("settings.index_page_type_index"),
+                    value: "index",
+                  },
+                  { text: this.$t("settings.index_page_type_all"), value: "all" },
+                  {
+                    text: this.$t("settings.index_page_type_categories"),
+                    value: "categories",
+                  },
+                ],
               },
-            ],
-          },
-        ],
-      },
-      {
-        show: false,
-        title: "settings.reader",
-        fields: [
-          {
-            icon: "mdi-book-open",
-            key: "EPUB_VIEWER",
-            label: "settings.epub_viewer",
-            type: "select",
-            items: [
-              { text: this.$t("settings.epubjs"), value: "epubjs.html", icon: "mdi-alpha-e-circle-outline" },
-              { text: this.$t("settings.myreader"), value: "MyReader", icon: "mdi-water-outline" }
-            ],
-          },
-          {
-            icon: "mdi-sync",
-            key: "ENABLE_DATA_SYNC",
-            label: "settings.enable_data_sync",
-            type: "checkbox",
-          },
-          {
-            icon: "mdi-image-sync-outline",
-            key: "USE_DYNAMIC_COVER",
-            label: "settings.use_dynamic_cover",
-            type: "checkbox",
-          },
-          {
-            icon: "mdi-face-man-outline",
-            key: "ENABLE_AUTHOR_INFO",
-            label: "settings.enable_author_info",
-            type: "checkbox"
-          },
-          {
-            icon: "mdi-chart-line",
-            key: "ALLOW_USER_DISABLE_STATISTIC",
-            label: "settings.allow_user_disable_statistic",
-            type: "checkbox",
-          },
-          {
-            icon: "mdi-view-dashboard-outline",
-            key: "ENABLE_HOMEPAGE_READING_STATS",
-            label: "settings.enable_homepage_reading_stats",
-            type: "checkbox",
-          },
-          {
-            icon: "mdi-book-open-page-variant-outline",
-            key: "ENABLE_HOMEPAGE_READING_BOOKS",
-            label: "settings.enable_homepage_reading_books",
-            type: "checkbox",
-          },
-          {
-            icon: "mdi-format-list-bulleted-square",
-            key: "ENABLE_HOMEPAGE_BOOKLISTS",
-            label: "settings.enable_homepage_booklists",
-            type: "checkbox",
-          },
-          {
-            icon: "mdi-star-outline",
-            key: "ENABLE_BOOK_REVIEW",
-            label: "settings.enable_book_review",
-            type: "checkbox",
-          },
-          {
-            icon: "mdi-shield-check-outline",
-            key: "REVIEW_REQUIRES_APPROVAL",
-            label: "settings.review_requires_approval",
-            type: "checkbox",
-          },
-          {
-            icon: "mdi-thumb-up-outline",
-            key: "ENABLE_BOOK_RECOMMEND_TO_OTHERS",
-            label: "settings.enable_book_recommend_to_others",
-            type: "checkbox",
-          },
-          {
-            icon: "mdi-note-multiple-outline",
-            key: "ENABLE_SHARED_NOTES",
-            label: "settings.enable_shared_notes",
-            type: "checkbox",
-          },
-        ],
-        groups: [
-          {
-            icon: "mdi-bookshelf",
-            key: "ENABLE_PHYSICAL_BOOKS",
-            label: "settings.enable_physical_books",
-            type: "checkbox",
-            fields:[
               {
-                icon: "mdi-swap-horizontal",
-                key: "ENABLE_BOOKS_TYPE_CONVERT_DIRECT",
-                label: "settings.enable_book_type_convert_directly",
+                icon: "mdi-star-off-outline",
+                key: "HIDE_PROJECT_LINKS",
+                label: "settings.hide_project_link_in_footer",
                 type: "checkbox",
-              }
-            ]
-          },
-          {
-            icon: "mdi-folder-multiple-outline",
-            key: "ENABLE_FOLDER_BROWSE",
-            label: "settings.enable_folder_browse",
-            type: "checkbox",
-          },
-        ],
-        show_reader_dicts: true,
-      },
-      {
-        show: false,
-        title: "settings.user_settings",
-        fields: [
-          {
-            icon: "mdi-read",
-            key: "ALLOW_GUEST_READ",
-            label: "settings.allow_guest_read",
-            type: "checkbox",
-          },
-          {
-            icon: "mdi-download",
-            key: "ALLOW_GUEST_DOWNLOAD",
-            label: "settings.allow_guest_download",
-            type: "checkbox",
-          },
-          {
-            icon: "mdi-upload",
-            key: "ALLOW_GUEST_UPLOAD",
-            label: "settings.allow_guest_upload",
-            type: "checkbox",
-          },
-          {
-            icon: "mdi-send",
-            key: "ALLOW_GUEST_PUSH",
-            label: "settings.allow_guest_push",
-            type: "checkbox",
-          },
-          {
-            icon: "mdi-book-multiple",
-            key: "ALLOW_NEW_USER_MANAGE_BOOK",
-            label: "settings.allow_new_user_manage_book",
-            type: "checkbox",
-          },
-          {
-            icon: "mdi-tablet-cellphone",
-            key: "ALLOW_NEW_USER_PUSH_BOOK",
-            label: "settings.allow_new_user_push_book",
-            type: "checkbox",
-          },
-        ],
-        groups: [
-          {
-            icon: "mdi-book-lock-outline",
-            key: "ALLOW_READ_RANGE_SETTING",
-            label: "settings.allow_read_range_setting",
-            fields: [
-              {
-                key: "DEFAULT_READ_RANGE",
-                type: "reading_range",
-                label: "settings.default_read_range",
               },
             ],
           },
           {
-            icon: "mdi-at",
-            key: "ALLOW_REGISTER",
-            label: "settings.allow_guest_register",
+            id: "site-home",
+            icon: "mdi-view-dashboard-outline",
+            title: "settings.sec_site_home",
             fields: [
               {
-                icon: "mdi-format-title",
-                key: "SIGNUP_MAIL_TITLE",
-                label: "settings.signup_mail_title",
+                icon: "mdi-shuffle",
+                key: "MAIN_PAGE_RANDOM_COUNT",
+                label: "settings.main_page_random_count",
+                type: "select",
+                items: [0, 12, 24, 48, 96, 192, 768].map((v) => ({
+                  text: String(v),
+                  value: v,
+                })),
               },
               {
-                icon: "mdi-subtitles-outline",
-                key: "SIGNUP_MAIL_CONTENT",
-                label: "settings.signup_mail_content",
-                type: "textarea",
+                icon: "mdi-book-multiple",
+                key: "MAIN_PAGE_RECENT_COUNT",
+                label: "settings.main_page_recent_count",
+                type: "select",
+                items: [12, 24, 48, 96, 192].map((v) => ({
+                  text: String(v),
+                  value: v,
+                })),
               },
+              { icon: "mdi-auto-fix", key: "RECOMMEND_ENABLE", label: "settings.recommend_enable", type: "checkbox" },
+              { icon: "mdi-account-group-outline", key: "RECOMMEND_USE_CROWD", label: "settings.recommend_use_crowd", type: "checkbox" },
+              {
+                icon: "mdi-book-multiple",
+                key: "DEFAULT_PAGE_SIZE",
+                label: "settings.default_page_size",
+                type: "select",
+                items: [60, 100, 200, 500, 1000].map((v) => ({
+                  text: String(v),
+                  value: v,
+                })),
+              },
+              {
+                icon: "mdi-page-layout-sidebar-left",
+                key: "SIDEBAR_ITEMS",
+                label: "settings.sidebar_items",
+                type: "checkbox_list",
+                tips: "settings.sidebar_items_tips",
+                items: [
+                  { value: "audiobooks", text: "appHeader.audioBooks" },
+                  { value: "printbooks", text: "appHeader.physicalBooks" },
+                  { value: "publishers", text: "appHeader.publishers" },
+                  { value: "folders", text: "appHeader.folders" },
+                  { value: "categories", text: "nav.categories" },
+                  { value: "tags", text: "appHeader.tags" },
+                  { value: "series", text: "appHeader.series" },
+                  { value: "languages", text: "appHeader.languages" },
+                  { value: "rating", text: "appHeader.rating" },
+                  { value: "memo", text: "appHeader.memo" },
+                ],
+              },
+              { icon: "mdi-eye-outline", key: "homepage-display-heading", label: "settings.homepage_display", type: "subtitle" },
+              { icon: "mdi-chart-line", key: "ENABLE_HOMEPAGE_READING_STATS", label: "settings.enable_homepage_reading_stats", type: "checkbox" },
+              { icon: "mdi-book-open-page-variant-outline", key: "ENABLE_HOMEPAGE_READING_BOOKS", label: "settings.enable_homepage_reading_books", type: "checkbox" },
+              { icon: "mdi-format-list-bulleted-square", key: "ENABLE_HOMEPAGE_BOOKLISTS", label: "settings.enable_homepage_booklists", type: "checkbox" },
+              { icon: "mdi-thumb-up-outline", key: "ENABLE_BOOK_RECOMMEND_TO_OTHERS", label: "settings.enable_book_recommend_to_others", type: "checkbox" },
+            ],
+          },
+          {
+            id: "site-cats",
+            icon: "mdi-tag-outline",
+            title: "settings.book_tags",
+            desc: "settings.book_tags_description",
+            fields: [
+              { icon: "mdi-tag-outline", key: "BOOK_NAV", type: "book_nav", label: "settings.book_nav", al: ["书单", "分类", "导航"] },
+            ],
+          },
+          {
+            id: "site-friends",
+            icon: "mdi-link-variant",
+            title: "settings.friend_links",
+            special: "friends",
+          },
+        ],
+      },
+      {
+        id: "reading",
+        icon: "mdi-book-open-page-variant",
+        title: "settings.group_reading",
+        sections: [
+          {
+            id: "reader-core",
+            icon: "mdi-book-open",
+            title: "settings.sec_reader_core",
+            fields: [
+              {
+                icon: "mdi-book-open",
+                key: "EPUB_VIEWER",
+                label: "settings.epub_viewer",
+                type: "select",
+                items: [
+                  { text: this.$t("settings.epubjs"), value: "epubjs.html", icon: "mdi-alpha-e-circle-outline" },
+                  { text: this.$t("settings.myreader"), value: "MyReader", icon: "mdi-water-outline" }
+                ],
+              },
+              { icon: "mdi-sync", key: "ENABLE_DATA_SYNC", label: "settings.enable_data_sync", type: "checkbox" },
+              { icon: "mdi-image-sync-outline", key: "USE_DYNAMIC_COVER", label: "settings.use_dynamic_cover", type: "checkbox" },
+              { icon: "mdi-face-man-outline", key: "ENABLE_AUTHOR_INFO", label: "settings.enable_author_info", type: "checkbox" },
+              { icon: "mdi-chart-line", key: "ALLOW_USER_DISABLE_STATISTIC", label: "settings.allow_user_disable_statistic", type: "checkbox" },
+              { icon: "mdi-note-multiple-outline", key: "ENABLE_SHARED_NOTES", label: "settings.enable_shared_notes", type: "checkbox" },
+            ],
+          },
+          {
+            id: "reader-dict",
+            icon: "mdi-book-alphabet",
+            title: "settings.sec_reader_dict",
+            special: "reader_dicts",
+          },
+          {
+            id: "reader-review",
+            icon: "mdi-forum-outline",
+            title: "settings.sec_reader_review",
+            fields: [
+              { icon: "mdi-star-outline", key: "ENABLE_BOOK_REVIEW", label: "settings.enable_book_review", type: "checkbox" },
+              { icon: "mdi-shield-check-outline", key: "REVIEW_REQUIRES_APPROVAL", label: "settings.review_requires_approval", type: "checkbox" },
+            ],
+          },
+          {
+            id: "reader-physical",
+            icon: "mdi-bookshelf",
+            title: "settings.sec_reader_physical",
+            groups: [
+              {
+                icon: "mdi-bookshelf",
+                key: "ENABLE_PHYSICAL_BOOKS",
+                label: "settings.enable_physical_books",
+                type: "checkbox",
+                fields: [
+                  {
+                    icon: "mdi-swap-horizontal",
+                    key: "ENABLE_BOOKS_TYPE_CONVERT_DIRECT",
+                    label: "settings.enable_book_type_convert_directly",
+                    type: "checkbox",
+                  }
+                ]
+              },
+              {
+                icon: "mdi-folder-multiple-outline",
+                key: "ENABLE_FOLDER_BROWSE",
+                label: "settings.enable_folder_browse",
+                type: "checkbox",
+              },
+            ],
+            special: "stamp",
+          },
+        ],
+      },
+      {
+        id: "users",
+        icon: "mdi-account-group-outline",
+        title: "settings.group_users",
+        sections: [
+          {
+            id: "users-guest",
+            icon: "mdi-account",
+            title: "settings.sec_users_guest",
+            fields: [
+              { icon: "mdi-read", key: "ALLOW_GUEST_READ", label: "settings.allow_guest_read", type: "checkbox" },
+              { icon: "mdi-download", key: "ALLOW_GUEST_DOWNLOAD", label: "settings.allow_guest_download", type: "checkbox" },
+              { icon: "mdi-upload", key: "ALLOW_GUEST_UPLOAD", label: "settings.allow_guest_upload", type: "checkbox" },
+              { icon: "mdi-send", key: "ALLOW_GUEST_PUSH", label: "settings.allow_guest_push", type: "checkbox" },
+            ],
+          },
+          {
+            id: "users-reg",
+            icon: "mdi-at",
+            title: "settings.sec_users_reg",
+            fields: [
+              { icon: "mdi-subtitles-outline", key: "reset-mail-heading", label: "settings.sec_reset_mail", type: "subtitle" },
               {
                 icon: "mdi-format-title",
                 key: "RESET_MAIL_TITLE",
@@ -1272,395 +1432,520 @@ export default {
                 label: "settings.reset_mail_content",
                 type: "textarea",
               },
+            ],
+            groups: [
               {
-                icon: "mdi-account-check-outline",
-                key: "ENABLE_AUTO_NEW_USER_APPROVAL",
-                label: "settings.enable_auto_new_user_approval",
-                type: "checkbox",
-              }
+                icon: "mdi-security",
+                key: "INVITE_MODE",
+                label: "settings.private_library_mode",
+                al: ["访问码", "私人"],
+                fields: [
+                  {
+                    icon: "mdi-lock",
+                    key: "INVITE_CODE",
+                    label: "settings.access_code",
+                  },
+                  {
+                    icon: "mdi-account",
+                    key: "INVITE_MESSAGE",
+                    type: "textarea",
+                    label: "settings.invite_message",
+                  },
+                ],
+              },
+              {
+                icon: "mdi-at",
+                key: "ALLOW_REGISTER",
+                label: "settings.allow_guest_register",
+                al: ["注册"],
+                fields: [
+                  {
+                    icon: "mdi-format-title",
+                    key: "SIGNUP_MAIL_TITLE",
+                    label: "settings.signup_mail_title",
+                  },
+                  {
+                    icon: "mdi-subtitles-outline",
+                    key: "SIGNUP_MAIL_CONTENT",
+                    label: "settings.signup_mail_content",
+                    type: "textarea",
+                  },
+                  {
+                    icon: "mdi-account-check-outline",
+                    key: "ENABLE_AUTO_NEW_USER_APPROVAL",
+                    label: "settings.enable_auto_new_user_approval",
+                    type: "checkbox",
+                  }
+                ],
+              },
             ],
           },
           {
-            key: "ENABLE_DOWNLOAD_QUOTA",
+            id: "users-default",
             icon: "mdi-download-lock-outline",
-            label: "settings.enable_download_quota",
+            title: "settings.sec_users_default",
             fields: [
+              { icon: "mdi-book-multiple", key: "ALLOW_NEW_USER_MANAGE_BOOK", label: "settings.allow_new_user_manage_book", type: "checkbox" },
+              { icon: "mdi-tablet-cellphone", key: "ALLOW_NEW_USER_PUSH_BOOK", label: "settings.allow_new_user_push_book", type: "checkbox" },
+            ],
+            groups: [
               {
-                icon: "mdi-counter",
-                key: "GLOBAL_DOWNLOAD_QUOTA",
-                label: "settings.global_download_quota",
-                type: "number"
-              }
+                icon: "mdi-book-lock-outline",
+                key: "ALLOW_READ_RANGE_SETTING",
+                label: "settings.allow_read_range_setting",
+                al: ["白名单", "黑名单"],
+                fields: [
+                  {
+                    key: "DEFAULT_READ_RANGE",
+                    type: "reading_range",
+                    label: "settings.default_read_range",
+                  },
+                ],
+              },
+              {
+                key: "ENABLE_DOWNLOAD_QUOTA",
+                icon: "mdi-download-lock-outline",
+                label: "settings.enable_download_quota",
+                al: ["配额", "下载"],
+                fields: [
+                  {
+                    icon: "mdi-counter",
+                    key: "GLOBAL_DOWNLOAD_QUOTA",
+                    label: "settings.global_download_quota",
+                    type: "number",
+                  }
+                ],
+              },
             ],
           },
-        ],
-      },
-      {
-        show: false,
-        title: "settings.book_barn_service",
-        fields: [],
-        buttons: [],
-        hours: Array.from({ length: 24 }, (_, i) => ({
-          text: i.toString(),
-          value: i.toString(),
-        })),
-        show_bookbarn: true,
-      },
-      {
-        show: false,
-        title: "settings.ai_capability",
-        fields: [],
-        buttons: [],
-        show_ai_capabilities: true,
-      },
-      {
-        show: false,
-        title: "settings.social_network_login",
-        fields: [],
-        show_socials: true,
-      },
-      {
-        show: false,
-        title: "settings.email_service",
-        subtitle: "settings.email_service_description",
-        fields: [
-          { icon: "mdi-email", key: "smtp_server", label: "settings.smtp_server" },
           {
-            icon: "mdi-account",
-            key: "smtp_username",
-            label: "settings.smtp_username",
-          },
-          {
-            icon: "mdi-lock",
-            key: "smtp_password",
-            label: "settings.smtp_password",
-          },
-          {
-            icon: "mdi-information",
-            key: "smtp_encryption",
-            label: "settings.smtp_encryption",
-            type: "select",
-            items: [
-              { text: "SSL", value: "SSL" },
-              { text: "TLS", value: "TLS" },
-            ],
-          },
-        ],
-        buttons: [
-          { icon: "mdi-email", label: "settings.test_email", action: "testEmail" },
-        ],
-      },
-      {
-        show: false,
-        title: "settings.book_tags",
-        subtitle: "settings.book_tags_description",
-        fields: [
-          {
-            icon: "mdi-tag-outline",
-            key: "BOOK_NAV",
-            type: "book_nav",
-            label: "settings.book_nav",
+            id: "users-social",
+            icon: "mdi-at",
+            title: "settings.social_network_login",
+            desc: "settings.socials_description",
+            special: "socials",
           },
         ],
       },
       {
-        show: false,
-        title: "settings.friend_links",
-        fields: [],
-        show_friends: true,
-      },
-
-      {
-        show: false,
-        title: "settings.device_mgt",
-        subtitle: "settings.device_mgt_description",
-        fields: [],
-        show_devices: true,
-      },
-
-      {
-        show: false,
-        title: "settings.internet_book_sources",
-        fields: [
+        id: "import",
+        icon: "mdi-import",
+        title: "settings.group_import",
+        sections: [
           {
-            icon: "mdi-web-sync",
-            key: "auto_fill_meta",
-            label: "settings.auto_fill_meta",
-            type: "checkbox",
-          },
-          {
-            icon: "mdi-timer-sand",
-            key: "auto_fill_qpm",
-            label: "settings.auto_fill_qpm",
-          },
-          {
-            icon: "mdi-source-branch",
-            key: "META_SELECTED_SOURCES",
-            label: "settings.meta_selected_source",
-            type: "meta_sources",
-          },
-          {
-            icon: "mdi-information",
-            key: "douban_baseurl",
-            label: "settings.douban_baseurl",
-          },
-          {
-            icon: "mdi-information",
-            key: "douban_apikey",
-            label: "settings.douban_api_key",
-          },
-          {
-            icon: "mdi-information",
-            key: "douban_max_count",
-            label: "settings.douban_max_count",
-          },
-          {
-            icon: "mdi-speedometer",
-            key: "douban_v2_max_per_hour",
-            label: "settings.douban_v2_max_per_hour",
-          }
-        ],
-        tips: [
-          {
-            text: "settings.douban_plugin_description",
-          },
-        ],
-      },
-
-      {
-        show: false,
-        title: "settings.import_and_upload",
-        fields: [
-          {
-            icon: "mdi-import",
-            key: "scan_upload_path",
-            label: "settings.scan_upload_path",
-          },
-          {
-            icon: "mdi-information",
-            color: "red",
-            key: "MAX_UPLOAD_SIZE",
-            label: "settings.max_upload_size",
-          },
-          {
-            icon: "mdi-information",
-            key: "CHUNK_UPLOAD_SIZE",
-            label: "settings.chunk_upload_size",
-          },
-          {
-            icon: "mdi-translate",
-            key: "DEFAULT_LANGUAGE",
-            label: "settings.default_language",
-            type: "select",
-            items: languageOptions.map((lang) => ({
-              text: lang.name,
-              value: lang.code,
-            })),
-          },
-          {
-            icon: "mdi-file-pdf-box",
-            key: "PDF_TILE_WITH_FILE_NAME",
-            label: "settings.pdf_tile_with_file_name",
-            type: "checkbox",
-          },
-          {
-            icon: "mdi-format-text",
-            color: "red",
-            key: "ENABLE_TXT_TO_TXTZ_PLUGIN",
-            label: "settings.enable_txt_to_txtz_plugin",
-            type: "checkbox",
-          },
-          {
-            icon: "mdi-delete-circle-outline",
-            key: "REMOVE_IMPORTED_FILE",
-            label: "settings.remove_imported_file",
-            type: "checkbox",
-          },
-          {
-            icon: "mdi-server",
-            key: "ENABLE_SERVER_FILE_IMPORT",
-            label: "settings.enable_server_file_import",
-            type: "checkbox",
-          },
-          {
-            icon: "mdi-file-lock-outline",
-            key: "KEEP_UPLOAD_SOURCE_FILE",
-            label: "settings.keep_upload_source_file",
-            type: "checkbox",
-          },
-          {
-            icon: "mdi-email-send",
-            key: "SEND_MAIL_FOR_NEW_BOOKS",
-            label: "settings.send_mail_for_new_books",
-            type: "checkbox",
-          },
-          {
-            icon: "mdi-checkbox-marked-circle-plus-outline",
-            key: "BATCH_ADD_IN_FORCE",
-            label: "settings.batch_add_in_force",
-            type: "checkbox",
-          },
-          {
-            icon: "mdi-shape-plus",
-            key: "IMPORT_CATEGORY_WITH_FOLDER",
-            label: "settings.category_with_folder",
-            type: "checkbox",
-          },
-          {
-            icon: "mdi-pause-octagon",
-            key: "auto_fill_pause_on_throttle",
-            label: "settings.auto_fill_pause_on_throttle",
-            type: "checkbox",
-          },
-          {
-            icon: "mdi-file-document-outline",
-            key: "UPLOAD_IGNORE_TITLE_CHECKING",
-            label: "settings.upload_ignore_title_checking",
-            type: "checkbox",
-          },
-        ],
-        groups: [
-          {
-            icon: "mdi-crosshairs-gps",
-            key: "IMPORT_BY_INOTIFY",
-            label: "settings.auto_importing",
+            id: "imp-upload",
+            icon: "mdi-upload",
+            title: "settings.sec_imp_upload",
             fields: [
+              { icon: "mdi-import", key: "scan_upload_path", label: "settings.scan_upload_path" },
               {
-                icon: "mdi-swap-horizontal",
-                key: "UPDATE_CATEGORY_WITH_FOLDER_RENAME",
-                label: "settings.update_category_with_folder_rename",
+                icon: "mdi-information",
+                color: "red",
+                key: "MAX_UPLOAD_SIZE",
+                label: "settings.max_upload_size",
+                al: ["上传"],
+              },
+              {
+                icon: "mdi-information",
+                key: "CHUNK_UPLOAD_SIZE",
+                label: "settings.chunk_upload_size",
+              },
+              {
+                icon: "mdi-translate",
+                key: "DEFAULT_LANGUAGE",
+                label: "settings.default_language",
+                type: "select",
+                items: languageOptions.map((lang) => ({
+                  text: lang.name,
+                  value: lang.code,
+                })),
+              },
+              {
+                icon: "mdi-file-lock-outline",
+                key: "KEEP_UPLOAD_SOURCE_FILE",
+                label: "settings.keep_upload_source_file",
                 type: "checkbox",
+              },
+              {
+                icon: "mdi-delete-circle-outline",
+                key: "REMOVE_IMPORTED_FILE",
+                label: "settings.remove_imported_file",
+                type: "checkbox",
+              },
+            ],
+          },
+          {
+            id: "imp-rules",
+            icon: "mdi-import",
+            title: "settings.sec_imp_rules",
+            fields: [
+              {
+                icon: "mdi-file-pdf-box",
+                key: "PDF_TILE_WITH_FILE_NAME",
+                label: "settings.pdf_tile_with_file_name",
+                type: "checkbox",
+              },
+              {
+                icon: "mdi-format-text",
+                color: "red",
+                key: "ENABLE_TXT_TO_TXTZ_PLUGIN",
+                label: "settings.enable_txt_to_txtz_plugin",
+                type: "checkbox",
+              },
+              {
+                icon: "mdi-server",
+                key: "ENABLE_SERVER_FILE_IMPORT",
+                label: "settings.enable_server_file_import",
+                type: "checkbox",
+              },
+              {
+                icon: "mdi-checkbox-marked-circle-plus-outline",
+                key: "BATCH_ADD_IN_FORCE",
+                label: "settings.batch_add_in_force",
+                type: "checkbox",
+              },
+              {
+                icon: "mdi-shape-plus",
+                key: "IMPORT_CATEGORY_WITH_FOLDER",
+                label: "settings.category_with_folder",
+                type: "checkbox",
+              },
+              {
+                icon: "mdi-file-document-outline",
+                key: "UPLOAD_IGNORE_TITLE_CHECKING",
+                label: "settings.upload_ignore_title_checking",
+                type: "checkbox",
+              },
+            ],
+          },
+          {
+            id: "imp-auto",
+            icon: "mdi-crosshairs-gps",
+            title: "settings.sec_imp_auto",
+            groups: [
+              {
+                icon: "mdi-crosshairs-gps",
+                key: "IMPORT_BY_INOTIFY",
+                label: "settings.auto_importing",
+                al: ["监控"],
+                fields: [
+                  {
+                    icon: "mdi-swap-horizontal",
+                    key: "UPDATE_CATEGORY_WITH_FOLDER_RENAME",
+                    label: "settings.update_category_with_folder_rename",
+                    type: "checkbox",
+                  },
+                ],
+              },
+            ],
+          },
+          {
+            id: "imp-store",
+            icon: "mdi-folder-multiple-outline",
+            title: "settings.sec_imp_store",
+            fields: [
+              {
+                icon: "mdi-information",
+                color: "red",
+                key: "BOOK_NAMES_FORMAT",
+                label: "settings.book_names_format",
+                type: "select",
+                al: ["拼音", "utf8", "pinyin"],
+                items: [
+                  { text: this.$t("settings.pinyin_directory"), value: "en" },
+                  { text: this.$t("settings.utf8_directory"), value: "utf8" },
+                ],
               },
             ],
           },
         ],
       },
-
       {
-        show: false,
-        title: "settings.advanced_settings",
-        fields: [
-          { icon: "mdi-home", color: "red", key: "static_host", label: "settings.cdn_domain" },
+        id: "push",
+        icon: "mdi-email-send",
+        title: "settings.group_push",
+        sections: [
           {
-            icon: "mdi-information",
-            color: "red",
-            key: "BOOK_NAMES_FORMAT",
-            label: "settings.book_names_format",
-            type: "select",
-            items: [
-              { text: this.$t("settings.pinyin_directory"), value: "en" },
-              { text: this.$t("settings.utf8_directory"), value: "utf8" },
+            id: "push-smtp",
+            icon: "mdi-email",
+            title: "settings.email_service",
+            desc: "settings.email_service_description",
+            fields: [
+              { icon: "mdi-email", key: "smtp_server", label: "settings.smtp_server" },
+              {
+                icon: "mdi-account",
+                key: "smtp_username",
+                label: "settings.smtp_username",
+              },
+              {
+                icon: "mdi-lock",
+                key: "smtp_password",
+                label: "settings.smtp_password",
+              },
+              {
+                icon: "mdi-information",
+                key: "smtp_encryption",
+                label: "settings.smtp_encryption",
+                type: "select",
+                items: [
+                  { text: "SSL", value: "SSL" },
+                  { text: "TLS", value: "TLS" },
+                ],
+              },
+            ],
+            actions: [
+              { icon: "mdi-email", label: "settings.test_email", action: "testEmail" },
             ],
           },
           {
-            icon: "mdi-lock",
-            color: "red",
-            key: "cookie_secret",
-            label: "settings.cookie_secret",
-          },
-          { icon: "mdi-information", key: "push_title", label: "settings.push_title" },
-          { icon: "mdi-information", key: "push_content", label: "settings.push_content" },
-          {
-            icon: "mdi-information",
-            key: "convert_timeout",
-            label: "settings.convert_timeout",
-          },
-          {
-            icon: "mdi-cloud-check-outline",
-            key: "ENABLE_WEBDAV_SERVICE",
-            label: "settings.enable_webdav_service",
-            type: "checkbox",
+            id: "push-tpl",
+            icon: "mdi-email-send",
+            title: "settings.sec_push_tpl",
+            fields: [
+              { icon: "mdi-information", key: "push_title", label: "settings.push_title" },
+              { icon: "mdi-information", key: "push_content", label: "settings.push_content" },
+              {
+                icon: "mdi-email-send",
+                key: "SEND_MAIL_FOR_NEW_BOOKS",
+                label: "settings.send_mail_for_new_books",
+                type: "checkbox",
+              },
+            ],
           },
           {
-            icon: "mdi-cloud-sync-outline",
-            key: "WEBDAV_SYNC_FOLDER",
-            label: "settings.enable_webdav_sync",
-            type: "checkbox",
-          },
-          {
-            icon: "mdi-cloud-print-outline",
-            key: "ENABLE_OPDS_SERVICE",
-            label: "settings.enable_opds_service",
-            type: "checkbox",
-          },
-          {
-            icon: "mdi-lock",
-            key: "ENABLE_OPDS_AUTH",
-            label: "settings.enable_opds_auth",
-            type: "checkbox",
-          },
-          {
-            icon: "mdi-podcast",
-            key: "ENABLE_PODCAST_SERVICE",
-            label: "settings.enable_podcast_service",
-            type: "checkbox",
-          },
-          {
-            icon: "mdi-toolbox-outline",
-            key: "ENABLE_TOOLBOX_DEV_MODE",
-            label: "settings.enable_toolbox_dev_mode",
-            type: "checkbox",
-          },
-          {
-            icon: "mdi-storefront-outline",
-            key: "ENABLE_TOOLBOX_STORE",
-            label: "settings.enable_toolbox_store",
-            type: "checkbox",
-          },
-          {
-            icon: "mdi-restart",
-            key: "autoreload",
-            label: "settings.autoreload",
-            type: "checkbox",
-          },
-          {
-            icon: "mdi-archive-cog-outline",
-            color: "red",
-            key: "LOG_LEVEL_DEBUG",
-            label: "settings.enable_debug_logging",
-            type: "checkbox",
-          },
-          {
-            icon: "mdi-math-log",
-            key: "ENABLE_AUDIO_CONVERSION_LOG",
-            label: "settings.enable_audio_conversion_log",
-            type: "checkbox",
-          },
-          {
-            icon: "mdi-closed-caption-outline",
-            key: "ENABLE_AUDIO_SUBTITLE",
-            label: "settings.enable_audio_subtitle",
-            type: "checkbox",
-          },
-          {
-            icon: "mdi-update",
-            key: "AUTO_CHECKING_NEW_VERSION",
-            label: "settings.auto_checking_new_version",
-            type: "checkbox",
+            id: "push-devices",
+            icon: "mdi-tablet-cellphone",
+            title: "settings.device_mgt",
+            desc: "settings.device_mgt_description",
+            special: "devices",
           },
         ],
       },
-
       {
-        show: false,
-        title: "settings.extended_features",
-        fields: [],
-        show_perf: true,
-        show_stamp: true,
+        id: "services",
+        icon: "mdi-source-branch",
+        title: "settings.group_services",
+        sections: [
+          {
+            id: "svc-meta",
+            icon: "mdi-web-sync",
+            title: "settings.internet_book_sources",
+            tips: [
+              {
+                text: "settings.douban_plugin_description",
+              },
+            ],
+            fields: [
+              {
+                icon: "mdi-web-sync",
+                key: "auto_fill_meta",
+                label: "settings.auto_fill_meta",
+                type: "checkbox",
+              },
+              {
+                icon: "mdi-source-branch",
+                key: "META_SELECTED_SOURCES",
+                label: "settings.meta_selected_source",
+                type: "meta_sources",
+                al: ["豆瓣", "书源"],
+              },
+              {
+                icon: "mdi-information",
+                key: "douban_baseurl",
+                label: "settings.douban_baseurl",
+              },
+              {
+                icon: "mdi-information",
+                key: "douban_apikey",
+                label: "settings.douban_api_key",
+              },
+              {
+                icon: "mdi-information",
+                key: "douban_max_count",
+                label: "settings.douban_max_count",
+              }
+            ],
+          },
+          {
+            id: "svc-bookbarn",
+            icon: "mdi-key",
+            title: "settings.book_barn_service",
+            special: "bookbarn",
+          },
+          {
+            id: "svc-ai",
+            icon: "mdi-scatter-plot-outline",
+            title: "settings.ai_capability",
+            special: "ai_capabilities",
+          },
+        ],
       },
       {
-        show: false,
-        title: "settings.ssl_certificate_management",
-        fields: [],
-        show_ssl: true,
+        id: "protocols",
+        icon: "mdi-cloud-outline",
+        title: "settings.group_protocols",
+        sections: [
+          {
+            id: "proto-webdav",
+            icon: "mdi-cloud-check-outline",
+            title: "settings.sec_proto_webdav",
+            fields: [
+              {
+                icon: "mdi-cloud-check-outline",
+                key: "ENABLE_WEBDAV_SERVICE",
+                label: "settings.enable_webdav_service",
+                type: "checkbox",
+              },
+              {
+                icon: "mdi-cloud-sync-outline",
+                key: "WEBDAV_SYNC_FOLDER",
+                label: "settings.enable_webdav_sync",
+                type: "checkbox",
+              },
+            ],
+          },
+          {
+            id: "proto-opds",
+            icon: "mdi-cloud-print-outline",
+            title: "settings.sec_proto_opds",
+            fields: [
+              {
+                icon: "mdi-cloud-print-outline",
+                key: "ENABLE_OPDS_SERVICE",
+                label: "settings.enable_opds_service",
+                type: "checkbox",
+              },
+              {
+                icon: "mdi-lock",
+                key: "ENABLE_OPDS_AUTH",
+                label: "settings.enable_opds_auth",
+                type: "checkbox",
+              },
+            ],
+          },
+          {
+            id: "proto-podcast",
+            icon: "mdi-podcast",
+            title: "settings.sec_proto_podcast",
+            fields: [
+              {
+                icon: "mdi-podcast",
+                key: "ENABLE_PODCAST_SERVICE",
+                label: "settings.enable_podcast_service",
+                type: "checkbox",
+              },
+            ],
+          },
+          {
+            id: "proto-net",
+            icon: "mdi-lock",
+            title: "settings.sec_proto_net",
+            fields: [
+              { icon: "mdi-home", color: "red", key: "static_host", label: "settings.cdn_domain" },
+              {
+                icon: "mdi-lock",
+                color: "red",
+                key: "cookie_secret",
+                label: "settings.cookie_secret",
+              },
+            ],
+            special: "ssl",
+          },
+        ],
       },
       {
-        show: false,
-        title: "settings.trash_management",
-        fields: [],
-        show_trash: true,
+        id: "ops",
+        icon: "mdi-restart",
+        title: "settings.group_ops",
+        sections: [
+          {
+            id: "ops-perf",
+            icon: "mdi-speedometer",
+            title: "settings.sec_ops_perf",
+            special: "perf",
+          },
+          {
+            id: "ops-log",
+            icon: "mdi-math-log",
+            title: "settings.sec_ops_log",
+            fields: [
+              {
+                icon: "mdi-archive-cog-outline",
+                color: "red",
+                key: "LOG_LEVEL_DEBUG",
+                label: "settings.enable_debug_logging",
+                type: "checkbox",
+              },
+              {
+                icon: "mdi-math-log",
+                key: "ENABLE_AUDIO_CONVERSION_LOG",
+                label: "settings.enable_audio_conversion_log",
+                type: "checkbox",
+              },
+              {
+                icon: "mdi-closed-caption-outline",
+                key: "ENABLE_AUDIO_SUBTITLE",
+                label: "settings.enable_audio_subtitle",
+                type: "checkbox",
+              },
+              {
+                icon: "mdi-restart",
+                key: "autoreload",
+                label: "settings.autoreload",
+                type: "checkbox",
+              },
+              {
+                icon: "mdi-information",
+                key: "convert_timeout",
+                label: "settings.convert_timeout",
+              },
+            ],
+          },
+          {
+            id: "ops-update",
+            icon: "mdi-update",
+            title: "settings.sec_ops_update",
+            fields: [
+              {
+                icon: "mdi-update",
+                key: "AUTO_CHECKING_NEW_VERSION",
+                label: "settings.auto_checking_new_version",
+                type: "checkbox",
+              },
+              {
+                icon: "mdi-toolbox-outline",
+                key: "ENABLE_TOOLBOX_DEV_MODE",
+                label: "settings.enable_toolbox_dev_mode",
+                type: "checkbox",
+              },
+              {
+                icon: "mdi-storefront-outline",
+                key: "ENABLE_TOOLBOX_STORE",
+                label: "settings.enable_toolbox_store",
+                type: "checkbox",
+              },
+            ],
+          },
+          {
+            id: "ops-trash",
+            icon: "mdi-delete",
+            title: "settings.trash_management",
+            special: "trash",
+          },
+        ],
       },
     ];
+
+    this.groups.forEach((g) => {
+      g.count = 0;
+      g.sections.forEach((s) => {
+        s.count =
+          (s.fields || []).length +
+          (s.groups || []).reduce((n, x) => n + 1 + (x.fields || []).length, 0) +
+          (s.special ? 1 : 0);
+        g.count += s.count;
+      });
+    });
 
     this.$backend("/admin/settings").then((rsp) => {
       this.sns_items = rsp.sns;
@@ -1727,6 +2012,9 @@ export default {
         });
 
         this.bookNavList = this.parseBookNav(this.settings["BOOK_NAV"] || "");
+        this.snapshot = JSON.parse(JSON.stringify(this.settings));
+        this.bookNavSnapshot = JSON.parse(JSON.stringify(this.bookNavList));
+        this.settingsLoaded = true;
       }
     });
   },
@@ -1735,9 +2023,14 @@ export default {
     sns: {},
     sns_items: [],
     settings: {},
+    settingsLoaded: false,
+    snapshot: {},
+    bookNavSnapshot: [],
     savingDefaultReadRange: false,
     site_url: "",
-    cards: [],
+    groups: [],
+    activeGroup: "site",
+    searchQ: "",
     bookNavList: [],
     thanksToNames: [],
     thanksToShow: false,
@@ -1769,6 +2062,99 @@ export default {
     ],
   }),
   computed: {
+    currentGroups() {
+      return this.groups.filter((g) => g.id === this.activeGroup);
+    },
+    searchQuery() {
+      return (this.searchQ || "").trim();
+    },
+    dirtyCount() {
+      if (!this.settingsLoaded) return 0;
+      const before = this.snapshot;
+      const now = this.settings;
+      let n = 0;
+      Object.keys(now).forEach((k) => {
+        if (JSON.stringify(before[k]) !== JSON.stringify(now[k])) n++;
+      });
+      if (JSON.stringify(this.bookNavSnapshot) !== JSON.stringify(this.bookNavList)) n++;
+      return n;
+    },
+    flatIndex() {
+      const idx = [];
+      const pathOf = {};
+      this.groups.forEach((g) => {
+        g.sections.forEach((s) => {
+          pathOf[g.id + "/" + s.id] =
+            this.$t(g.title) + " / " + this.$t(s.title);
+        });
+      });
+      const push = (entry, gid, sid, extraPath, parentKey) => {
+        idx.push({
+          key: entry.key,
+          label: this.$t(entry.label),
+          icon: entry.icon || "",
+          red: entry.color === "red",
+          gid,
+          sid,
+          path: pathOf[gid + "/" + sid] + (extraPath ? " / " + extraPath : ""),
+          al: entry.al || [],
+          parentKey: parentKey || "",
+        });
+      };
+      this.groups.forEach((g) => {
+        g.sections.forEach((s) => {
+          (s.fields || []).forEach((f) => push(f, g.id, s.id, ""));
+          (s.groups || []).forEach((grp) => {
+            push(grp, g.id, s.id, "");
+            (grp.fields || []).forEach((f) =>
+              push(f, g.id, s.id, this.$t(grp.label), grp.key)
+            );
+          });
+        });
+      });
+      SPECIAL_BLOCKS.forEach((b) => {
+        idx.push({
+          key: b.key,
+          label: this.$t(b.label),
+          icon: b.icon,
+          red: false,
+          gid: b.gid,
+          sid: b.sid,
+          path: pathOf[b.gid + "/" + b.sid],
+          al: b.al || [],
+        });
+      });
+      return idx;
+    },
+    results() {
+      const q = (this.searchQ || "").trim().toLowerCase();
+      if (!q) return [];
+      const tokens = q.split(/\s+/);
+      const aliasSets = tokens.map((t) => SEARCH_ALIASES[t] || []);
+      const out = [];
+      this.flatIndex.forEach((r) => {
+        const label = r.label.toLowerCase();
+        const key = r.key.toLowerCase();
+        const aliasText = r.al.join(" ").toLowerCase();
+        let total = 0;
+        for (let i = 0; i < tokens.length; i++) {
+          const t = tokens[i];
+          let best = 0;
+          if (aliasSets[i].indexOf(r.key) >= 0) best = 82;
+          if (label.indexOf(t) >= 0) best = Math.max(best, t.length >= 2 ? 76 : 55);
+          if (key.indexOf(t) >= 0) best = Math.max(best, 60);
+          if (aliasText.indexOf(t) >= 0) best = Math.max(best, 64);
+          if (best === 0) {
+            total = 0;
+            break;
+          }
+          total += best;
+        }
+        if (total > 0) out.push(Object.assign({ score: total }, r));
+      });
+      out.sort((a, b) => b.score - a.score);
+      return out;
+    },
     liteGroups() {
       return LITE_GROUPS;
     },
@@ -1874,14 +2260,80 @@ export default {
     this.fetchTrashSize();
     this.loadStampImage();
     this.loadThanksTo();
+    this.updateBarOffset();
+    if (process.client) {
+      window.addEventListener("resize", this.updateBarOffset);
+      this.watchAppBar();
+    }
   },
   beforeDestroy() {
     // 页面销毁时移除settings-page类名
     if (process.client) {
       document.body.classList.remove("settings-page");
+      window.removeEventListener("resize", this.updateBarOffset);
+      if (this._barObserver) {
+        this._barObserver.disconnect();
+        this._barObserver = null;
+      }
+      if (this._barWatcher) {
+        this._barWatcher.disconnect();
+        this._barWatcher = null;
+      }
     }
   },
   methods: {
+    // 全局 AppHeader 由 store.nav 的 v-if 控制渲染，可能晚于本页 mounted；出现后按其真实高度校准吸顶偏移
+    watchAppBar() {
+      const attach = () => {
+        const header = document.querySelector(".v-app-bar");
+        if (!header) return false;
+        this._barObserver = new ResizeObserver(this.updateBarOffset);
+        this._barObserver.observe(header);
+        this.updateBarOffset();
+        return true;
+      };
+      if (attach()) return;
+      this._barWatcher = new MutationObserver(() => {
+        if (attach() && this._barWatcher) {
+          this._barWatcher.disconnect();
+          this._barWatcher = null;
+        }
+      });
+      this._barWatcher.observe(document.body, { childList: true, subtree: true });
+    },
+    updateBarOffset() {
+      const header = document.querySelector(".v-app-bar");
+      const bottom = header ? header.getBoundingClientRect().bottom : 56;
+      document.documentElement.style.setProperty(
+        "--settings-bar-top",
+        Math.max(48, Math.round(bottom)) + "px"
+      );
+    },
+    selectGroup(id) {
+      this.searchQ = "";
+      this.activeGroup = id;
+      if (process.client) window.scrollTo({ top: 0 });
+    },
+    jumpTo(r) {
+      this.searchQ = "";
+      this.activeGroup = r.gid;
+      if (r.parentKey && !this.settings[r.parentKey]) {
+        this.$set(this.settings, r.parentKey, true);
+      }
+      if (!process.client) return;
+      this.$nextTick(() => {
+        setTimeout(() => {
+          const el =
+            document.getElementById("f-" + r.key) ||
+            document.getElementById("sec-" + r.gid + "-" + r.sid);
+          if (!el) return;
+          el.scrollIntoView({ behavior: "smooth", block: "center" });
+          el.classList.remove("field-flash");
+          void el.offsetWidth;
+          el.classList.add("field-flash");
+        }, 100);
+      });
+    },
     openDefaultReadRangeDialog() {
       const range = this.settings["DEFAULT_READ_RANGE"] || {};
       this.$refs.defaultReadRangeDialog.open({
@@ -1906,6 +2358,7 @@ export default {
           return;
         }
         this.$set(this.settings, "DEFAULT_READ_RANGE", defaultReadRange);
+        this.$set(this.snapshot, "DEFAULT_READ_RANGE", JSON.parse(JSON.stringify(defaultReadRange)));
         this.$refs.defaultReadRangeDialog.close();
         this.$alert("success", rsp.msg || this.$t("settings.save_success"));
       }).finally(() => {
@@ -1996,6 +2449,9 @@ export default {
         );
       }
 
+      // 快照取提交时刻的值：保存期间的新编辑不会被视为已持久化
+      const savedSnapshot = JSON.parse(JSON.stringify(this.settings));
+      const savedNav = JSON.parse(JSON.stringify(this.bookNavList));
       this.$backend("/admin/settings", {
         method: "POST",
         body: JSON.stringify(this.settings),
@@ -2003,6 +2459,8 @@ export default {
         if (rsp.err != "ok") {
           this.$alert("error", rsp.msg || this.$t("settings.save_error"));
         } else {
+          this.snapshot = savedSnapshot;
+          this.bookNavSnapshot = savedNav;
           this.$alert("success", rsp.msg || this.$t("settings.save_success"));
         }
       });
@@ -2217,6 +2675,112 @@ export default {
   cursor: pointer;
 }
 
+/* 页内吸顶分组条：top 动态取全局 v-app-bar 实际底边（mounted 时测量写入 CSS 变量，
+   xs 端 AppHeader 的搜索扩展行有无会导致高度在 48~120px 间变化，不能硬编码） */
+.settings-group-bar {
+  position: sticky;
+  top: var(--settings-bar-top, 56px);
+  z-index: 5;
+  padding: 10px 12px 8px;
+  margin-bottom: 12px;
+}
+.settings-group-bar-row {
+  position: relative;
+}
+.settings-group-bar .settings-search {
+  flex: 0 1 360px;
+  margin: 0 auto;
+}
+.settings-search .v-input__slot,
+.settings-search fieldset {
+  border-radius: 9999px !important;
+}
+.settings-status-chip {
+  position: absolute;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
+}
+@media (max-width: 599.98px) {
+  /* 窄屏：状态 chip 回归常规布局，搜索框占满剩余宽度，避免绝对定位遮挡输入框 */
+  .settings-status-chip {
+    position: static;
+    transform: none;
+    flex: 0 0 auto;
+    margin-left: 10px;
+  }
+  .settings-group-bar .settings-search {
+    flex: 1 1 auto;
+    margin: 0;
+  }
+}
+.settings-group-bar .v-chip {
+  border-radius: 9999px !important;
+}
+.settings-group-chips {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 10px 2px 0;
+}
+.settings-group-count {
+  font-size: 11px;
+  opacity: 0.85;
+}
+.settings-result {
+  border-bottom: 1px solid #eee;
+  cursor: pointer;
+}
+.settings-result:hover {
+  background: #f5f5f5;
+}
+.theme--dark .settings-result {
+  border-bottom-color: #424242;
+}
+.theme--dark .settings-result:hover {
+  background: #303030;
+}
+[id^="f-"],
+[id^="sec-"] {
+  scroll-margin-top: calc(var(--settings-bar-top, 56px) + 110px);
+}
+@keyframes field-flash {
+  0% {
+    background: #fff59d;
+  }
+  100% {
+    background: transparent;
+  }
+}
+.field-flash {
+  animation: field-flash 1.4s ease-out 2;
+  border-radius: 6px;
+}
+.settings-savebar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  min-height: 56px;
+  padding: 8px 24px;
+  background: #fff;
+  border-top: 1px solid #e0e0e0;
+}
+.theme--dark .settings-savebar {
+  background: #1e1e1e;
+  border-top-color: #424242;
+}
+.settings-page-root {
+  padding-bottom: 80px;
+}
+.settings-page-root .v-card {
+  border-radius: 16px;
+}
+
 /* 设置页提示按钮 - 自定义背景色 + 大圆角，覆盖 Vuetify 默认样式 */
 .settings-hint-btn,
 .settings-hint-btn.v-btn--flat,
@@ -2329,56 +2893,6 @@ export default {
   font-size: 13px;
   color: #fff;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
-}
-
-.save-btn {
-  font-size: 18px !important;
-  font-weight: 600 !important;
-  border-radius: 32px !important;
-  padding: 0 40px !important;
-  min-height: 48px !important;
-  background: linear-gradient(135deg, #1976d2 0%, #1565c0 50%, #0d47a1 100%) !important;
-  box-shadow: 0 4px 12px rgba(21, 101, 192, 0.45), 0 2px 4px rgba(0, 0, 0, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.15) !important;
-  letter-spacing: 0.5px !important;
-  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1) !important;
-}
-
-.save-btn:hover {
-  background: linear-gradient(135deg, #1e88e5 0%, #1976d2 50%, #1565c0 100%) !important;
-  box-shadow: 0 6px 18px rgba(21, 101, 192, 0.55), 0 3px 6px rgba(0, 0, 0, 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.2) !important;
-  transform: translateY(-1px) !important;
-}
-
-.save-btn:active {
-  box-shadow: 0 2px 6px rgba(21, 101, 192, 0.35), inset 0 1px 3px rgba(0, 0, 0, 0.15) !important;
-  transform: translateY(1px) !important;
-}
-
-.theme--dark .save-btn {
-  background: linear-gradient(135deg, #42a5f5 0%, #1e88e5 50%, #1565c0 100%) !important;
-  box-shadow: 0 4px 12px rgba(66, 165, 245, 0.35), 0 2px 4px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.1) !important;
-}
-
-.restart-btn {
-  margin-left: 16px !important;
-  background: linear-gradient(135deg, #fb8c00 0%, #f57c00 50%, #e65100 100%) !important;
-  box-shadow: 0 4px 12px rgba(245, 124, 0, 0.45), 0 2px 4px rgba(0, 0, 0, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.15) !important;
-}
-
-.restart-btn:hover {
-  background: linear-gradient(135deg, #ffa726 0%, #fb8c00 50%, #f57c00 100%) !important;
-  box-shadow: 0 6px 18px rgba(245, 124, 0, 0.55), 0 3px 6px rgba(0, 0, 0, 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.2) !important;
-  transform: translateY(-1px) !important;
-}
-
-.restart-btn:active {
-  box-shadow: 0 2px 6px rgba(245, 124, 0, 0.35), inset 0 1px 3px rgba(0, 0, 0, 0.15) !important;
-  transform: translateY(1px) !important;
-}
-
-.theme--dark .restart-btn {
-  background: linear-gradient(135deg, #ffa726 0%, #fb8c00 50%, #f57c00 100%) !important;
-  box-shadow: 0 4px 12px rgba(255, 167, 38, 0.35), 0 2px 4px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.1) !important;
 }
 
 .device-item {
