@@ -64,7 +64,11 @@
             v-for="r in results"
             :key="r.key"
             class="settings-result d-flex align-center py-2"
+            role="button"
+            tabindex="0"
             @click="jumpTo(r)"
+            @keydown.enter="jumpTo(r)"
+            @keydown.space.prevent="jumpTo(r)"
           >
             <v-icon small class="mr-3" :color="r.red ? 'red' : 'grey'">{{ r.icon }}</v-icon>
             <div class="flex-grow-1">
@@ -315,7 +319,7 @@
                 :prepend-icon="grp.icon"
               >
               </v-checkbox>
-              <template v-if="settings[grp.key]">
+              <template v-if="settings[grp.key] || forceOpen[grp.key]">
                 <div class="pl-6" :key="grp.key + '-fields'">
                 <template v-for="f in grp.fields">
                   <div :key="'w-' + f.key" :id="'f-' + f.key">
@@ -2037,6 +2041,8 @@ export default {
     groups: [],
     activeGroup: "site",
     searchQ: "",
+    // 搜索跳转的视图层展开状态（key = 嵌套开关 grp.key），不触碰真实设置值
+    forceOpen: {},
     bookNavList: [],
     thanksToNames: [],
     thanksToShow: false,
@@ -2078,9 +2084,19 @@ export default {
       if (!this.settingsLoaded) return 0;
       const before = this.snapshot;
       const now = this.settings;
+      // READER_MYDICTS 元素上的 showToken 只是显隐 token 的视图状态，
+      // 点眼睛图标不应算作未保存修改，比较前先剥掉
+      const stripView = (k, v) =>
+        k === "READER_MYDICTS" && Array.isArray(v)
+          ? v.map((d) => {
+              const e = { ...d };
+              delete e.showToken;
+              return e;
+            })
+          : v;
       let n = 0;
       Object.keys(now).forEach((k) => {
-        if (JSON.stringify(before[k]) !== JSON.stringify(now[k])) n++;
+        if (JSON.stringify(stripView(k, before[k])) !== JSON.stringify(stripView(k, now[k]))) n++;
       });
       if (JSON.stringify(this.bookNavSnapshot) !== JSON.stringify(this.bookNavList)) n++;
       return n;
@@ -2262,6 +2278,14 @@ export default {
         : this.$t("settings.default_read_range_blacklist", { list });
     },
   },
+  beforeRouteLeave(to, from, next) {
+    // 未保存更改的离开守卫：切路由丢配置是本页最需要防的场景
+    if (this.dirtyCount > 0 && !window.confirm(this.$t("settings.unsaved_leave_confirm", { n: this.dirtyCount }))) {
+      next(false);
+      return;
+    }
+    next();
+  },
   mounted() {
     this.fetchTrashSize();
     this.loadStampImage();
@@ -2269,6 +2293,7 @@ export default {
     this.updateBarOffset();
     if (process.client) {
       window.addEventListener("resize", this.updateBarOffset);
+      window.addEventListener("beforeunload", this.handleBeforeUnload);
       this.watchAppBar();
     }
   },
@@ -2277,6 +2302,9 @@ export default {
     if (process.client) {
       document.body.classList.remove("settings-page");
       window.removeEventListener("resize", this.updateBarOffset);
+      window.removeEventListener("beforeunload", this.handleBeforeUnload);
+      // 清掉 documentElement 上的全局 CSS 变量，避免残留值影响其他页面
+      document.documentElement.style.removeProperty("--settings-bar-top");
       if (this._barObserver) {
         this._barObserver.disconnect();
         this._barObserver = null;
@@ -2315,6 +2343,13 @@ export default {
         Math.max(48, Math.round(bottom)) + "px"
       );
     },
+    // 关闭/刷新标签页前的未保存提示（浏览器只允许展示原生文案，无法本地化）
+    handleBeforeUnload(e) {
+      if (this.dirtyCount > 0) {
+        e.preventDefault();
+        e.returnValue = "";
+      }
+    },
     selectGroup(id) {
       this.searchQ = "";
       this.activeGroup = id;
@@ -2323,8 +2358,9 @@ export default {
     jumpTo(r) {
       this.searchQ = "";
       this.activeGroup = r.gid;
-      if (r.parentKey && !this.settings[r.parentKey]) {
-        this.$set(this.settings, r.parentKey, true);
+      if (r.parentKey) {
+        // 只做视图层展开：写真实 settings 会静默开启 INVITE_MODE 等父开关并计入未保存数
+        this.$set(this.forceOpen, r.parentKey, true);
       }
       if (!process.client) return;
       this.$nextTick(() => {
@@ -2416,59 +2452,64 @@ export default {
         );
         return;
       }
-      this.settings["BOOK_NAV"] = this.serializeBookNav(this.bookNavList);
+      // 规范化只作用于提交副本：BOOK_NAV 的 parse→serialize 往返不恒等，
+      // 若先改写 live settings，保存失败会留下用户没动过的假 diff 且无自愈出口
+      const payload = JSON.parse(JSON.stringify(this.settings));
+      payload["BOOK_NAV"] = this.serializeBookNav(this.bookNavList);
       // showToken is view state only; the server drops incomplete entries.
-      this.settings["READER_MYDICTS"] = (this.settings["READER_MYDICTS"] || []).map((dict) => {
+      payload["READER_MYDICTS"] = (payload["READER_MYDICTS"] || []).map((dict) => {
         const entry = { ...dict };
         delete entry.showToken;
         return entry;
       });
 
-      if (this.settings["site_language"] === "") {
-        this.settings["site_language"] = "zh";
-      }
-
-      if (this.settings["site_language"] !== "") {
-        this.$i18n.locale = this.settings["site_language"];
-      }
-
-      if (process.client) {
-        if (this.settings["MAX_UPLOAD_SIZE"] !== "") {
-          localStorage.setItem(
-            "max_upload_size",
-            this.settings["MAX_UPLOAD_SIZE"]
-          );
-        }
-
-        if (this.settings["CHUNK_UPLOAD_SIZE"] !== "") {
-          localStorage.setItem(
-            "chunk_upload_size",
-            this.settings["CHUNK_UPLOAD_SIZE"]
-          );
-        }
-
-        localStorage.setItem("indexPage", this.settings["INDEX_PAGE_TYPE"]);
-        localStorage.setItem("aiEnabled", this.settings["AI_ENABLED"]);
-        localStorage.setItem(
-          "defaultPageSize",
-          this.settings["DEFAULT_PAGE_SIZE"]
-        );
+      if (payload["site_language"] === "") {
+        payload["site_language"] = "zh";
       }
 
       // 快照取提交时刻的值：保存期间的新编辑不会被视为已持久化
-      const savedSnapshot = JSON.parse(JSON.stringify(this.settings));
+      const savedSnapshot = JSON.parse(JSON.stringify(payload));
       const savedNav = JSON.parse(JSON.stringify(this.bookNavList));
       this.$backend("/admin/settings", {
         method: "POST",
-        body: JSON.stringify(this.settings),
+        body: JSON.stringify(payload),
       }).then((rsp) => {
         if (rsp.err != "ok") {
           this.$alert("error", rsp.msg || this.$t("settings.save_error"));
-        } else {
-          this.snapshot = savedSnapshot;
-          this.bookNavSnapshot = savedNav;
-          this.$alert("success", rsp.msg || this.$t("settings.save_success"));
+          return;
         }
+        // 服务端确认后才把规范化结果落到本地状态与 localStorage
+        this.settings["BOOK_NAV"] = payload["BOOK_NAV"];
+        this.settings["READER_MYDICTS"] = payload["READER_MYDICTS"];
+        this.settings["site_language"] = payload["site_language"];
+        if (this.settings["site_language"] !== "") {
+          this.$i18n.locale = this.settings["site_language"];
+        }
+        if (process.client) {
+          if (this.settings["MAX_UPLOAD_SIZE"] !== "") {
+            localStorage.setItem(
+              "max_upload_size",
+              this.settings["MAX_UPLOAD_SIZE"]
+            );
+          }
+
+          if (this.settings["CHUNK_UPLOAD_SIZE"] !== "") {
+            localStorage.setItem(
+              "chunk_upload_size",
+              this.settings["CHUNK_UPLOAD_SIZE"]
+            );
+          }
+
+          localStorage.setItem("indexPage", this.settings["INDEX_PAGE_TYPE"]);
+          localStorage.setItem("aiEnabled", this.settings["AI_ENABLED"]);
+          localStorage.setItem(
+            "defaultPageSize",
+            this.settings["DEFAULT_PAGE_SIZE"]
+          );
+        }
+        this.snapshot = savedSnapshot;
+        this.bookNavSnapshot = savedNav;
+        this.$alert("success", rsp.msg || this.$t("settings.save_success"));
       });
     },
     restartServer: function () {
@@ -2719,6 +2760,10 @@ export default {
     flex: 1 1 auto;
     margin: 0;
   }
+  /* savebar 换行变高后加厚底部留白，避免遮挡最后几个字段 */
+  .settings-page-root {
+    padding-bottom: 128px;
+  }
 }
 .settings-group-bar .v-chip {
   border-radius: 9999px !important;
@@ -2738,8 +2783,10 @@ export default {
   border-bottom: 1px solid #eee;
   cursor: pointer;
 }
-.settings-result:hover {
+.settings-result:hover,
+.settings-result:focus {
   background: #f5f5f5;
+  outline: none;
 }
 .theme--dark .settings-result {
   border-bottom-color: #424242;
@@ -2771,6 +2818,8 @@ export default {
   z-index: 200;
   display: flex;
   align-items: center;
+  /* 窄屏计数位数大时允许换行，避免横排溢出 */
+  flex-wrap: wrap;
   min-height: 56px;
   padding: 8px 24px;
   background: #fff;
