@@ -4,7 +4,8 @@
 # (PoxenStudio)do_import 是扫描导入的主入口，负责协调整个两阶段流水线导入流程：
 # 前置阶段：收集文件列表，创建后台任务记录，初始化状态。
 #
-# 阶段一（Scanning）：主线程执行
+# 阶段一（Scanning）：主线程执行（去重预检/落库；哈希 IO 可投线程池并行，
+#   CONF scan_hash_workers 控制线程数，默认 4，1=串行）
 #   - 遍历指定路径（目录或文件列表），收集合法格式的文件路径。
 #   - 对每个文件计算部分 SHA-256 哈希（小于 10MB 取前 4MB；大于等于 10MB 取首尾各 3MB）。
 #   - 根据路径和哈希进行去重：
@@ -42,6 +43,8 @@ import shutil
 import threading
 import time
 import traceback
+from collections import deque
+from concurrent.futures import ThreadPoolExecutor
 
 from sqlalchemy import or_
 from sqlalchemy.exc import IntegrityError
@@ -1279,15 +1282,28 @@ class ScanService(AsyncService):
 
     def _scan_one_file(self, fpath, session, import_id, processed_paths, processed_hashes, force, staged=None):
         """
-            Phase scanning: 处理单个文件：计算哈希，去重，创建/更新 READY 状态的 ScanFile 记录。
+            Phase scanning（串行兼容入口）：处理单个文件：计算哈希，去重，创建/更新 READY 状态的 ScanFile 记录。
 
             staged 为 None 时走旧的立即落库（逐行 commit，兼容直接调用）；传入 list 时
             只做读（去重查询）与算（哈希 IO），写操作以描述符暂存：
             ("del_path", fpath) | ("del_hash", hash) | ("save", row, state)，
             由调用方攒批后经 _apply_phase1_batch 在短写事务内统一执行。
-            读算阶段不持有任何写事务（SELECT 自身的只读快照在 WAL 下不阻塞写者），
-            可横跨任意时长磁盘 IO 而不阻塞 worker 的并发写。
+            本方法是 _scan_prepare → _hash_job → _scan_finalize 的同步串行组合，
+            供测试与直调使用；do_import_internal 走三者拆开的并行流水线，
+            finalize 顺序与串行逐位一致。
             返回 (None, state)：行 id 在批量 flush 后才分配，由 applier 回报。
+        """
+        ctx, state = self._scan_prepare(fpath, session, import_id, processed_paths, force, staged=staged)
+        if ctx is None:
+            return None, state
+        result = self._hash_job(ctx)
+        return self._scan_finalize(ctx, result, session, processed_paths, processed_hashes, staged=staged)
+
+    def _scan_prepare(self, fpath, session, import_id, processed_paths, force, staged=None):
+        """Phase1 前半：会话绑定的去重预检（无哈希 IO，快）。返回 (ctx, state)。
+
+        ctx 为 None 表示终态（state=None 或 PERMISSION，PERMISSION 行已暂存）；
+        否则 ctx 只携带纯数据（无 ORM 对象、无会话引用），可安全投入线程池。
         """
         if not os.path.isfile(fpath):
             logging.warning("[SCAN] Not a valid file, skip: %s", fpath)
@@ -1337,12 +1353,9 @@ class ScanService(AsyncService):
 
         # (PoxenStudio) Reuse cached hash if available (NEW/READY record from a previous interrupted run).
         # MISSED/PERMISSION: file was previously inaccessible, reprocess from scratch (no reuse).
-        # 签名门：缓存哈希只在文件签名（size/mtime_ns/ctime_ns/ino一次 stat 全取）全等时
-        # 复用；存量无签名行/签名任一不等/stat 失败一律重算（偏安全方向）。命中用的 stat
-        # 结果直接留给行挂签，不重取——两次 stat 之间文件再变会导致（旧哈希，新签名）
-        # 的永久错配。
+        # 这里只选复用候选；签名 stat 与比对属于哈希 IO 段，放 _hash_job（并行化后不占主线程）。
         reuse_hash = None
-        reuse_sig = None
+        reuse_stored_sig = None
         if not force:
             cached = next(
                 (r for r in same_path_rows
@@ -1350,47 +1363,74 @@ class ScanService(AsyncService):
                 None,
             )
             if cached is not None:
-                stored_sig = cached.data.get(FILE_SIG_KEY) if isinstance(cached.data, dict) else None
-                current_sig = ScanService.file_signature(fpath)
-                if current_sig is not None and stored_sig == current_sig:
-                    reuse_hash = cached.hash
-                    reuse_sig = current_sig
-                    logging.info("[SCAN] Reusing cached hash (signature match) for: %s", fpath)
-                else:
-                    logging.info("[SCAN] Signature changed, recompute hash for: %s", fpath)
+                reuse_hash = cached.hash
+                reuse_stored_sig = cached.data.get(FILE_SIG_KEY) if isinstance(cached.data, dict) else None
+        return {
+            "fpath": fpath,
+            "import_id": import_id,
+            "force": force,
+            "real_fpath": real_fpath,
+            "stale_rows": len(same_path_rows),
+            "reuse_hash": reuse_hash,
+            "reuse_stored_sig": reuse_stored_sig,
+        }, None
 
-        current_sig = None
-        if reuse_hash:
-            hash_val, bad_reason = reuse_hash, None
-            current_sig = reuse_sig
-        else:
-            pre_sig = ScanService.file_signature(fpath)
-            hash_val, bad_reason = self._compute_hash(fpath)
-            if not bad_reason:
-                # TOCTOU：哈希读盘期间文件被改写则本次哈希不可信——存空哈希 NEW 行占位，
-                # 下轮重扫（状态 NEW 无复用，直接重算），不把撕裂内容的哈希入库。
-                post_sig = ScanService.file_signature(fpath)
-                if pre_sig is None or post_sig is None or pre_sig != post_sig:
-                    logging.warning("[SCAN] File changed during hashing, defer to next run: %s", fpath)
-                    torn_row = ScanFile(fpath, "", import_id)
-                    torn_row.status = ScanFile.NEW
-                    if post_sig is not None:
-                        torn_row.data = {FILE_SIG_KEY: post_sig}
-                    if staged is None:
-                        self.save_or_rollback(torn_row, session)
-                    else:
-                        staged.append(("save", torn_row, ScanFile.NEW))
-                    return None, ScanFile.NEW
-                current_sig = post_sig
-        if same_path_rows:
+    def _hash_job(self, ctx):
+        """Phase1 中段：纯文件系统 IO（签名 stat + 哈希 + TOCTOU 复核），无会话无
+        ORM，线程池安全；返回 {"hash","bad_reason","sig"} 或 {"torn","post_sig"}。
+
+        签名门：缓存哈希只在文件签名（size/mtime_ns/ctime_ns/ino一次 stat 全取）
+        全等时复用；存量无签名行/签名任一不等/stat 失败一律重算（偏安全方向）。
+        命中用的 stat 结果直接留给行挂签，不重取——两次 stat 之间文件再变会导致
+        （旧哈希，新签名）的永久错配。
+        """
+        fpath = ctx["fpath"]
+        if ctx["reuse_hash"]:
+            current_sig = ScanService.file_signature(fpath)
+            if current_sig is not None and ctx["reuse_stored_sig"] == current_sig:
+                logging.info("[SCAN] Reusing cached hash (signature match) for: %s", fpath)
+                return {"hash": ctx["reuse_hash"], "bad_reason": None, "sig": current_sig}
+            logging.info("[SCAN] Signature changed, recompute hash for: %s", fpath)
+        pre_sig = ScanService.file_signature(fpath)
+        hash_val, bad_reason = self._compute_hash(fpath)
+        if bad_reason:
+            return {"hash": None, "bad_reason": bad_reason, "sig": None}
+        # TOCTOU：哈希读盘期间文件被改写则本次哈希不可信——交由 finalize 存空哈希
+        # NEW 行占位，下轮重扫（状态 NEW 无复用，直接重算），不把撕裂内容的哈希入库。
+        post_sig = ScanService.file_signature(fpath)
+        if pre_sig is None or post_sig is None or pre_sig != post_sig:
+            return {"torn": True, "post_sig": post_sig}
+        return {"hash": hash_val, "bad_reason": None, "sig": post_sig}
+
+    def _scan_finalize(self, ctx, result, session, processed_paths, processed_hashes, staged=None):
+        """Phase1 后半：主线程按提交序消费哈希结果，落终态/READY 行（全部写操作走
+        staged 描述符或旧逐行落库）。返回 (rid, state)，语义与旧 _scan_one_file 相同。"""
+        fpath = ctx["fpath"]
+        import_id = ctx["import_id"]
+        force = ctx["force"]
+        if result.get("torn"):
+            logging.warning("[SCAN] File changed during hashing, defer to next run: %s", fpath)
+            torn_row = ScanFile(fpath, "", import_id)
+            torn_row.status = ScanFile.NEW
+            post_sig = result.get("post_sig")
+            if post_sig is not None:
+                torn_row.data = {FILE_SIG_KEY: post_sig}
+            if staged is None:
+                self.save_or_rollback(torn_row, session)
+            else:
+                staged.append(("save", torn_row, ScanFile.NEW))
+            return None, ScanFile.NEW
+        hash_val = result.get("hash")
+        bad_reason = result.get("bad_reason")
+        current_sig = result.get("sig")
+        if ctx["stale_rows"]:
             # Delete all same path records to avoid confusion
-            logging.warning("[SCAN] Found multiple records with same path %s, count: %d. Cleaning up...", fpath, len(same_path_rows))
+            logging.warning("[SCAN] Found multiple records with same path %s, count: %d. Cleaning up...", fpath, ctx["stale_rows"])
             if staged is None:
                 session.query(ScanFile).filter(ScanFile.path == fpath).delete(synchronize_session=False)
                 session.flush()
             else:
                 staged.append(("del_path", fpath))
-            same_path_rows = []
 
         if bad_reason:
             row = ScanFile(fpath, "", import_id)
@@ -1413,7 +1453,7 @@ class ScanService(AsyncService):
             return None, ScanFile.DROP
 
         processed_hashes.add(hash_val)
-        processed_paths.add(real_fpath)
+        processed_paths.add(ctx["real_fpath"])
 
         # Check already imported by hash
         hash_rows = session.query(ScanFile).filter(ScanFile.hash == hash_val).all()
@@ -1531,16 +1571,61 @@ class ScanService(AsyncService):
                     self._put_work(work_queue, importing_thread, rid)
                     queued_count += 1
 
+        # 并行哈希流水线：prepare（主线程，会话绑定）→ _hash_job（线程池，纯 IO）
+        # → finalize（主线程，按提交序收割）。收割严格按 filelist 序，processed_
+        # hashes/路径去重/DROP/批边界与串行逐位等价；scan_hash_workers=1 时完全
+        # 退化为串行直算（零线程开销，NAS 机械盘兜底）。
+        # 提交窗口封顶：百万级 filelist 的未收割 future 不能常驻内存，超窗按提交序
+        # 阻塞收割队头（天然背压）。线程池线程非 daemon：进程退出时若有哈希卡在
+        # 病态文件系统上会等它——旧串行路径同位置同样卡，接受为已知取舍。
+        hash_workers = max(1, int(CONF.get("scan_hash_workers", 4) or 1))
+        hash_pool = None
+        if hash_workers > 1:
+            hash_pool = ThreadPoolExecutor(max_workers=hash_workers, thread_name_prefix="scan_hash")
+        submit_window = max(8, hash_workers * 4)
+        pending = deque()  # (ctx, future)，按提交序收割
+
+        def _drain_one(block):
+            if not pending:
+                return
+            if not block and not pending[0][1].done():
+                return
+            ctx, fut = pending.popleft()
+            result = fut.result()  # 线程内未预期异常在主线程重抛（与串行同语义）
+            self._scan_finalize(ctx, result, session, processed_paths, processed_hashes, staged=staged)
+            if len(staged) >= PHASE1_BATCH_SIZE:
+                _commit_phase1_stage()
+
         put_failure = None
         try:
             for index, fpath in enumerate(filelist):
                 if ScanService.static_abort_flag:
                     logging.info("[IMPORT] Aborting import during scanning phase at index %d/%d", index, total_count)
                     break
-                self._scan_one_file(fpath, session, import_id, processed_paths, processed_hashes, force, staged=staged)
-                if len(staged) >= PHASE1_BATCH_SIZE:
-                    _commit_phase1_stage()
+                ctx, _state = self._scan_prepare(fpath, session, import_id, processed_paths, force, staged=staged)
+                if ctx is None:
+                    # 终态（跳过或 PERMISSION 行已暂存），批提交水位照查
+                    if len(staged) >= PHASE1_BATCH_SIZE:
+                        _commit_phase1_stage()
+                    continue
+                if hash_pool is None:
+                    result = self._hash_job(ctx)
+                    self._scan_finalize(fpath, result, session, processed_paths, processed_hashes, staged=staged)
+                    if len(staged) >= PHASE1_BATCH_SIZE:
+                        _commit_phase1_stage()
+                    continue
+                while len(pending) >= submit_window:
+                    _drain_one(block=True)
+                pending.append((ctx, hash_pool.submit(self._hash_job, ctx)))
+                while pending and pending[0][1].done():
+                    _drain_one(block=False)
+            # 收尾：按提交序阻塞收割全部在途 job（abort 时同样收割——结果仍走
+            # finalize 入 staged，finally 尾批统一提交；abort 不提交快照，下轮重扫）。
+            while pending:
+                _drain_one(block=True)
         finally:
+            if hash_pool is not None:
+                hash_pool.shutdown(wait=False, cancel_futures=True)
             if staged:
                 try:
                     _commit_phase1_stage()

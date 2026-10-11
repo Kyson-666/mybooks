@@ -10,8 +10,11 @@ import shutil
 import sqlite3
 import sys
 import tempfile
+import threading
 import time
 import unittest
+from collections import deque
+from concurrent.futures import ThreadPoolExecutor
 from unittest import mock
 
 # apt 版 calibre（/usr/lib/calibre）需要解释器预置 extensions_location 等属性
@@ -344,6 +347,112 @@ class TestPhase1Batching(ScanP0TestBase):
         self.assertEqual(batches, [2, 2, 1])
         self.assertEqual(sorted(delivered), sorted(files))
         self.assertEqual(self.session.query(ScanFile).filter(ScanFile.status == ScanFile.READY).count(), 5)
+
+
+class TestHashParallel(ScanP0TestBase):
+    """C2 哈希并行流水线：保序收割与串行逐位等价 / 哈希确在池线程 / abort 收割契约。"""
+
+    def _restore_import_one_file(self):
+        if "_import_one_file" in self.svc.__dict__:
+            del self.svc._import_one_file
+
+    def _run_collect(self, kind):
+        """同一文件集分别按串行与并行协议收集，返回落库终态行 [(path, status, hash)]。"""
+        self.session.query(ScanFile).delete()
+        self.session.commit()
+        staged = []
+        processed_paths, processed_hashes = set(), set()
+        contents = [b"aaa", b"bbb", b"aaa", b"ccc", b"bbb", b"ddd"]  # p2=p0、p4=p1 两组重复
+        files = [self._touch("p%d.txt" % i, contents[i]) for i in range(6)]
+        if kind == "serial":
+            for fpath in files:
+                self.svc._scan_one_file(fpath, self.session, 1, processed_paths, processed_hashes, False, staged=staged)
+        else:
+            pending = deque()
+            with ThreadPoolExecutor(max_workers=2, thread_name_prefix="scan_hash") as pool:
+                for fpath in files:
+                    ctx, _state = self.svc._scan_prepare(fpath, self.session, 1, processed_paths, False, staged=staged)
+                    if ctx is None:
+                        continue
+                    pending.append((ctx, pool.submit(self.svc._hash_job, ctx)))
+                    while pending and pending[0][1].done():
+                        ctx_done, fut = pending.popleft()
+                        self.svc._scan_finalize(ctx_done, fut.result(), self.session, processed_paths, processed_hashes, staged=staged)
+                while pending:
+                    ctx_done, fut = pending.popleft()
+                    self.svc._scan_finalize(ctx_done, fut.result(), self.session, processed_paths, processed_hashes, staged=staged)
+        self.svc._apply_phase1_batch(self.session, staged)
+        self.session.commit()
+        rows = self.session.query(ScanFile).order_by(ScanFile.path).all()
+        return [(r.path, r.status, r.hash) for r in rows]
+
+    def test_pipeline_matches_serial_end_state(self):
+        # 内容重复文件（p2=p0、p4=p1）走 in-run 哈希去重落 DROP：并行收割按提交序
+        # 消费，processed_hashes 时序与串行一致——终态逐行相等是保序的核心回归钉。
+        with mock.patch.dict(scan_service.CONF, {"scan_hash_workers": 2}):
+            self.assertEqual(self._run_collect("serial"), self._run_collect("parallel"))
+        rows = self._run_collect("serial")
+        self.assertEqual(len(rows), 6)
+        self.assertEqual(sum(1 for _, status, _ in rows if status == ScanFile.DROP), 2)
+        self.assertEqual(sum(1 for _, status, _ in rows if status == ScanFile.READY), 4)
+
+    def test_hash_runs_in_pool_threads(self):
+        db = FakeCalibreDB()
+        self.svc.db = db
+        files = [self._touch("t%d.txt" % i, b"t-%d" % i) for i in range(4)]
+        seen_threads = []
+        orig_hash = ScanService._compute_hash
+
+        def spying_hash(svc_self, fpath):
+            seen_threads.append(threading.current_thread().name)
+            return orig_hash(svc_self, fpath)
+
+        staged = []
+        with mock.patch.dict(scan_service.CONF, {"scan_hash_workers": 2}):
+            with mock.patch.object(ScanService, "_compute_hash", spying_hash):
+                pending = deque()
+                with ThreadPoolExecutor(max_workers=2, thread_name_prefix="scan_hash") as pool:
+                    for fpath in files:
+                        ctx, _state = self.svc._scan_prepare(fpath, self.session, 1, set(), False, staged=staged)
+                        pending.append((ctx, pool.submit(self.svc._hash_job, ctx)))
+                    while pending:
+                        ctx, fut = pending.popleft()
+                        fut.result()
+        self.assertEqual(len(seen_threads), 4)
+        self.assertTrue(all(name.startswith("scan_hash") for name in seen_threads), seen_threads)
+
+    def test_abort_mid_run_still_finalizes_submitted(self):
+        # abort 在 prepare 内置位（主线程同步，无竞态）：循环下一轮头部退出；
+        # 已提交进流水线的文件仍被收尾收割 finalize 并落行（快照反正不提交）。
+        db = FakeCalibreDB()
+        self.svc.db = db
+        files = [self._touch("a%d.txt" % i, b"a-%d" % i) for i in range(5)]
+        delivered = []
+
+        def fake_import_one_file(row, user_id, scan_upload_path, session, force, sole=False, *args, **kwargs):
+            delivered.append(row.path)
+            return None, None
+
+        self.svc._import_one_file = fake_import_one_file
+        self.addCleanup(self._restore_import_one_file)
+        calls = []
+        orig_prepare = ScanService._scan_prepare
+
+        def spying_prepare(svc_self, fpath, session, import_id, processed_paths, force, staged=None):
+            calls.append(fpath)
+            if len(calls) >= 2:
+                ScanService.static_abort_flag = True
+            return orig_prepare(svc_self, fpath, session, import_id, processed_paths, force, staged=staged)
+
+        with mock.patch.dict(scan_service.CONF, {"scan_hash_workers": 2}):
+            with mock.patch.object(ScanService, "_scan_prepare", spying_prepare):
+                self.svc.do_import_internal(files, 9)
+        self.assertEqual(len(calls), 2)
+        # abort 语义：worker 跳过队列所有行（保持 READY 下轮 union-pending 重导），
+        # 但已提交进流水线的文件必须被收尾收割并落 READY 行（尾批照常提交）。
+        self.assertEqual(delivered, [])
+        ready_paths = sorted(r.path for r in self.session.query(ScanFile).filter(ScanFile.status == ScanFile.READY).all())
+        self.assertEqual(ready_paths, sorted(files[:2]))
 
 
 class TestPersistFailureGate(ScanP0TestBase):
