@@ -712,8 +712,20 @@ class ScanService(AsyncService):
                     continue
                 filelist.append(p)
             elif os.path.isdir(p):
+                # 每个扫描根只 realpath 一次，子目录快照键用拼接。os.walk 不跟随
+                # 目录符号链接（followlinks=False），p 子树内每个分量都是真实目录
+                # → realpath(子) ≡ realpath(根) + 后缀。逐目录 O(深度) lstat 链降为
+                # O(1) 拼接：快照剪枝砍掉每文件 stat 后，逐目录 realpath（NFS/SMB
+                # 上是逐分量 round-trip）成为重扫剩余成本的大头。键值与逐目录
+                # realpath 逐字节相等，存量 scan_dir_snapshots 零迁移。
+                root_real = os.path.realpath(p)
                 for dirpath, dirnames, filenames in os.walk(p, onerror=ScanService.os_walk_error_handler):
-                    real_dirpath = os.path.realpath(dirpath)
+                    if dirpath.startswith(p):
+                        real_dirpath = root_real if dirpath == p else root_real + dirpath[len(p):]
+                    else:
+                        # 防御分支：walk 只产出 p 子树内路径，此分支不可达；万一
+                        # 上游语义变化，回退逐目录 realpath 保正确性。
+                        real_dirpath = os.path.realpath(dirpath)
                     # scandir 原始条目数（过滤前口径）：写读两侧必须同一定义，否则隐藏目录
                     # 增删会导致永久 miss 或永久重走。本计数含点开头条目（文件循环里再跳过）。
                     entry_count = len(dirnames) + len(filenames)

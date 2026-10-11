@@ -74,6 +74,31 @@ class TestSnapshotPrune(SnapshotTestBase):
         self.assertEqual(files2, [])
         self.assertEqual(visited2, {})
 
+    def test_walk_keys_from_single_root_realpath(self):
+        # 快照键由「根 realpath 一次 + 拼接」产出：值必须与逐目录 realpath 相等
+        # （存量快照零迁移），且 realpath 调用只落在扫描根上——若实现退化回
+        # 逐目录 realpath，嵌套目录路径会出现在调用参数里，本用例失败。
+        self._touch(os.path.join("d1", "sub", "a.txt"), b"a")
+        self._touch(os.path.join("d2", "b.txt"), b"b")
+        real_realpath = os.path.realpath
+        seen = []
+
+        def counting_realpath(path):
+            seen.append(path)
+            return real_realpath(path)
+
+        with mock.patch("os.path.realpath", side_effect=counting_realpath):
+            files, visited = self._collect()
+        self.assertEqual(len(files), 2)
+        self.assertIn(os.path.join(self.root, "d1", "sub"), visited)
+        self.assertIn(os.path.join(self.root, "d2"), visited)
+        for key in visited:
+            self.assertEqual(key, real_realpath(key))
+        # 仅扫描根被 realpath（collect 内：根键 1 次 + union 用 scan_root 1 次），
+        # 嵌套目录一律不得出现。
+        self.assertTrue(seen)
+        self.assertTrue(all(s == self.tmpdir for s in seen), seen)
+
     def test_deep_new_file_detected_despite_matched_ancestors(self):
         # 祖先目录 mtime 不变时仍必须下钻：深层新增只 bump 直接父目录。
         # 本用例在“剪下钻”实现下失败，是核心回归钉。
