@@ -1611,6 +1611,12 @@ export default {
                 type: "checkbox",
               },
               {
+                icon: "mdi-pause-octagon",
+                key: "auto_fill_pause_on_throttle",
+                label: "settings.auto_fill_pause_on_throttle",
+                type: "checkbox",
+              },
+              {
                 icon: "mdi-file-document-outline",
                 key: "UPLOAD_IGNORE_TITLE_CHECKING",
                 label: "settings.upload_ignore_title_checking",
