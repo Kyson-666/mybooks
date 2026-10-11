@@ -317,6 +317,7 @@
                 v-model="settings[grp.key]"
                 :label="$t(grp.label)"
                 :prepend-icon="grp.icon"
+                @change="$delete(forceOpen, grp.key)"
               >
               </v-checkbox>
               <template v-if="settings[grp.key] || forceOpen[grp.key]">
@@ -2791,7 +2792,8 @@ export default {
 .theme--dark .settings-result {
   border-bottom-color: #424242;
 }
-.theme--dark .settings-result:hover {
+.theme--dark .settings-result:hover,
+.theme--dark .settings-result:focus {
   background: #303030;
 }
 [id^="f-"],
