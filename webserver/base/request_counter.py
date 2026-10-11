@@ -49,3 +49,14 @@ class RequestCounter:
         with self._lock:
             self._roll(time.monotonic())
             return self._blocked or self._count >= self.limit * 2
+
+    def seconds_until_window_end(self):
+        """当前窗口剩余秒数（向上取整，先按需 roll，语义与 is_exceeded 一致）。
+
+        供调用方在预算耗尽时计算“暂停到窗口重置”的等待时长：睡满该时长后
+        计数必然已归零（_blocked 在 roll 后一并复位）。
+        """
+        with self._lock:
+            self._roll(time.monotonic())
+            remain = self._start + self.window_seconds - time.monotonic()
+            return max(0, -int(-remain // 1))

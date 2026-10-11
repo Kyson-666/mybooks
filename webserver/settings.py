@@ -242,8 +242,11 @@ settings = {
     'douban_apikey'     : "0df993c66c0c636e29ecbb5344252a4a",
     'douban_baseurl'    : "http://douban-rs-api:80/",
     'douban_max_count'  : 2,
+    'douban_v2_max_per_hour': 180,
     'ujxsw_max_count'   : 2,
     'auto_fill_meta'    : False,
+    'auto_fill_qpm'     : 60,
+    'auto_fill_pause_on_throttle': True,
 
     'avatar_service'    : "https://cravatar.cn",
 

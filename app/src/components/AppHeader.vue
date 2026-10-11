@@ -295,11 +295,15 @@
                                     <v-list-item-subtitle class="mt-2">
                                         <v-progress-linear
                                             :value="getTaskProgress(task)"
-                                            color="primary"
+                                            :color="isTaskPaused(task) ? 'orange' : 'primary'"
                                             height="6"
                                             rounded
                                         ></v-progress-linear>
                                         <span class="caption mt-1">{{ getTaskProgress(task) }}%</span>
+                                    </v-list-item-subtitle>
+                                    <v-list-item-subtitle v-if="isTaskPaused(task)" class="caption mt-1 orange--text">
+                                        <v-icon x-small color="orange">mdi-pause-circle</v-icon>
+                                        {{ $t('appHeader.taskPausedThrottle', { time: pausedResumeTime(task) }) }}
                                     </v-list-item-subtitle>
                                 </v-list-item-content>
                             </v-list-item>
@@ -1158,6 +1162,19 @@ export default {
         },
         getTaskProgress(task) {
             return Math.round(task.progress);
+        },
+        isTaskPaused(task) {
+            const data = task && task.progress_data;
+            return !!data && data.stage === "paused";
+        },
+        pausedResumeTime(task) {
+            const resumeAt = task && task.progress_data && task.progress_data.resume_at;
+            if (!resumeAt) {
+                return "";
+            }
+            const date = new Date(resumeAt * 1000);
+            const pad = n => String(n).padStart(2, "0");
+            return `${pad(date.getHours())}:${pad(date.getMinutes())}`;
         },
         isGroupExpanded(idx, item) {
             if (this.expandedGroups[idx] !== undefined) {

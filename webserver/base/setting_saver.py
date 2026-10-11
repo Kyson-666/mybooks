@@ -49,8 +49,11 @@ ADMIN_SETTING_KEYS = (
     "douban_apikey",
     "douban_baseurl",
     "douban_max_count",
+    "douban_v2_max_per_hour",
     "ujxsw_max_count",
     "auto_fill_meta",
+    "auto_fill_qpm",
+    "auto_fill_pause_on_throttle",
     "push_title",
     "push_content",
     "site_title",
@@ -176,6 +179,7 @@ class SettingsSaver:
         "BOOK_NAMES_FORMAT",          # Calibre path-naming hook applied at startup
         "ENABLE_TXT_TO_TXTZ_PLUGIN",  # Calibre plugin enabled/disabled at startup
         "LOG_LEVEL_DEBUG",            # Logging level configured in setup_logging() at startup
+        "douban_v2_max_per_hour",     # DoubanV2 RequestCounter built at plugin import time
     })
 
     def _check_restart_needed(self, args):

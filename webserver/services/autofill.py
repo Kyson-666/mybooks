@@ -15,6 +15,12 @@ from webserver.constants import AUTO_FILL_META, CALIBRE_COLUMN_TRANSLATORS
 
 CONF = loader.get_settings()
 
+# 限流暂停切片与上限：RequestCounter 窗口最长 5 分钟，正常一轮暂停远小于上限；
+# 连续暂停超过 PAUSE_MAX_ROUNDS 轮（约 2 小时）视为源持续不可用，中止本轮。
+PAUSE_SLICE_SECONDS = 5
+PAUSE_MAX_SECONDS = 30 * 60
+PAUSE_MAX_ROUNDS = 24
+
 
 class AutoFillService(AsyncService):
     """自动从网上拉取书籍信息，填充到DB中"""
@@ -43,14 +49,17 @@ class AutoFillService(AsyncService):
         }
 
     @AsyncService.register_service
-    def auto_fill_all(self, idlist: list, only_tags=False, force=False, qpm=60):
+    def auto_fill_all(self, idlist: list, only_tags=False, force=False, qpm=None):
         if not CONF.get(AUTO_FILL_META, False) and not force:
             logging.info("Auto-fill meta is disabled in settings, skipping auto_fill_all.")
             return
 
-        # 根据qpm，计算更新的间隔，避免刷爆豆瓣等服务
+        # 根据qpm，计算更新的间隔，避免刷爆豆瓣等服务；qpm 未显式给定时读设置
+        if not qpm:
+            qpm = max(1, int(CONF.get("auto_fill_qpm", 60) or 60))
         sleep_seconds = 60.0 / qpm
         batch_size = 10  # 每批处理的书籍数量
+        pause_on_throttle = bool(CONF.get("auto_fill_pause_on_throttle", True))
 
         # 设置运行状态
         self.is_running = True
@@ -59,6 +68,7 @@ class AutoFillService(AsyncService):
         self.count_skip = 0
         self.count_done = 0
         self.count_fail = 0
+        self._throttle_pause_rounds = 0
 
         # 创建后台任务
         try:
@@ -80,7 +90,10 @@ class AutoFillService(AsyncService):
             self.task_id = None
 
         # 分批处理，减少长时间持有数据库锁
+        throttle_aborted = False
         for batch_start in range(0, len(idlist), batch_size):
+            if throttle_aborted:
+                break
             batch_end = min(batch_start + batch_size, len(idlist))
             batch_ids = idlist[batch_start:batch_end]
 
@@ -102,6 +115,13 @@ class AutoFillService(AsyncService):
             # 第二阶段：网络请求获取信息（不持有数据库锁）
             updates = []
             for book_id, mi in books_to_update:
+                if pause_on_throttle and not self._throttle_pause():
+                    # 单次等待/连续暂停轮数超上限：源持续不可用，中止剩余待处理
+                    # 书目（已完成保留，任务照常收尾），下轮重扫或手动触发再补。
+                    logging.error(_("元数据源限流暂停超过上限，中止本轮自动填充，剩余书目下轮重扫或手动触发"))
+                    self._restore_progress()
+                    throttle_aborted = True
+                    break
                 time.sleep(sleep_seconds)
                 try:
                     if only_tags:
@@ -173,6 +193,76 @@ class AutoFillService(AsyncService):
         self.is_running = False
         self.current_book_id = None
         self.task_id = None
+
+    def _throttle_pause(self):
+        """元数据源（豆瓣 v2 等）预算耗尽时暂停批任务，定时自动续跑。
+
+        暂停态注册到右上角任务指示器：progress_data.stage=paused + resume_at
+        （epoch 秒）+ pause_reason，前端据此渲染“已限流暂停，HH:MM 自动继续”。
+        切片睡眠并复查预算（突发耗尽后的整窗拒绝也能等到恢复）。返回 False
+        表示应中止本轮：单次等待超 PAUSE_MAX_SECONDS 或连续暂停轮数超
+        PAUSE_MAX_ROUNDS——源持续不可用时不再无限空转。
+        """
+        while True:
+            wait = BookSearch.throttle_wait_seconds()
+            if not wait:
+                return True
+            wait = int(wait)
+            if wait > PAUSE_MAX_SECONDS or self._throttle_pause_rounds >= PAUSE_MAX_ROUNDS:
+                return False
+            self._throttle_pause_rounds += 1
+            resume_at = int(time.time() + wait)
+            logging.warning(_("元数据源请求频率已达上限，暂停 %d 秒后自动继续"), wait)
+            self._update_paused_progress(resume_at, wait)
+            deadline = time.time() + wait
+            while time.time() < deadline:
+                time.sleep(min(PAUSE_SLICE_SECONDS, max(0.05, deadline - time.time())))
+            self._restore_progress()
+
+    def _update_paused_progress(self, resume_at, wait_seconds):
+        if not self.task_id:
+            return
+        try:
+            BackgroundService().update_progress(
+                task_id=self.task_id,
+                progress=self._current_progress(),
+                progress_data={
+                    "total": self.count_total,
+                    "done": self.count_done,
+                    "skip": self.count_skip,
+                    "fail": self.count_fail,
+                    "stage": "paused",
+                    "pause_reason": "douban_v2_rate_limit",
+                    "resume_at": resume_at,
+                    "wait_seconds": int(wait_seconds),
+                },
+            )
+        except Exception as e:
+            logging.error(f"Failed to update paused progress: {e}")
+
+    def _restore_progress(self):
+        if not self.task_id:
+            return
+        try:
+            BackgroundService().update_progress(
+                task_id=self.task_id,
+                progress=self._current_progress(),
+                progress_data={
+                    "total": self.count_total,
+                    "done": self.count_done,
+                    "skip": self.count_skip,
+                    "fail": self.count_fail,
+                    "stage": "importing",
+                    "current_book_id": self.current_book_id,
+                },
+            )
+        except Exception as e:
+            logging.error(f"Failed to restore progress: {e}")
+
+    def _current_progress(self):
+        if not self.count_total:
+            return 0
+        return int((self.count_done + self.count_skip + self.count_fail) * 100 / self.count_total)
 
     @AsyncService.register_function
     def auto_fill(self, book_id, only_tags=False, force_update=False):
