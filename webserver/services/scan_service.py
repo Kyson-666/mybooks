@@ -104,10 +104,15 @@ class _TitleDedupIndex:
     （百万库每次 1-2s，Phase2 最大的既有瓶颈）：构建一次 O(库)，点查 O(log)。
 
     可丢弃派生数据：journal_mode=OFF + synchronous=OFF 换构建速度，崩溃安全
-    不需要（崩溃即丢，下轮重建）；内存只占 SQLite 页缓存——与已试败的
-    title_map 常驻内存方案（350-700MB/百万书）的本质区别。线程约定：仅
-    Phase2 worker 线程构建/查询/回填，不加锁。运行结束 close() 销毁；
-    weakref.finalize 兜底异常路径的临时文件清理。
+    不需要（崩溃即丢，下轮重建）；内存只占页缓存——与已试败的 title_map
+    常驻内存方案（350-700MB/百万书）的本质区别（构建期有一次 get_id_map 的
+    瞬态 dict 拷贝，约几十 MB/百万书，随构建完成释放）。线程约定：仅
+    Phase2 worker 线程构建/查询/回填，不加锁；close 在 join 后的主线程调用，
+    连接必须 check_same_thread=False。快照窗口：索引只反映构建时刻的书库 +
+    本 worker 回填，运行期间其他来源（网页上传/BookBarn 等）新增的书不可见，
+    极端并发下可能漏判重建重复书——已接受的取舍（单管理员 NAS 概率低，
+    do_import 互斥保证不会与另一轮扫描叠跑），下轮重扫自愈。运行结束
+    close() 销毁；weakref.finalize 兜底异常路径的临时文件清理。
     """
 
     def __init__(self, db):
@@ -119,9 +124,13 @@ class _TitleDedupIndex:
         self._conn = None
         title_map = db.new_api.get_id_map("title")
         fd, self._path = tempfile.mkstemp(prefix="scan_title_idx_", suffix=".sqlite")
+        os.close(fd)  # sqlite 按路径自行打开，mkstemp 的 fd 不关会逐轮泄漏
         weakref.finalize(self, _title_index_cleanup, self._path)
         try:
-            conn = sqlite3.connect(self._path)
+            # check_same_thread=False：连接在 worker 线程创建、close 在 join 后的
+            # 主线程调用；close 与 worker 无并发（join 已返回），可丢弃数据下
+            # 与 lingering worker 的理论并发最坏是一次被吞的 sqlite 异常
+            conn = sqlite3.connect(self._path, check_same_thread=False)
             conn.execute("PRAGMA journal_mode=OFF")
             conn.execute("PRAGMA synchronous=OFF")
             conn.execute("CREATE TABLE t (title_lc TEXT NOT NULL, book_id INTEGER NOT NULL)")
@@ -145,7 +154,10 @@ class _TitleDedupIndex:
             raise
 
     def lookup(self, title):
-        """同名候选书 id 集合；语义与 books_with_same_title 相同（空标题 → 空集）。"""
+        """同名候选书 id 集合；语义与 books_with_same_title 相同（空/falsy 标题
+        → 空集——照抄原实现的 if title: 前置守卫，非 str 输入也直返空集）。"""
+        if not title:
+            return set()
         key = self._icu_lower(self._force_unicode(title))
         if not key:
             return set()
@@ -1336,8 +1348,13 @@ class ScanService(AsyncService):
                 if row.book_id is not None:
                     idx = ScanService.static_title_index
                     if idx:
-                        # 运行内增量回填：本批后导入的同名书判重要能命中新书
-                        idx.add(mi.title, row.book_id)
+                        # 运行内增量回填：本批后导入的同名书判重要能命中新书。
+                        # best-effort：书已在 calibre，回填失败只丢加速不丢书，
+                        # 不能让异常把已成功的导入打成 INVALID
+                        try:
+                            idx.add(mi.title, row.book_id)
+                        except Exception as err:
+                            logging.warning("[IMPORT] Title index add failed for book_id=%s: %s", row.book_id, err)
                     if dynamic_cover:
                         if pending_fields is None:
                             self.db.new_api.set_field(CALIBRE_COLUMN_DYNAMIC_COVER, {row.book_id: 1})

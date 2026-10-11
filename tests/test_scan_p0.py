@@ -674,15 +674,19 @@ class TestTitleDedupDispatch(ScanP0TestBase):
             del self.svc._title_dedup_ids
 
 
+@unittest.skipUnless(HAS_CALIBRE, "needs calibre (real _import_one_file)")
 class TestTitleIndexEndToEnd(ScanP0TestBase):
     """运行内回填端到端（门限 patch 到 1 强制走索引）：同批同名第二本经索引
-    命中并入已有书，一次都不走 calibre 全库扫描，也不重复建书。"""
+    命中并入已有书，一次都不走 calibre 全库扫描，也不重复建书；收尾后
+    索引销毁、临时文件已删。"""
 
     def test_same_title_second_book_merges_via_index(self):
         db = FakeCalibreDB()
         self.svc.db = db
         f1 = self._touch(os.path.join("d1", "同名书.txt"), b"first-content-aaa")
         f2 = self._touch(os.path.join("d2", "同名书.txt"), b"second-content-bbb")
+        import glob as _glob
+        temp_files_before = set(_glob.glob(os.path.join(tempfile.gettempdir(), "scan_title_idx_*.sqlite")))
         with mock.patch.object(scan_service, "TITLE_INDEX_MIN_BOOKS", 1):
             self.svc.do_import_internal([f1, f2], 9)
         self.assertEqual(len(db.import_calls), 1)  # 第二本并入，不重复建书
@@ -692,6 +696,10 @@ class TestTitleIndexEndToEnd(ScanP0TestBase):
         statuses = sorted(r.status for r in self.session.query(ScanFile).all())
         self.assertEqual(statuses, [ScanFile.IMPORTED, ScanFile.IMPORTED])
         self.assertIsNone(ScanService.static_title_index)  # 收尾销毁
+        # 临时索引文件必须已删（close 跨线程生效性回归钉——check_same_thread 缺失时
+        # 此断言在 Windows 上稳定失败）
+        temp_files_after = set(_glob.glob(os.path.join(tempfile.gettempdir(), "scan_title_idx_*.sqlite")))
+        self.assertEqual(temp_files_after - temp_files_before, set())
 
 
 class TestPersistFailureGate(ScanP0TestBase):
