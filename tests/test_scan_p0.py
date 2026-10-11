@@ -687,7 +687,7 @@ class TestTitleDedupDispatch(ScanP0TestBase):
         self.svc.do_import_internal(files, 9)
         mock_index.close.assert_called_once()
         self.assertIsNone(ScanService.static_title_index)
-        self.assertEqual(ScanService.static_title_index_total, 3)  # 每轮按本轮书目数重置
+        self.assertEqual(ScanService.static_title_index_total, 0)  # 收尾连门限一起清：lingering worker 不再重建孤儿索引
 
     def _restore_dedup_ids(self):
         if "_title_dedup_ids" in self.svc.__dict__:

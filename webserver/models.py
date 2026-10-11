@@ -501,7 +501,9 @@ class ScanDirSnapshot(Base, SQLAlchemyMixin):
 
     @staticmethod
     def hash_for(dir_path):
-        return hashlib.sha256(dir_path.encode("utf-8")).hexdigest()
+        # surrogateescape：挂载点/病态文件名可能带不可编码字节，直接 encode 会让
+        # 整个快照提交事务 rollback、增量剪枝永久失效；写读同函数，键自洽
+        return hashlib.sha256(dir_path.encode("utf-8", "surrogateescape")).hexdigest()
 
     def __init__(self, dir_path, mtime_ns, entry_count):
         super(ScanDirSnapshot, self).__init__()

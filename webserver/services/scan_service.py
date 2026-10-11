@@ -439,7 +439,7 @@ class ScanService(AsyncService):
         if outcomes["dropped_rows"] or outcomes["dropped_items"]:
             _uncount_all(outcomes["dropped_rows"])
             if outcomes["dropped_items"]:
-                logging.error("[IMPORT] Phase2 dropped %d item link(s): books exist but user link lost, next run re-links", outcomes["dropped_items"])
+                logging.error("[IMPORT] Phase2 dropped %d item link(s): books exist but user link lost; restore by deleting the book and re-importing", outcomes["dropped_items"])
         batch_row_status.clear()
 
     def _apply_phase1_batch(self, session, staged):
@@ -849,7 +849,11 @@ class ScanService(AsyncService):
         vacuum 删两类：扫描根内磁盘上已无的目录 + 已不在
         当前扫描根内的残留行（换过 scan_upload_path 的陈旧水位）。
         """
-        if not scan_root:
+        # realpath("") = cwd（truthy），仅判 not scan_root 挡不住未配置/卷掉挂：
+        # 两种情况下 vacuum 的 not under_root 会把全部快照行清空（方向安全——
+        # 下轮全量重建——但纯浪费），scan_root 必须是真实存在的目录才落盘。
+        if not scan_root or not os.path.isdir(scan_root):
+            logging.warning("[IMPORT] Snapshot commit skipped: scan root missing or not a directory")
             return
         if ScanService.static_abort_flag:
             logging.info("[IMPORT] Snapshot commit skipped (aborted)")
@@ -1356,11 +1360,17 @@ class ScanService(AsyncService):
                     if idx:
                         # 运行内增量回填：本批后导入的同名书判重要能命中新书。
                         # best-effort：书已在 calibre，回填失败只丢加速不丢书，
-                        # 不能让异常把已成功的导入打成 INVALID
+                        # 不能让异常把已成功的导入打成 INVALID；降级置 False
+                        # 防止条目缺失导致同批同名漏判重、重复建书
                         try:
                             idx.add(mi.title, row.book_id)
                         except Exception as err:
                             logging.warning("[IMPORT] Title index add failed for book_id=%s: %s", row.book_id, err)
+                            try:
+                                idx.close()
+                            except Exception:
+                                pass
+                            ScanService.static_title_index = False
                     if dynamic_cover:
                         if pending_fields is None:
                             self.db.new_api.set_field(CALIBRE_COLUMN_DYNAMIC_COVER, {row.book_id: 1})
@@ -1828,7 +1838,14 @@ class ScanService(AsyncService):
         # 提交窗口封顶：百万级 filelist 的未收割 future 不能常驻内存，超窗按提交序
         # 阻塞收割队头（天然背压）。线程池线程非 daemon：进程退出时若有哈希卡在
         # 病态文件系统上会等它——旧串行路径同位置同样卡，接受为已知取舍。
-        hash_workers = max(1, int(CONF.get("scan_hash_workers", 4) or 1))
+        # 解析绝不外抛：此时 importing_thread 已启动，异常外抛会泄漏挂在 get()
+        # 上的 daemon worker 与 scoped session（对齐 _normalize_scope 的同款取舍）；
+        # auto.py 手写脏值回退默认 4
+        try:
+            hash_workers = max(1, int(CONF.get("scan_hash_workers", 4) or 1))
+        except (TypeError, ValueError):
+            logging.warning("[IMPORT] Invalid scan_hash_workers value, fallback to 4")
+            hash_workers = 4
         hash_pool = None
         if hash_workers > 1:
             hash_pool = ThreadPoolExecutor(max_workers=hash_workers, thread_name_prefix="scan_hash")
@@ -1912,7 +1929,9 @@ class ScanService(AsyncService):
             importing_thread.join()
 
         # 标题判重索引为可丢弃派生数据：无论成败收尾即销毁（weakref.finalize 兜底
-        # 异常路径——对象被回收时临时文件自动清理）。
+        # 异常路径——对象被回收时临时文件自动清理）。先清门限：abort 超时被放弃的
+        # lingering worker 脱困后不再重建孤儿索引。
+        ScanService.static_title_index_total = 0
         title_index = ScanService.static_title_index
         if title_index:
             try:
