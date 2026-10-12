@@ -23,35 +23,58 @@
 
     <v-sheet elevation="2" class="settings-group-bar">
       <div class="settings-group-bar-row d-flex align-center">
-        <v-text-field
-          v-model="searchQ"
-          class="settings-search"
-          dense
-          outlined
-          rounded
-          hide-details
-          prepend-inner-icon="mdi-magnify"
-          :placeholder="$t('settings.search_placeholder')"
-        ></v-text-field>
-        <v-chip v-if="dirtyCount > 0" color="orange" text-color="white" small class="settings-status-chip">
-          {{ $t('settings.unsaved_changes', { n: dirtyCount }) }}
-        </v-chip>
-        <v-chip v-else color="green" text-color="white" small class="settings-status-chip">
-          {{ $t('settings.all_saved') }}
-        </v-chip>
-      </div>
-      <div class="settings-group-chips">
-        <v-chip
-          v-for="g in groups"
-          :key="g.id"
-          :color="activeGroup === g.id && !searchQuery ? 'primary' : ''"
-          :text-color="activeGroup === g.id && !searchQuery ? 'white' : ''"
-          @click="selectGroup(g.id)"
-        >
-          <v-icon x-small left>{{ g.icon }}</v-icon>
-          {{ $t(g.title) }}
-          <span class="settings-group-count ml-1">{{ g.count }}</span>
-        </v-chip>
+        <div class="settings-seg" role="tablist">
+          <button
+            v-for="g in groups"
+            :key="g.id"
+            type="button"
+            role="tab"
+            class="settings-seg-btn"
+            :class="{ 'is-active': activeGroup === g.id && !searchQuery }"
+            :aria-selected="activeGroup === g.id && !searchQuery"
+            @click="selectGroup(g.id)"
+          >
+            <v-icon x-small>{{ g.icon }}</v-icon>
+            {{ $t(g.title) }}
+            <span class="settings-seg-bar" :style="{ background: groupAccent(g.id) }"></span>
+          </button>
+        </div>
+        <div class="settings-bar-right d-flex align-center">
+          <v-chip v-if="dirtyCount > 0" color="orange" text-color="white" small class="settings-status-chip">
+            {{ $t('settings.unsaved_changes', { n: dirtyCount }) }}
+          </v-chip>
+          <v-chip v-else color="green" text-color="white" small class="settings-status-chip">
+            {{ $t('settings.all_saved') }}
+          </v-chip>
+          <v-btn
+            v-if="!searchOpen"
+            icon
+            class="settings-search-btn"
+            :aria-label="$t('settings.search_placeholder')"
+            @click="openSearch"
+          >
+            <v-icon>mdi-magnify</v-icon>
+          </v-btn>
+          <v-expand-x-transition>
+            <v-text-field
+              v-show="searchOpen"
+              ref="searchField"
+              v-model="searchQ"
+              class="settings-search settings-search-expanded"
+              dense
+              outlined
+              rounded
+              hide-details
+              prepend-inner-icon="mdi-magnify"
+              append-icon="mdi-close"
+              :placeholder="$t('settings.search_placeholder')"
+              :aria-label="$t('settings.search_placeholder')"
+              @click:append="closeSearch"
+              @keydown.esc="closeSearch"
+              @blur="onSearchBlur"
+            ></v-text-field>
+          </v-expand-x-transition>
+        </div>
       </div>
     </v-sheet>
 
@@ -84,6 +107,7 @@
     <template v-else>
       <div v-for="g in currentGroups" :key="g.id">
         <div class="d-flex align-center flex-wrap mt-4 mb-2">
+          <span class="settings-group-title-bar" :style="{ background: groupAccent(g.id) }"></span>
           <v-icon large color="primary" class="mr-3">{{ g.icon }}</v-icon>
           <div class="flex-grow-1">
             <div class="text-h5 font-weight-medium">{{ $t(g.title) }}</div>
@@ -111,9 +135,9 @@
               </p>
             </template>
 
-            <div class="pl-6" v-if="s.fields && s.fields.length">
+            <div class="pl-6" v-if="s.fields && s.fields.length" :class="{ 'settings-fields-2col': s.fields.some((x) => x.half) }">
             <template v-for="f in s.fields">
-              <div :key="'w-' + f.key" :id="'f-' + f.key">
+              <div :key="'w-' + f.key" :id="'f-' + f.key" :class="f.half ? 'settings-field-half' : 'settings-field-full'">
               <v-checkbox
                 small
                 hide-details
@@ -998,6 +1022,7 @@ import ReadingRangeDialog from "~/components/ReadingRangeDialog.vue";
 import BookNavEditor, { createCategory } from "~/components/BookNavEditor.vue";
 import ReaderDictEditor from "~/components/ReaderDictEditor.vue";
 import { languageOptions } from "~/utils/languageCodes";
+import { isHexColor, DEFAULT_ACCENT } from "~/utils/appearance";
 
 const LITE_GROUPS = [
   "LITE_GROUP_LISTING",
@@ -1035,6 +1060,10 @@ const SPECIAL_BLOCKS = [
   { key: "CACHE_MAX_MB", label: "settings.thumb_cache_size", icon: "mdi-image-multiple-outline", gid: "ops", sid: "ops-perf" },
   { key: "TRASH", label: "settings.trash_clear_button", icon: "mdi-delete", gid: "ops", sid: "ops-trash", al: ["回收站", "磁盘", "清理"] },
 ];
+
+// 激活分组下色条 + 组标题竖条：默认跟随站点主色 accent（外观菜单里的「主色」），
+// 换主色即时跟随
+// （uiverse 分段 pill 的形态借鉴，样式为本仓 clean-room 实现）
 
 // 用户口语搜索词（中文为主）→ 设置项 key
 const SEARCH_ALIASES = {
@@ -1309,10 +1338,10 @@ export default {
                 ],
               },
               { icon: "mdi-eye-outline", key: "homepage-display-heading", label: "settings.homepage_display", type: "subtitle" },
-              { icon: "mdi-chart-line", key: "ENABLE_HOMEPAGE_READING_STATS", label: "settings.enable_homepage_reading_stats", type: "checkbox" },
-              { icon: "mdi-book-open-page-variant-outline", key: "ENABLE_HOMEPAGE_READING_BOOKS", label: "settings.enable_homepage_reading_books", type: "checkbox" },
-              { icon: "mdi-format-list-bulleted-square", key: "ENABLE_HOMEPAGE_BOOKLISTS", label: "settings.enable_homepage_booklists", type: "checkbox" },
-              { icon: "mdi-thumb-up-outline", key: "ENABLE_BOOK_RECOMMEND_TO_OTHERS", label: "settings.enable_book_recommend_to_others", type: "checkbox" },
+              { icon: "mdi-chart-line", key: "ENABLE_HOMEPAGE_READING_STATS", label: "settings.enable_homepage_reading_stats", type: "checkbox", half: true },
+              { icon: "mdi-book-open-page-variant-outline", key: "ENABLE_HOMEPAGE_READING_BOOKS", label: "settings.enable_homepage_reading_books", type: "checkbox", half: true },
+              { icon: "mdi-format-list-bulleted-square", key: "ENABLE_HOMEPAGE_BOOKLISTS", label: "settings.enable_homepage_booklists", type: "checkbox", half: true },
+              { icon: "mdi-thumb-up-outline", key: "ENABLE_BOOK_RECOMMEND_TO_OTHERS", label: "settings.enable_book_recommend_to_others", type: "checkbox", half: true },
             ],
           },
           {
@@ -1947,17 +1976,6 @@ export default {
       },
     ];
 
-    this.groups.forEach((g) => {
-      g.count = 0;
-      g.sections.forEach((s) => {
-        s.count =
-          (s.fields || []).length +
-          (s.groups || []).reduce((n, x) => n + 1 + (x.fields || []).length, 0) +
-          (s.special ? 1 : 0);
-        g.count += s.count;
-      });
-    });
-
     this.$backend("/admin/settings").then((rsp) => {
       this.sns_items = rsp.sns;
       this.settings = rsp.settings;
@@ -2042,6 +2060,8 @@ export default {
     groups: [],
     activeGroup: "site",
     searchQ: "",
+    // 搜索框是否展开（收起态只显示放大镜图标，点开才出现输入框）
+    searchOpen: false,
     // 搜索跳转的视图层展开状态（key = 嵌套开关 grp.key），不触碰真实设置值
     forceOpen: {},
     bookNavList: [],
@@ -2351,13 +2371,36 @@ export default {
         e.returnValue = "";
       }
     },
+    // 入参保留分组 id（调用侧 groupAccent(g.id) 不变），色值当前统一取站点主色 accent
+    groupAccent(_id) {
+      const ap = this.$store && this.$store.state && this.$store.state.appearance;
+      const a = ap && ap.accent;
+      return isHexColor(a) ? a.toLowerCase() : DEFAULT_ACCENT;
+    },
+    openSearch() {
+      this.searchOpen = true;
+      this.$nextTick(() => {
+        const f = this.$refs.searchField;
+        if (f && f.focus) f.focus();
+      });
+    },
+    closeSearch() {
+      this.searchQ = "";
+      this.searchOpen = false;
+    },
+    onSearchBlur() {
+      // 失焦且输入为空时自动收起；有输入时保持展开，方便点选搜索结果
+      if (!this.searchQuery) this.searchOpen = false;
+    },
     selectGroup(id) {
       this.searchQ = "";
+      this.searchOpen = false;
       this.activeGroup = id;
       if (process.client) window.scrollTo({ top: 0 });
     },
     jumpTo(r) {
       this.searchQ = "";
+      this.searchOpen = false;
       this.activeGroup = r.gid;
       if (r.parentKey) {
         // 只做视图层展开：写真实 settings 会静默开启 INVITE_MODE 等父开关并计入未保存数
@@ -2733,56 +2776,148 @@ export default {
   margin-bottom: 12px;
 }
 .settings-group-bar-row {
-  position: relative;
+  gap: 10px;
+  flex-wrap: wrap;
 }
-.settings-group-bar .settings-search {
-  flex: 0 1 360px;
-  margin: 0 auto;
+/* iOS 分段式分组条（形态借鉴 uiverse Zanina 分段 tab，样式为本仓 clean-room 实现）：
+   灰底容器 + 激活项高亮 + 品牌主色条；8 个按钮均分整行，圆角跟随 --app-radius
+  （与右上角外观菜单的按钮圆角同一变量） */
+.settings-seg {
+  display: grid;
+  grid-template-columns: repeat(8, minmax(0, 1fr));
+  flex: 1 1 auto;
+  gap: 2px;
+  min-width: 0;
+  background: #e8e8e8;
+  border-radius: var(--app-radius, 4px);
+  padding: 4px;
+}
+.settings-seg-btn {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  gap: 4px;
+  border: 0;
+  background: transparent;
+  border-radius: var(--app-radius, 4px);
+  padding: 6px 8px 9px;
+  font-size: 13px;
+  line-height: 1.4;
+  color: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.settings-seg-btn:hover {
+  background: rgba(0, 0, 0, 0.06);
+}
+.settings-seg-btn.is-active {
+  background: #fff;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.18);
+  font-weight: 500;
+}
+.settings-seg-btn:focus-visible {
+  outline: 2px solid #1976d2;
+  outline-offset: 1px;
+}
+.settings-seg-btn .v-icon {
+  margin-right: 2px;
+}
+/* 激活项下方品牌主色条（与组标题竖条同色呼应） */
+.settings-seg-bar {
+  position: absolute;
+  left: 14px;
+  right: 14px;
+  bottom: 3px;
+  height: 3px;
+  border-radius: 2px;
+  opacity: 0;
+}
+.settings-seg-btn.is-active .settings-seg-bar {
+  opacity: 1;
+}
+/* 组标题左侧竖条，与 pill 色条同色 */
+.settings-group-title-bar {
+  width: 4px;
+  align-self: stretch;
+  min-height: 36px;
+  border-radius: 2px;
+  margin-right: 2px;
+}
+.theme--dark .settings-seg {
+  background: #2b2b2b;
+}
+.theme--dark .settings-seg-btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+.theme--dark .settings-seg-btn.is-active {
+  background: #424242;
+}
+/* 右侧：状态 chip + 搜索图标/展开框 */
+.settings-bar-right {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+  flex: 0 0 auto;
+}
+.settings-status-chip {
+  position: static;
+  transform: none;
+  flex: 0 0 auto;
+}
+.settings-search-btn {
+  flex: 0 0 auto;
+}
+.settings-group-bar .settings-search-expanded {
+  flex: 0 1 260px;
+  margin: 0;
 }
 .settings-search .v-input__slot,
 .settings-search fieldset {
   border-radius: 9999px !important;
 }
-.settings-status-chip {
-  position: absolute;
-  right: 0;
-  top: 50%;
-  transform: translateY(-50%);
-}
 @media (max-width: 599.98px) {
-  /* 窄屏：状态 chip 回归常规布局，搜索框占满剩余宽度，避免绝对定位遮挡输入框 */
-  .settings-status-chip {
-    position: static;
-    transform: none;
-    flex: 0 0 auto;
-    margin-left: 10px;
+  /* 窄屏：分段条独占一行，4 列 × 2 行仍保持均分；右侧控件另起一行靠右；
+     展开的搜索框占满整行 */
+  .settings-seg {
+    flex: 1 1 100%;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
   }
-  .settings-group-bar .settings-search {
-    flex: 1 1 auto;
-    margin: 0;
+  .settings-bar-right {
+    flex: 1 1 100%;
+    margin-left: 0;
+    justify-content: flex-end;
+  }
+  .settings-group-bar .settings-search-expanded {
+    flex: 1 1 100%;
   }
   /* savebar 换行变高后加厚底部留白，避免遮挡最后几个字段 */
   .settings-page-root {
     padding-bottom: 128px;
   }
 }
-.settings-group-bar .v-chip {
-  border-radius: 9999px !important;
-}
-.settings-group-chips {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 6px;
-  padding: 10px 2px 0;
-}
-.settings-group-count {
-  font-size: 11px;
-  opacity: 0.85;
-}
 .settings-result {
   border-bottom: 1px solid #eee;
   cursor: pointer;
+}
+/* 含 half 字段的小节：half 项两列排布（对标 checkbox_list 的 sm=6），其余项独占整行 */
+.settings-fields-2col {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  column-gap: 16px;
+  align-items: start;
+}
+.settings-fields-2col > div:not(.settings-field-half) {
+  grid-column: 1 / -1;
+}
+@media (max-width: 599.98px) {
+  .settings-fields-2col {
+    grid-template-columns: 1fr;
+  }
 }
 .settings-result:hover,
 .settings-result:focus {
