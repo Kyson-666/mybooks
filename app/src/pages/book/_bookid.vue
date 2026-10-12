@@ -558,8 +558,8 @@
                                 </p>
                                 <br />
                                 <div class="authors-container">
-                                    <template v-for="(author, index) in book.authors.slice(0, 5)" :key="'author-' + index">
-                                        <div class="author-item">
+                                    <template v-for="(author, index) in book.authors.slice(0, 5)">
+                                        <div class="author-item" :key="'author-' + index">
                                             <nuxt-link v-if="showUserInfo" :to="{ path: '/author', query: { name: author } }" style="text-decoration: none;">
                                                 <v-img :src="authorAvatarUrl(author)" alt="author-avatar"
                                                         class="author-avatar"></v-img>
@@ -575,8 +575,8 @@
                                             </v-tooltip>
                                         </div>
                                     </template>
-                                    <template v-for="(translator, index) in book.translators.slice(0, 2)" :key="'translator-' + index">
-                                        <div class="author-item">
+                                    <template v-for="(translator, index) in book.translators.slice(0, 2)">
+                                        <div class="author-item" :key="'translator-' + index">
                                             <nuxt-link v-if="showUserInfo" :to="{ path: '/author', query: { name: translator } }" style="text-decoration: none;">
                                                 <v-img :src="authorAvatarUrl(translator)" alt="author-avatar"
                                                         class="author-avatar"></v-img>
@@ -618,8 +618,9 @@
                                         @blur="cancelEditLocation"
                                     ></v-text-field>
                                 </span>
-                                <template v-for="(file, index) in book.files.slice(0, 3)" :key="'file-size-' + index">
+                                <template v-for="(file, index) in book.files.slice(0, 3)">
                                     <span
+                                        :key="'file-size-' + index"
                                         color="grey--text"
                                         style="font-weight: bold"
                                     >{{ '&nbsp;&nbsp;' }}[{{ file.format }} - {{ file.size >= 1048576 ? parseInt(file.size / 1048576) + 'MB' : parseInt(file.size / 1024) + 'KB' }}]</span>
