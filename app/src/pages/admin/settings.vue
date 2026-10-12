@@ -1065,132 +1065,464 @@ const SPECIAL_BLOCKS = [
 // 换主色即时跟随
 // （uiverse 分段 pill 的形态借鉴，样式为本仓 clean-room 实现）
 
-// 用户口语搜索词（中文为主）→ 设置项 key
+// 用户口语搜索词 → 设置项 key。分简体(zh)/繁体(zh-TW)/英文(en)三层，下面 ALIAS_LOOKUP
+// 会把三层并成一张查找表，因此与界面语言无关：简中界面能搜 "guest"，英文界面能搜「快取」，
+// 繁中界面也能搜「缓存」。维护约定：
+//   · 拉丁词条一律小写（查询串已 toLowerCase），只按整词命中；
+//   · 中文词条会作为子串参与组合词匹配（「访客权限」⊃「访客」、「推送设备」⊃「推送」+「设备」），
+//     所以组合词不必逐条登记；
+//   · 值只能写本页真实存在的设置项 key（见 groups / SPECIAL_BLOCKS），写错等于白写。
 const SEARCH_ALIASES = {
-  // 站点标识
-  站名: ["site_title"], 名称: ["site_title", "DEVICES"], 标题: ["site_title", "push_title"],
-  图标: ["site_icon"], favicon: ["site_icon"], logo: ["site_icon"],
-  公告: ["HEADER"], 通知: ["HEADER", "SEND_MAIL_FOR_NEW_BOOKS"],
-  脚注: ["FOOTER"], 页脚: ["FOOTER"],
-  水印: ["FOOTER_WATERMARK"],
-  语言: ["site_language", "DEFAULT_LANGUAGE"], 中文: ["site_language"], english: ["site_language"], 繁体: ["site_language"], 切换: ["site_language"],
-  主页: ["INDEX_PAGE_TYPE", "MAIN_PAGE_RANDOM_COUNT", "MAIN_PAGE_RECENT_COUNT"], 默认页: ["INDEX_PAGE_TYPE"],
-  项目链接: ["HIDE_PROJECT_LINKS"], 隐藏链接: ["HIDE_PROJECT_LINKS"],
-  // 首页与列表
-  随机: ["MAIN_PAGE_RANDOM_COUNT"], 推荐: ["RECOMMEND_ENABLE", "RECOMMEND_USE_CROWD", "ENABLE_BOOK_RECOMMEND_TO_OTHERS", "MAIN_PAGE_RANDOM_COUNT"], 智能: ["RECOMMEND_ENABLE"],
-  协同: ["RECOMMEND_USE_CROWD"],
-  分页: ["DEFAULT_PAGE_SIZE"], 每页: ["DEFAULT_PAGE_SIZE"],
-  侧边栏: ["SIDEBAR_ITEMS"], 侧栏: ["SIDEBAR_ITEMS"], 菜单: ["SIDEBAR_ITEMS"],
-  统计: ["ENABLE_HOMEPAGE_READING_STATS", "ALLOW_USER_DISABLE_STATISTIC"], banner: ["ENABLE_HOMEPAGE_READING_STATS"],
-  在读: ["ENABLE_HOMEPAGE_READING_BOOKS"],
-  书单: ["ENABLE_HOMEPAGE_BOOKLISTS", "BOOK_NAV"],
-  // 分类设置
-  分类: ["BOOK_NAV", "IMPORT_CATEGORY_WITH_FOLDER", "ENABLE_FOLDER_BROWSE", "AI_ALLOW_SET_CATEGORY"], 导航: ["BOOK_NAV"], 标签: ["BOOK_NAV"],
-  // 阅读器与同步
-  阅读器: ["EPUB_VIEWER", "DEVICES"], epub: ["EPUB_VIEWER"], epubjs: ["EPUB_VIEWER"], myreader: ["EPUB_VIEWER", "ENABLE_DATA_SYNC"],
-  同步: ["ENABLE_DATA_SYNC", "ENABLE_WEBDAV_SERVICE", "WEBDAV_SYNC_FOLDER"], 进度: ["ENABLE_DATA_SYNC"],
-  封面: ["USE_DYNAMIC_COVER", "ENABLE_STAMP_FEATURE", "THUMB_CACHE"],
-  作者: ["ENABLE_AUTHOR_INFO"], 简介: ["ENABLE_AUTHOR_INFO"], 头像: ["ENABLE_AUTHOR_INFO"],
-  隐私: ["ALLOW_USER_DISABLE_STATISTIC"], 采集: ["ALLOW_USER_DISABLE_STATISTIC"],
-  笔记: ["ENABLE_SHARED_NOTES"], 划线: ["ENABLE_SHARED_NOTES"], 标注: ["ENABLE_SHARED_NOTES"],
-  // 词典
-  词典: ["READER_MYDICTS", "READER_DICT_MYBOOKS_ENABLED", "READER_DICT_BAIKE_ENABLED"],
-  字典: ["READER_MYDICTS", "READER_DICT_MYBOOKS_ENABLED", "READER_DICT_BAIKE_ENABLED"],
-  翻译: ["READER_MYDICTS", "READER_DICT_MYBOOKS_ENABLED", "READER_DICT_BAIKE_ENABLED"],
-  生词: ["READER_MYDICTS"],
-  百科: ["READER_DICT_BAIKE_ENABLED"], 百度百科: ["READER_DICT_BAIKE_ENABLED"],
-  // 书评与互动
-  评论: ["ENABLE_BOOK_REVIEW", "REVIEW_REQUIRES_APPROVAL", "ENABLE_BOOK_RECOMMEND_TO_OTHERS"], 评分: ["ENABLE_BOOK_REVIEW"], 书评: ["ENABLE_BOOK_REVIEW"], 打分: ["ENABLE_BOOK_REVIEW"],
-  审核: ["REVIEW_REQUIRES_APPROVAL", "ENABLE_AUTO_NEW_USER_APPROVAL"],
-  // 实体书与图章
-  实体书: ["ENABLE_PHYSICAL_BOOKS", "ENABLE_BOOKS_TYPE_CONVERT_DIRECT"], 纸书: ["ENABLE_PHYSICAL_BOOKS"], 纸质书: ["ENABLE_PHYSICAL_BOOKS"],
-  类型转换: ["ENABLE_BOOKS_TYPE_CONVERT_DIRECT"],
-  文件夹: ["ENABLE_FOLDER_BROWSE"], 层级: ["ENABLE_FOLDER_BROWSE"],
-  图章: ["ENABLE_STAMP_FEATURE"], 盖章: ["ENABLE_STAMP_FEATURE"], 印章: ["ENABLE_STAMP_FEATURE"],
-  // 访客权限
-  访客: ["ALLOW_GUEST_READ", "ALLOW_GUEST_DOWNLOAD", "ALLOW_GUEST_UPLOAD", "ALLOW_GUEST_PUSH"],
-  游客: ["ALLOW_GUEST_READ", "ALLOW_GUEST_DOWNLOAD", "ALLOW_GUEST_UPLOAD", "ALLOW_GUEST_PUSH"],
-  匿名: ["ALLOW_GUEST_READ", "ALLOW_GUEST_DOWNLOAD"], 免登录: ["ALLOW_GUEST_READ", "ALLOW_GUEST_DOWNLOAD", "ALLOW_GUEST_UPLOAD", "ALLOW_GUEST_PUSH"],
-  // 注册与邀请
-  邀请: ["INVITE_MODE", "INVITE_CODE"], 私人: ["INVITE_MODE"], 访问码: ["INVITE_MODE", "INVITE_CODE"], 注册码: ["INVITE_CODE", "INVITE_MODE"], 邀请码: ["INVITE_CODE", "INVITE_MODE"], 封闭: ["INVITE_MODE"],
-  提示语: ["INVITE_MESSAGE"], 欢迎语: ["INVITE_MESSAGE"],
-  注册: ["ALLOW_REGISTER", "SIGNUP_MAIL_TITLE", "ENABLE_AUTO_NEW_USER_APPROVAL"], 开放注册: ["ALLOW_REGISTER"],
-  激活: ["SIGNUP_MAIL_TITLE", "SIGNUP_MAIL_CONTENT"],
-  重置: ["RESET_MAIL_TITLE", "RESET_MAIL_CONTENT"], 找回: ["RESET_MAIL_TITLE", "RESET_MAIL_CONTENT"],
-  密码: ["smtp_password", "cookie_secret", "INVITE_CODE", "AI_DEEPSEEK_API_KEY", "BOOKBARN_TOKEN", "RESET_MAIL_TITLE"],
-  审批: ["ENABLE_AUTO_NEW_USER_APPROVAL"], 自动审批: ["ENABLE_AUTO_NEW_USER_APPROVAL"],
-  // 默认权限与配额
-  新用户: ["ALLOW_NEW_USER_MANAGE_BOOK", "ALLOW_NEW_USER_PUSH_BOOK", "ENABLE_AUTO_NEW_USER_APPROVAL", "DEFAULT_READ_RANGE"],
-  权限: ["ALLOW_NEW_USER_MANAGE_BOOK", "ALLOW_NEW_USER_PUSH_BOOK", "ALLOW_READ_RANGE_SETTING"],
-  白名单: ["ALLOW_READ_RANGE_SETTING", "DEFAULT_READ_RANGE"], 黑名单: ["ALLOW_READ_RANGE_SETTING", "DEFAULT_READ_RANGE"],
-  可见: ["ALLOW_READ_RANGE_SETTING", "DEFAULT_READ_RANGE"], 屏蔽: ["ALLOW_READ_RANGE_SETTING", "DEFAULT_READ_RANGE"],
-  范围: ["ALLOW_READ_RANGE_SETTING", "DEFAULT_READ_RANGE"],
-  配额: ["ENABLE_DOWNLOAD_QUOTA", "GLOBAL_DOWNLOAD_QUOTA"], 下载: ["ENABLE_DOWNLOAD_QUOTA", "GLOBAL_DOWNLOAD_QUOTA", "ALLOW_GUEST_DOWNLOAD"], 每日: ["ENABLE_DOWNLOAD_QUOTA", "GLOBAL_DOWNLOAD_QUOTA"],
-  // 社交登录
-  登录: ["SOCIALS", "ALLOW_REGISTER", "INVITE_MODE"], 第三方: ["SOCIALS"], 社交: ["SOCIALS"], oauth: ["SOCIALS"], qq: ["SOCIALS"], 微信: ["SOCIALS"], 微博: ["SOCIALS"], github: ["SOCIALS"],
-  // 上传
-  扫描: ["scan_upload_path", "PDF_TILE_WITH_FILE_NAME"], 批量: ["scan_upload_path", "BATCH_ADD_IN_FORCE"],
-  上传: ["MAX_UPLOAD_SIZE", "CHUNK_UPLOAD_SIZE", "scan_upload_path", "ALLOW_GUEST_UPLOAD", "KEEP_UPLOAD_SOURCE_FILE"],
-  大小: ["MAX_UPLOAD_SIZE", "CACHE_MAX_MB"], 文件大小: ["MAX_UPLOAD_SIZE"],
-  分片: ["CHUNK_UPLOAD_SIZE"], 大文件: ["CHUNK_UPLOAD_SIZE"],
-  元数据: ["auto_fill_meta", "META_SELECTED_SOURCES", "DEFAULT_LANGUAGE"],
-  源文件: ["KEEP_UPLOAD_SOURCE_FILE", "REMOVE_IMPORTED_FILE"], 保留: ["KEEP_UPLOAD_SOURCE_FILE"],
-  // 导入规则
-  pdf: ["PDF_TILE_WITH_FILE_NAME"], 文件名: ["PDF_TILE_WITH_FILE_NAME", "BOOK_NAMES_FORMAT"], 书名: ["PDF_TILE_WITH_FILE_NAME"],
-  txt: ["ENABLE_TXT_TO_TXTZ_PLUGIN"], txtz: ["ENABLE_TXT_TO_TXTZ_PLUGIN"], 转换: ["ENABLE_TXT_TO_TXTZ_PLUGIN", "convert_timeout"],
-  服务端: ["ENABLE_SERVER_FILE_IMPORT"],
-  isbn: ["BATCH_ADD_IN_FORCE"], 强制: ["BATCH_ADD_IN_FORCE"], 无效: ["BATCH_ADD_IN_FORCE"],
-  重复: ["UPLOAD_IGNORE_TITLE_CHECKING"], 同书: ["UPLOAD_IGNORE_TITLE_CHECKING"], 查重: ["UPLOAD_IGNORE_TITLE_CHECKING"],
-  // 自动导入
-  监控: ["IMPORT_BY_INOTIFY", "UPDATE_CATEGORY_WITH_FOLDER_RENAME"], 自动导入: ["IMPORT_BY_INOTIFY"], inotify: ["IMPORT_BY_INOTIFY"], 监视: ["IMPORT_BY_INOTIFY"],
-  重命名: ["UPDATE_CATEGORY_WITH_FOLDER_RENAME"],
-  // 存储布局
-  拼音: ["BOOK_NAMES_FORMAT"], utf8: ["BOOK_NAMES_FORMAT"], 存储: ["BOOK_NAMES_FORMAT", "TRASH"],
-  // 邮件服务
-  smtp: ["smtp_server", "smtp_username", "smtp_password", "smtp_encryption"], 服务器: ["smtp_server"], 账号: ["smtp_username"],
-  授权码: ["smtp_password"], 加密: ["smtp_encryption"], ssl: ["smtp_encryption", "SSL"], tls: ["smtp_encryption"], 端口: ["smtp_server", "smtp_encryption"],
-  邮件: ["smtp_server", "smtp_username", "smtp_password", "smtp_encryption", "push_title", "push_content", "SEND_MAIL_FOR_NEW_BOOKS", "SIGNUP_MAIL_TITLE", "SIGNUP_MAIL_CONTENT", "RESET_MAIL_TITLE", "RESET_MAIL_CONTENT"],
-  邮箱: ["smtp_server", "smtp_username", "smtp_password", "smtp_encryption", "push_title", "SEND_MAIL_FOR_NEW_BOOKS"],
-  推送: ["DEVICES", "push_title", "push_content", "SEND_MAIL_FOR_NEW_BOOKS", "ALLOW_GUEST_PUSH", "ALLOW_NEW_USER_PUSH_BOOK", "smtp_server"],
-  kindle: ["DEVICES", "push_title", "smtp_server"], 正文: ["push_content"],
-  提醒: ["SEND_MAIL_FOR_NEW_BOOKS"], 新书: ["MAIN_PAGE_RECENT_COUNT", "SEND_MAIL_FOR_NEW_BOOKS"],
-  // 推送设备
-  设备: ["DEVICES"], 文石: ["DEVICES"], 掌阅: ["DEVICES"], 汉王: ["DEVICES"], 当当: ["DEVICES"], koreader: ["DEVICES"], duokan: ["DEVICES"], ireader: ["DEVICES"], boox: ["DEVICES"], purelibro: ["DEVICES"], ftp: ["DEVICES"],
-  // 信息源
-  信息: ["auto_fill_meta"], 刮削: ["auto_fill_meta", "META_SELECTED_SOURCES"],
-  豆瓣: ["auto_fill_meta", "META_SELECTED_SOURCES", "douban_baseurl", "douban_apikey", "douban_max_count"], 书源: ["META_SELECTED_SOURCES", "auto_fill_meta"], 来源: ["META_SELECTED_SOURCES"],
-  镜像: ["douban_baseurl"], api: ["AI_API_URL", "AI_DEEPSEEK_API_KEY", "douban_apikey", "douban_baseurl"],
-  密钥: ["douban_apikey", "AI_DEEPSEEK_API_KEY", "cookie_secret", "AI_MCP_TOKEN", "BOOKBARN_TOKEN"],
-  数量: ["douban_max_count", "MAIN_PAGE_RANDOM_COUNT", "MAIN_PAGE_RECENT_COUNT"],
-  // 书栈
-  书栈: ["ENABLE_BOOKBARN", "BOOKBARN_TOKEN"], barn: ["ENABLE_BOOKBARN"], token: ["BOOKBARN_TOKEN", "AI_MCP_TOKEN"], 令牌: ["BOOKBARN_TOKEN", "AI_MCP_TOKEN"],
-  // AI 助手
-  ai: ["AI_ENABLED", "AI_DEEPSEEK_API_KEY", "AI_API_URL", "AI_MODEL", "AI_MCP_TOKEN", "AI_ALLOW_SET_CATEGORY"],
-  人工智能: ["AI_ENABLED"], 助手: ["AI_ENABLED"], deepseek: ["AI_ENABLED", "AI_DEEPSEEK_API_KEY", "AI_MODEL"],
-  模型: ["AI_MODEL"], 接口: ["AI_API_URL"], url: ["AI_API_URL", "douban_baseurl"],
-  mcp: ["AI_MCP_TOKEN"], 自动分类: ["AI_ALLOW_SET_CATEGORY"],
-  // 服务与协议
-  webdav: ["ENABLE_WEBDAV_SERVICE", "WEBDAV_SYNC_FOLDER"], 挂载: ["ENABLE_WEBDAV_SERVICE"], 可写: ["WEBDAV_SYNC_FOLDER"],
-  opds: ["ENABLE_OPDS_SERVICE", "ENABLE_OPDS_AUTH"], 认证: ["ENABLE_OPDS_AUTH"],
-  订阅: ["ENABLE_PODCAST_SERVICE", "ENABLE_OPDS_SERVICE"], 播客: ["ENABLE_PODCAST_SERVICE"], podcast: ["ENABLE_PODCAST_SERVICE"], 听书: ["ENABLE_PODCAST_SERVICE", "ALLOW_GUEST_READ"], 有声: ["ENABLE_AUDIO_CONVERSION_LOG", "ENABLE_AUDIO_SUBTITLE", "ENABLE_PODCAST_SERVICE"],
-  cdn: ["static_host"], 域名: ["static_host"], 加速: ["static_host", "PERFORMANCE_MODE"], 静态: ["static_host"],
-  cookie: ["cookie_secret"], 安全: ["cookie_secret", "INVITE_MODE", "ENABLE_OPDS_AUTH", "SSL", "AI_MCP_TOKEN"],
-  证书: ["SSL", "static_host"], https: ["SSL", "static_host"],
-  // 性能与缓存
-  极速: ["PERFORMANCE_MODE"], 性能: ["PERFORMANCE_MODE", "THUMB_CACHE"], 低配: ["PERFORMANCE_MODE"], 卡: ["PERFORMANCE_MODE", "THUMB_CACHE"], 慢: ["PERFORMANCE_MODE", "THUMB_CACHE"], 速度: ["PERFORMANCE_MODE"],
-  缓存: ["THUMB_CACHE", "CACHE_MAX_MB"], 缩略图: ["THUMB_CACHE"], 容量: ["CACHE_MAX_MB"], mb: ["CACHE_MAX_MB"],
-  内存: ["LITE_GROUP_RESOURCES"], cpu: ["LITE_GROUP_RESOURCES", "PERFORMANCE_MODE"], 资源: ["LITE_GROUP_RESOURCES"],
-  精简: ["LITE_GROUP_RECOMMEND", "LITE_GROUP_FILES", "LITE_GROUP_BACKGROUND"], 后台: ["LITE_GROUP_BACKGROUND"],
-  // 日志与调试
-  日志: ["LOG_LEVEL_DEBUG", "ENABLE_AUDIO_CONVERSION_LOG"], 调试: ["LOG_LEVEL_DEBUG"], debug: ["LOG_LEVEL_DEBUG"], 排错: ["LOG_LEVEL_DEBUG"],
-  字幕: ["ENABLE_AUDIO_SUBTITLE"], srt: ["ENABLE_AUDIO_SUBTITLE"],
-  重启: ["autoreload"], 生效: ["autoreload"], 超时: ["convert_timeout"], 时间: ["convert_timeout"],
-  // 更新与工具箱
-  更新: ["AUTO_CHECKING_NEW_VERSION", "ENABLE_TOOLBOX_STORE"], 版本: ["AUTO_CHECKING_NEW_VERSION"], 升级: ["AUTO_CHECKING_NEW_VERSION"], 检查: ["AUTO_CHECKING_NEW_VERSION"],
-  工具箱: ["ENABLE_TOOLBOX_DEV_MODE", "ENABLE_TOOLBOX_STORE"], 开发者: ["ENABLE_TOOLBOX_DEV_MODE"], 商店: ["ENABLE_TOOLBOX_STORE"], 插件: ["ENABLE_TOOLBOX_STORE", "ENABLE_TXT_TO_TXTZ_PLUGIN"],
-  // 维护与清理
-  回收站: ["TRASH"], 清理: ["TRASH", "REMOVE_IMPORTED_FILE"], 磁盘: ["TRASH"], 空间: ["TRASH", "CACHE_MAX_MB"], 删除: ["TRASH", "REMOVE_IMPORTED_FILE"],
+  zh: {
+    // 站点与外观 · 站点标识
+    站名: ["site_title"], 站点名称: ["site_title"], 网站标题: ["site_title"], 名称: ["site_title", "DEVICES"], 标题: ["site_title", "push_title"],
+    图标: ["site_icon"], 网站图标: ["site_icon"], favicon: ["site_icon"], logo: ["site_icon"], 徽标: ["site_icon"],
+    公告: ["HEADER"], 告示: ["HEADER"], 通知: ["HEADER", "SEND_MAIL_FOR_NEW_BOOKS"],
+    脚注: ["FOOTER"], 页脚: ["FOOTER"], 页尾: ["FOOTER"], 底部: ["FOOTER"], 版权: ["FOOTER"],
+    水印: ["FOOTER_WATERMARK"],
+    语言: ["site_language", "DEFAULT_LANGUAGE"], 中文: ["site_language"], english: ["site_language"], 繁体: ["site_language"], 简体: ["site_language"], 简繁: ["site_language"], 多语言: ["site_language", "DEFAULT_LANGUAGE"], 切换: ["site_language"], 默认语言: ["DEFAULT_LANGUAGE"],
+    主页: ["INDEX_PAGE_TYPE", "MAIN_PAGE_RANDOM_COUNT", "MAIN_PAGE_RECENT_COUNT"], 默认页: ["INDEX_PAGE_TYPE"], 首页类型: ["INDEX_PAGE_TYPE"],
+    项目链接: ["HIDE_PROJECT_LINKS"], 隐藏链接: ["HIDE_PROJECT_LINKS"], 开源链接: ["HIDE_PROJECT_LINKS"],
+    友情链接: ["FRIENDS"], 友链: ["FRIENDS"], 链接: ["FRIENDS", "HIDE_PROJECT_LINKS", "douban_baseurl", "AI_API_URL", "static_host"],
+    网址: ["douban_baseurl", "AI_API_URL", "static_host"], 地址: ["douban_baseurl", "AI_API_URL", "static_host", "smtp_server"],
+    // 站点与外观 · 首页与列表
+    随机: ["MAIN_PAGE_RANDOM_COUNT"], 推荐: ["RECOMMEND_ENABLE", "RECOMMEND_USE_CROWD", "ENABLE_BOOK_RECOMMEND_TO_OTHERS", "MAIN_PAGE_RANDOM_COUNT"], 智能: ["RECOMMEND_ENABLE"],
+    协同: ["RECOMMEND_USE_CROWD"], 协同过滤: ["RECOMMEND_USE_CROWD"], 参考他人: ["RECOMMEND_USE_CROWD"],
+    新书: ["MAIN_PAGE_RECENT_COUNT", "SEND_MAIL_FOR_NEW_BOOKS"], 最新: ["MAIN_PAGE_RECENT_COUNT"], 最近更新: ["MAIN_PAGE_RECENT_COUNT"],
+    分页: ["DEFAULT_PAGE_SIZE"], 每页: ["DEFAULT_PAGE_SIZE"], 每页数量: ["DEFAULT_PAGE_SIZE"],
+    侧边栏: ["SIDEBAR_ITEMS"], 侧栏: ["SIDEBAR_ITEMS"], 菜单: ["SIDEBAR_ITEMS"], 导航栏: ["SIDEBAR_ITEMS"], 侧边导航: ["SIDEBAR_ITEMS"],
+    首页显示: ["ENABLE_HOMEPAGE_READING_STATS", "ENABLE_HOMEPAGE_READING_BOOKS", "ENABLE_HOMEPAGE_BOOKLISTS", "ENABLE_BOOK_RECOMMEND_TO_OTHERS"],
+    统计: ["ENABLE_HOMEPAGE_READING_STATS", "ALLOW_USER_DISABLE_STATISTIC"], banner: ["ENABLE_HOMEPAGE_READING_STATS"], 阅读统计: ["ENABLE_HOMEPAGE_READING_STATS"],
+    在读: ["ENABLE_HOMEPAGE_READING_BOOKS"], 正在阅读: ["ENABLE_HOMEPAGE_READING_BOOKS"],
+    书单: ["ENABLE_HOMEPAGE_BOOKLISTS", "BOOK_NAV"], 书单推荐: ["ENABLE_HOMEPAGE_BOOKLISTS"],
+    推荐给他人: ["ENABLE_BOOK_RECOMMEND_TO_OTHERS"], 他人推荐: ["ENABLE_BOOK_RECOMMEND_TO_OTHERS"],
+    // 站点与外观 · 书籍分类
+    分类: ["BOOK_NAV", "IMPORT_CATEGORY_WITH_FOLDER", "ENABLE_FOLDER_BROWSE", "AI_ALLOW_SET_CATEGORY"], 导航: ["BOOK_NAV"], 标签: ["BOOK_NAV"],
+    分类导航: ["BOOK_NAV"], 分类管理: ["BOOK_NAV"], 分类树: ["BOOK_NAV"],
+    // 阅读与内容 · 阅读器与同步
+    阅读器: ["EPUB_VIEWER", "DEVICES"], epub: ["EPUB_VIEWER"], epubjs: ["EPUB_VIEWER"], myreader: ["EPUB_VIEWER", "ENABLE_DATA_SYNC"],
+    阅读引擎: ["EPUB_VIEWER"],
+    同步: ["ENABLE_DATA_SYNC", "ENABLE_WEBDAV_SERVICE", "WEBDAV_SYNC_FOLDER"], 进度: ["ENABLE_DATA_SYNC"], 阅读数据: ["ENABLE_DATA_SYNC"], 跨设备: ["ENABLE_DATA_SYNC", "DEVICES"],
+    封面: ["USE_DYNAMIC_COVER", "ENABLE_STAMP_FEATURE", "THUMB_CACHE"], 动态封面: ["USE_DYNAMIC_COVER"], 书封: ["USE_DYNAMIC_COVER"],
+    作者: ["ENABLE_AUTHOR_INFO"], 简介: ["ENABLE_AUTHOR_INFO"], 头像: ["ENABLE_AUTHOR_INFO"], 作者信息: ["ENABLE_AUTHOR_INFO"],
+    隐私: ["ALLOW_USER_DISABLE_STATISTIC"], 采集: ["ALLOW_USER_DISABLE_STATISTIC"],
+    笔记: ["ENABLE_SHARED_NOTES"], 划线: ["ENABLE_SHARED_NOTES"], 标注: ["ENABLE_SHARED_NOTES"], 分享笔记: ["ENABLE_SHARED_NOTES"],
+    // 阅读与内容 · 词典
+    词典: ["READER_MYDICTS", "READER_DICT_MYBOOKS_ENABLED", "READER_DICT_BAIKE_ENABLED"],
+    字典: ["READER_MYDICTS", "READER_DICT_MYBOOKS_ENABLED", "READER_DICT_BAIKE_ENABLED"],
+    翻译: ["READER_MYDICTS", "READER_DICT_MYBOOKS_ENABLED", "READER_DICT_BAIKE_ENABLED"],
+    生词: ["READER_MYDICTS"], 划词: ["READER_MYDICTS"], 查词: ["READER_MYDICTS"], 取词: ["READER_MYDICTS"],
+    百科: ["READER_DICT_BAIKE_ENABLED"], 百度百科: ["READER_DICT_BAIKE_ENABLED"],
+    // 阅读与内容 · 书评与互动
+    评论: ["ENABLE_BOOK_REVIEW", "REVIEW_REQUIRES_APPROVAL", "ENABLE_BOOK_RECOMMEND_TO_OTHERS"], 评分: ["ENABLE_BOOK_REVIEW"], 书评: ["ENABLE_BOOK_REVIEW"], 打分: ["ENABLE_BOOK_REVIEW"], 星级: ["ENABLE_BOOK_REVIEW"],
+    审核: ["REVIEW_REQUIRES_APPROVAL", "ENABLE_AUTO_NEW_USER_APPROVAL"], 先审后发: ["REVIEW_REQUIRES_APPROVAL"],
+    // 阅读与内容 · 实体书与图章
+    实体书: ["ENABLE_PHYSICAL_BOOKS", "ENABLE_BOOKS_TYPE_CONVERT_DIRECT"], 纸书: ["ENABLE_PHYSICAL_BOOKS"], 纸质书: ["ENABLE_PHYSICAL_BOOKS"], 书架: ["ENABLE_PHYSICAL_BOOKS"], 印刷: ["ENABLE_PHYSICAL_BOOKS"],
+    类型转换: ["ENABLE_BOOKS_TYPE_CONVERT_DIRECT"], 直接转换: ["ENABLE_BOOKS_TYPE_CONVERT_DIRECT"],
+    文件夹: ["ENABLE_FOLDER_BROWSE"], 层级: ["ENABLE_FOLDER_BROWSE"], 多级目录: ["ENABLE_FOLDER_BROWSE"], 多级分类: ["ENABLE_FOLDER_BROWSE"],
+    图章: ["ENABLE_STAMP_FEATURE"], 盖章: ["ENABLE_STAMP_FEATURE"], 印章: ["ENABLE_STAMP_FEATURE"],
+    // 用户与访问 · 访客权限
+    访客: ["ALLOW_GUEST_READ", "ALLOW_GUEST_DOWNLOAD", "ALLOW_GUEST_UPLOAD", "ALLOW_GUEST_PUSH"],
+    游客: ["ALLOW_GUEST_READ", "ALLOW_GUEST_DOWNLOAD", "ALLOW_GUEST_UPLOAD", "ALLOW_GUEST_PUSH"],
+    匿名: ["ALLOW_GUEST_READ", "ALLOW_GUEST_DOWNLOAD"], 免登录: ["ALLOW_GUEST_READ", "ALLOW_GUEST_DOWNLOAD", "ALLOW_GUEST_UPLOAD", "ALLOW_GUEST_PUSH"], 未登录: ["ALLOW_GUEST_READ", "ALLOW_GUEST_DOWNLOAD"],
+    在线阅读: ["ALLOW_GUEST_READ"], 试读: ["ALLOW_GUEST_READ"],
+    // 用户与访问 · 注册与邀请
+    邀请: ["INVITE_MODE", "INVITE_CODE"], 私人: ["INVITE_MODE"], 访问码: ["INVITE_MODE", "INVITE_CODE"], 注册码: ["INVITE_CODE", "INVITE_MODE"], 邀请码: ["INVITE_CODE", "INVITE_MODE"], 封闭: ["INVITE_MODE"],
+    密码锁: ["INVITE_MODE", "INVITE_CODE"], 口令: ["INVITE_CODE"],
+    提示语: ["INVITE_MESSAGE"], 欢迎语: ["INVITE_MESSAGE"], 邀请文案: ["INVITE_MESSAGE"],
+    注册: ["ALLOW_REGISTER", "SIGNUP_MAIL_TITLE", "ENABLE_AUTO_NEW_USER_APPROVAL"], 开放注册: ["ALLOW_REGISTER"], 邮箱注册: ["ALLOW_REGISTER"], 自助注册: ["ALLOW_REGISTER"],
+    激活: ["SIGNUP_MAIL_TITLE", "SIGNUP_MAIL_CONTENT"], 激活邮件: ["SIGNUP_MAIL_TITLE", "SIGNUP_MAIL_CONTENT"],
+    重置: ["RESET_MAIL_TITLE", "RESET_MAIL_CONTENT"], 找回: ["RESET_MAIL_TITLE", "RESET_MAIL_CONTENT"], 重置密码: ["RESET_MAIL_TITLE", "RESET_MAIL_CONTENT"], 忘记密码: ["RESET_MAIL_TITLE", "RESET_MAIL_CONTENT"],
+    主题: ["push_title", "RESET_MAIL_TITLE", "SIGNUP_MAIL_TITLE"], 正文: ["push_content", "RESET_MAIL_CONTENT", "SIGNUP_MAIL_CONTENT"], 内容: ["push_content", "RESET_MAIL_CONTENT", "SIGNUP_MAIL_CONTENT", "INVITE_MESSAGE"],
+    // 用户与访问 · 默认权限与配额
+    审批: ["ENABLE_AUTO_NEW_USER_APPROVAL", "REVIEW_REQUIRES_APPROVAL"], 自动审批: ["ENABLE_AUTO_NEW_USER_APPROVAL"],
+    新用户: ["ALLOW_NEW_USER_MANAGE_BOOK", "ALLOW_NEW_USER_PUSH_BOOK", "ENABLE_AUTO_NEW_USER_APPROVAL", "DEFAULT_READ_RANGE"],
+    权限: ["ALLOW_NEW_USER_MANAGE_BOOK", "ALLOW_NEW_USER_PUSH_BOOK", "ALLOW_READ_RANGE_SETTING"], 默认权限: ["ALLOW_NEW_USER_MANAGE_BOOK", "ALLOW_NEW_USER_PUSH_BOOK"], 管理权限: ["ALLOW_NEW_USER_MANAGE_BOOK"],
+    白名单: ["ALLOW_READ_RANGE_SETTING", "DEFAULT_READ_RANGE"], 黑名单: ["ALLOW_READ_RANGE_SETTING", "DEFAULT_READ_RANGE"],
+    可见: ["ALLOW_READ_RANGE_SETTING", "DEFAULT_READ_RANGE"], 屏蔽: ["ALLOW_READ_RANGE_SETTING", "DEFAULT_READ_RANGE"], 不可见: ["ALLOW_READ_RANGE_SETTING", "DEFAULT_READ_RANGE"],
+    范围: ["ALLOW_READ_RANGE_SETTING", "DEFAULT_READ_RANGE"], 阅读范围: ["ALLOW_READ_RANGE_SETTING", "DEFAULT_READ_RANGE"],
+    配额: ["ENABLE_DOWNLOAD_QUOTA", "GLOBAL_DOWNLOAD_QUOTA"], 下载: ["ENABLE_DOWNLOAD_QUOTA", "GLOBAL_DOWNLOAD_QUOTA", "ALLOW_GUEST_DOWNLOAD"], 每日: ["ENABLE_DOWNLOAD_QUOTA", "GLOBAL_DOWNLOAD_QUOTA"],
+    下载限制: ["ENABLE_DOWNLOAD_QUOTA", "GLOBAL_DOWNLOAD_QUOTA"], 每日下载: ["ENABLE_DOWNLOAD_QUOTA", "GLOBAL_DOWNLOAD_QUOTA"],
+    // 用户与访问 · 社交登录
+    登录: ["SOCIALS", "ALLOW_REGISTER", "INVITE_MODE"], 第三方: ["SOCIALS"], 社交: ["SOCIALS"], oauth: ["SOCIALS"], qq: ["SOCIALS"], 微信: ["SOCIALS"], 微博: ["SOCIALS"], github: ["SOCIALS"],
+    单点登录: ["SOCIALS"], 第三方登录: ["SOCIALS"],
+    // 导入与存储 · 上传
+    扫描: ["scan_upload_path", "PDF_TILE_WITH_FILE_NAME"], 批量: ["scan_upload_path", "BATCH_ADD_IN_FORCE"], 扫描目录: ["scan_upload_path"], 导入目录: ["scan_upload_path"],
+    上传: ["MAX_UPLOAD_SIZE", "CHUNK_UPLOAD_SIZE", "scan_upload_path", "ALLOW_GUEST_UPLOAD", "KEEP_UPLOAD_SOURCE_FILE"],
+    大小: ["MAX_UPLOAD_SIZE", "CACHE_MAX_MB"], 文件大小: ["MAX_UPLOAD_SIZE"], 上传限制: ["MAX_UPLOAD_SIZE", "CHUNK_UPLOAD_SIZE"],
+    上限: ["MAX_UPLOAD_SIZE", "CHUNK_UPLOAD_SIZE", "ENABLE_DOWNLOAD_QUOTA", "GLOBAL_DOWNLOAD_QUOTA", "CACHE_MAX_MB"],
+    分片: ["CHUNK_UPLOAD_SIZE"], 大文件: ["CHUNK_UPLOAD_SIZE"], 续传: ["CHUNK_UPLOAD_SIZE"],
+    元数据: ["auto_fill_meta", "META_SELECTED_SOURCES", "DEFAULT_LANGUAGE"], 书籍信息: ["auto_fill_meta", "META_SELECTED_SOURCES"], 信息源: ["META_SELECTED_SOURCES", "douban_baseurl"],
+    源文件: ["KEEP_UPLOAD_SOURCE_FILE", "REMOVE_IMPORTED_FILE"], 保留: ["KEEP_UPLOAD_SOURCE_FILE"], 临时文件: ["KEEP_UPLOAD_SOURCE_FILE", "REMOVE_IMPORTED_FILE"], 暂存文件: ["KEEP_UPLOAD_SOURCE_FILE"],
+    删除源文件: ["REMOVE_IMPORTED_FILE"], 导入后删除: ["REMOVE_IMPORTED_FILE"],
+    // 导入与存储 · 导入规则
+    pdf: ["PDF_TILE_WITH_FILE_NAME"], 文件名: ["PDF_TILE_WITH_FILE_NAME", "BOOK_NAMES_FORMAT"], 书名: ["PDF_TILE_WITH_FILE_NAME"],
+    txt: ["ENABLE_TXT_TO_TXTZ_PLUGIN"], txtz: ["ENABLE_TXT_TO_TXTZ_PLUGIN"], 转换: ["ENABLE_TXT_TO_TXTZ_PLUGIN", "convert_timeout", "ENABLE_BOOKS_TYPE_CONVERT_DIRECT"],
+    服务端: ["ENABLE_SERVER_FILE_IMPORT"], 目录浏览: ["ENABLE_SERVER_FILE_IMPORT"], 服务器导入: ["ENABLE_SERVER_FILE_IMPORT"],
+    isbn: ["BATCH_ADD_IN_FORCE"], 强制: ["BATCH_ADD_IN_FORCE"], 无效: ["BATCH_ADD_IN_FORCE"], 强制添加: ["BATCH_ADD_IN_FORCE"],
+    一级目录: ["IMPORT_CATEGORY_WITH_FOLDER"], 目录分类: ["IMPORT_CATEGORY_WITH_FOLDER"], 自定义类别: ["IMPORT_CATEGORY_WITH_FOLDER"],
+    限流: ["auto_fill_pause_on_throttle", "ENABLE_DOWNLOAD_QUOTA"], 暂停: ["auto_fill_pause_on_throttle"], 自动暂停: ["auto_fill_pause_on_throttle"], 节流: ["auto_fill_pause_on_throttle"],
+    重复: ["UPLOAD_IGNORE_TITLE_CHECKING"], 同书: ["UPLOAD_IGNORE_TITLE_CHECKING"], 查重: ["UPLOAD_IGNORE_TITLE_CHECKING"], 同名书: ["UPLOAD_IGNORE_TITLE_CHECKING"],
+    // 导入与存储 · 自动导入 / 存储布局
+    监控: ["IMPORT_BY_INOTIFY", "UPDATE_CATEGORY_WITH_FOLDER_RENAME"], 自动导入: ["IMPORT_BY_INOTIFY"], inotify: ["IMPORT_BY_INOTIFY"], 监视: ["IMPORT_BY_INOTIFY"], 实时导入: ["IMPORT_BY_INOTIFY"],
+    重命名: ["UPDATE_CATEGORY_WITH_FOLDER_RENAME"], 目录改名: ["UPDATE_CATEGORY_WITH_FOLDER_RENAME"],
+    拼音: ["BOOK_NAMES_FORMAT"], utf8: ["BOOK_NAMES_FORMAT"], 存储: ["BOOK_NAMES_FORMAT", "TRASH"], 存储布局: ["BOOK_NAMES_FORMAT"], 编码: ["BOOK_NAMES_FORMAT"], 文件名模式: ["BOOK_NAMES_FORMAT"],
+    // 推送与邮件 · 邮件服务
+    smtp: ["smtp_server", "smtp_username", "smtp_password", "smtp_encryption"], 服务器: ["smtp_server"], 账号: ["smtp_username"], 用户名: ["smtp_username"], 发件: ["smtp_server", "smtp_username"],
+    授权码: ["smtp_password"], 邮件密码: ["smtp_password"], 加密: ["smtp_encryption"], ssl: ["smtp_encryption", "SSL"], tls: ["smtp_encryption"], 端口: ["smtp_server", "smtp_encryption"],
+    邮件: ["smtp_server", "smtp_username", "smtp_password", "smtp_encryption", "push_title", "push_content", "SEND_MAIL_FOR_NEW_BOOKS", "SIGNUP_MAIL_TITLE", "SIGNUP_MAIL_CONTENT", "RESET_MAIL_TITLE", "RESET_MAIL_CONTENT"],
+    邮箱: ["smtp_server", "smtp_username", "smtp_password", "smtp_encryption", "push_title", "SEND_MAIL_FOR_NEW_BOOKS"],
+    推送: ["DEVICES", "push_title", "push_content", "SEND_MAIL_FOR_NEW_BOOKS", "ALLOW_GUEST_PUSH", "ALLOW_NEW_USER_PUSH_BOOK", "smtp_server"],
+    kindle: ["DEVICES", "push_title", "smtp_server"], 邮件主题: ["push_title"], 邮件正文: ["push_content"],
+    提醒: ["SEND_MAIL_FOR_NEW_BOOKS"], 邮件提醒: ["SEND_MAIL_FOR_NEW_BOOKS"], 通知邮件: ["SEND_MAIL_FOR_NEW_BOOKS", "push_title"],
+    // 推送与邮件 · 推送设备
+    设备: ["DEVICES"], 推送设备: ["DEVICES"], 阅读设备: ["DEVICES"], 设备管理: ["DEVICES"],
+    文石: ["DEVICES"], 掌阅: ["DEVICES"], 汉王: ["DEVICES"], 当当: ["DEVICES"], koreader: ["DEVICES"], duokan: ["DEVICES"], ireader: ["DEVICES"], boox: ["DEVICES"], purelibro: ["DEVICES"], ftp: ["DEVICES"],
+    // 外部服务 · 信息源
+    信息: ["auto_fill_meta"], 刮削: ["auto_fill_meta", "META_SELECTED_SOURCES"], 抓取: ["auto_fill_meta", "META_SELECTED_SOURCES"],
+    豆瓣: ["auto_fill_meta", "META_SELECTED_SOURCES", "douban_baseurl", "douban_apikey", "douban_max_count"], 书源: ["META_SELECTED_SOURCES", "auto_fill_meta"], 来源: ["META_SELECTED_SOURCES"], 选择来源: ["META_SELECTED_SOURCES"],
+    镜像: ["douban_baseurl"], api: ["AI_API_URL", "AI_DEEPSEEK_API_KEY", "douban_apikey", "douban_baseurl"],
+    密钥: ["douban_apikey", "AI_DEEPSEEK_API_KEY", "cookie_secret", "AI_MCP_TOKEN", "BOOKBARN_TOKEN"],
+    数量: ["douban_max_count", "MAIN_PAGE_RANDOM_COUNT", "MAIN_PAGE_RECENT_COUNT"],
+    // 外部服务 · 书栈 / AI
+    书栈: ["ENABLE_BOOKBARN", "BOOKBARN_TOKEN"], barn: ["ENABLE_BOOKBARN"], token: ["BOOKBARN_TOKEN", "AI_MCP_TOKEN"], 令牌: ["BOOKBARN_TOKEN", "AI_MCP_TOKEN"], 授权: ["BOOKBARN_TOKEN", "AI_MCP_TOKEN"],
+    ai: ["AI_ENABLED", "AI_DEEPSEEK_API_KEY", "AI_API_URL", "AI_MODEL", "AI_MCP_TOKEN", "AI_ALLOW_SET_CATEGORY"],
+    人工智能: ["AI_ENABLED"], 助手: ["AI_ENABLED"], deepseek: ["AI_ENABLED", "AI_DEEPSEEK_API_KEY", "AI_MODEL"],
+    模型: ["AI_MODEL"], 接口: ["AI_API_URL"], url: ["AI_API_URL", "douban_baseurl"],
+    mcp: ["AI_MCP_TOKEN"], 自动分类: ["AI_ALLOW_SET_CATEGORY"], 生成分类: ["AI_ALLOW_SET_CATEGORY"],
+    // 服务与协议
+    webdav: ["ENABLE_WEBDAV_SERVICE", "WEBDAV_SYNC_FOLDER"], 挂载: ["ENABLE_WEBDAV_SERVICE"], 可写: ["WEBDAV_SYNC_FOLDER"], 可写目录: ["WEBDAV_SYNC_FOLDER"], 读写: ["ENABLE_WEBDAV_SERVICE", "WEBDAV_SYNC_FOLDER"],
+    opds: ["ENABLE_OPDS_SERVICE", "ENABLE_OPDS_AUTH"], 认证: ["ENABLE_OPDS_AUTH"], 目录服务: ["ENABLE_OPDS_SERVICE", "ENABLE_OPDS_AUTH"], 需要密码: ["ENABLE_OPDS_AUTH"],
+    订阅: ["ENABLE_PODCAST_SERVICE", "ENABLE_OPDS_SERVICE"], 播客: ["ENABLE_PODCAST_SERVICE"], podcast: ["ENABLE_PODCAST_SERVICE"], 听书: ["ENABLE_PODCAST_SERVICE", "ALLOW_GUEST_READ"], 有声: ["ENABLE_AUDIO_CONVERSION_LOG", "ENABLE_AUDIO_SUBTITLE", "ENABLE_PODCAST_SERVICE"], 有声书: ["ENABLE_PODCAST_SERVICE", "ENABLE_AUDIO_CONVERSION_LOG", "ENABLE_AUDIO_SUBTITLE"],
+    cdn: ["static_host"], 域名: ["static_host"], 加速: ["static_host", "PERFORMANCE_MODE"], 静态: ["static_host"], 静态资源: ["static_host"],
+    cookie: ["cookie_secret"], 安全: ["cookie_secret", "INVITE_MODE", "ENABLE_OPDS_AUTH", "SSL", "AI_MCP_TOKEN"], 随机密钥: ["cookie_secret"],
+    证书: ["SSL", "static_host"], https: ["SSL", "static_host"], ssl证书: ["SSL"], 凭据: ["SSL", "cookie_secret"],
+    // 系统与性能 · 性能与缓存
+    极速: ["PERFORMANCE_MODE"], 性能: ["PERFORMANCE_MODE", "THUMB_CACHE"], 低配: ["PERFORMANCE_MODE"], 卡: ["PERFORMANCE_MODE", "THUMB_CACHE"], 慢: ["PERFORMANCE_MODE", "THUMB_CACHE"], 速度: ["PERFORMANCE_MODE"], 卡顿: ["PERFORMANCE_MODE", "THUMB_CACHE"],
+    缓存: ["THUMB_CACHE", "CACHE_MAX_MB"], 缩略图: ["THUMB_CACHE"], 容量: ["CACHE_MAX_MB"], mb: ["CACHE_MAX_MB"], 缓存清理: ["TRASH", "THUMB_CACHE"],
+    内存: ["LITE_GROUP_RESOURCES"], cpu: ["LITE_GROUP_RESOURCES", "PERFORMANCE_MODE"], 资源: ["LITE_GROUP_RESOURCES"], 省资源: ["LITE_GROUP_RESOURCES"],
+    精简: ["LITE_GROUP_RECOMMEND", "LITE_GROUP_FILES", "LITE_GROUP_BACKGROUND"], 后台: ["LITE_GROUP_BACKGROUND"], 后台任务: ["LITE_GROUP_BACKGROUND"],
+    搜索加速: ["LITE_GROUP_LISTING"], 列表加速: ["LITE_GROUP_LISTING"], 图片处理: ["LITE_GROUP_FILES"],
+    // 系统与性能 · 日志与调试
+    日志: ["LOG_LEVEL_DEBUG", "ENABLE_AUDIO_CONVERSION_LOG"], 调试: ["LOG_LEVEL_DEBUG"], debug: ["LOG_LEVEL_DEBUG"], 排错: ["LOG_LEVEL_DEBUG"], 转换日志: ["ENABLE_AUDIO_CONVERSION_LOG"],
+    字幕: ["ENABLE_AUDIO_SUBTITLE"], srt: ["ENABLE_AUDIO_SUBTITLE"],
+    重启: ["autoreload"], 生效: ["autoreload"], 超时: ["convert_timeout"], 时间: ["convert_timeout"], 转换超时: ["convert_timeout"],
+    // 系统与性能 · 更新与工具箱
+    更新: ["AUTO_CHECKING_NEW_VERSION", "ENABLE_TOOLBOX_STORE"], 版本: ["AUTO_CHECKING_NEW_VERSION"], 升级: ["AUTO_CHECKING_NEW_VERSION"], 检查: ["AUTO_CHECKING_NEW_VERSION"], 检查更新: ["AUTO_CHECKING_NEW_VERSION"],
+    工具箱: ["ENABLE_TOOLBOX_DEV_MODE", "ENABLE_TOOLBOX_STORE"], 开发者: ["ENABLE_TOOLBOX_DEV_MODE"], 商店: ["ENABLE_TOOLBOX_STORE"], 插件: ["ENABLE_TOOLBOX_STORE", "ENABLE_TXT_TO_TXTZ_PLUGIN"],
+    插件市场: ["ENABLE_TOOLBOX_STORE"], 上传zip: ["ENABLE_TOOLBOX_DEV_MODE"],
+    // 系统与性能 · 维护与清理
+    回收站: ["TRASH"], 清理: ["TRASH", "REMOVE_IMPORTED_FILE"], 磁盘: ["TRASH"], 空间: ["TRASH", "CACHE_MAX_MB"], 删除: ["TRASH", "REMOVE_IMPORTED_FILE"], 垃圾桶: ["TRASH"],
+  },
+  "zh-TW": {
+    // 網站與外觀 · 網站標識
+    站名: ["site_title"], 網站標題: ["site_title"], 網站名稱: ["site_title"], 名稱: ["site_title", "DEVICES"], 標題: ["site_title", "push_title"],
+    圖示: ["site_icon"], 網站圖示: ["site_icon"], favicon: ["site_icon"], logo: ["site_icon"], 徽標: ["site_icon"],
+    公告: ["HEADER"], 告示: ["HEADER"], 通知: ["HEADER", "SEND_MAIL_FOR_NEW_BOOKS"],
+    頁尾: ["FOOTER"], 頁腳: ["FOOTER"], 腳註: ["FOOTER"], 底部: ["FOOTER"], 版權: ["FOOTER"],
+    浮水印: ["FOOTER_WATERMARK"], 水印: ["FOOTER_WATERMARK"],
+    語言: ["site_language", "DEFAULT_LANGUAGE"], 語系: ["site_language"], 中文: ["site_language"], english: ["site_language"], 繁體: ["site_language"], 簡體: ["site_language"], 多語言: ["site_language", "DEFAULT_LANGUAGE"], 切換: ["site_language"], 預設語言: ["DEFAULT_LANGUAGE"],
+    首頁: ["INDEX_PAGE_TYPE", "MAIN_PAGE_RANDOM_COUNT", "MAIN_PAGE_RECENT_COUNT"], 首頁類型: ["INDEX_PAGE_TYPE"], 主頁: ["INDEX_PAGE_TYPE"],
+    項目連結: ["HIDE_PROJECT_LINKS"], 隱藏連結: ["HIDE_PROJECT_LINKS"], 開源連結: ["HIDE_PROJECT_LINKS"],
+    友情連結: ["FRIENDS"], 友鏈: ["FRIENDS"], 連結: ["FRIENDS", "HIDE_PROJECT_LINKS", "douban_baseurl", "AI_API_URL", "static_host"],
+    網址: ["douban_baseurl", "AI_API_URL", "static_host"], 位址: ["douban_baseurl", "AI_API_URL", "static_host", "smtp_server"],
+    // 網站與外觀 · 首頁與列表
+    隨機: ["MAIN_PAGE_RANDOM_COUNT"], 推薦: ["RECOMMEND_ENABLE", "RECOMMEND_USE_CROWD", "ENABLE_BOOK_RECOMMEND_TO_OTHERS", "MAIN_PAGE_RANDOM_COUNT"], 智慧: ["RECOMMEND_ENABLE"], 智慧推薦: ["RECOMMEND_ENABLE"],
+    協同: ["RECOMMEND_USE_CROWD"], 協同過濾: ["RECOMMEND_USE_CROWD"], 參考他人: ["RECOMMEND_USE_CROWD"],
+    新書: ["MAIN_PAGE_RECENT_COUNT", "SEND_MAIL_FOR_NEW_BOOKS"], 最新: ["MAIN_PAGE_RECENT_COUNT"], 最近更新: ["MAIN_PAGE_RECENT_COUNT"], 新書推薦: ["MAIN_PAGE_RECENT_COUNT"],
+    分頁: ["DEFAULT_PAGE_SIZE"], 每頁: ["DEFAULT_PAGE_SIZE"], 每頁數量: ["DEFAULT_PAGE_SIZE"],
+    側邊欄: ["SIDEBAR_ITEMS"], 側欄: ["SIDEBAR_ITEMS"], 選單: ["SIDEBAR_ITEMS"], 導覽列: ["SIDEBAR_ITEMS"], 側邊導覽: ["SIDEBAR_ITEMS"],
+    首頁顯示: ["ENABLE_HOMEPAGE_READING_STATS", "ENABLE_HOMEPAGE_READING_BOOKS", "ENABLE_HOMEPAGE_BOOKLISTS", "ENABLE_BOOK_RECOMMEND_TO_OTHERS"], 首頁模組: ["ENABLE_HOMEPAGE_READING_STATS", "ENABLE_HOMEPAGE_READING_BOOKS", "ENABLE_HOMEPAGE_BOOKLISTS", "ENABLE_BOOK_RECOMMEND_TO_OTHERS"],
+    統計: ["ENABLE_HOMEPAGE_READING_STATS", "ALLOW_USER_DISABLE_STATISTIC"], banner: ["ENABLE_HOMEPAGE_READING_STATS"], 閱讀統計: ["ENABLE_HOMEPAGE_READING_STATS"],
+    在讀: ["ENABLE_HOMEPAGE_READING_BOOKS"], 正在閱讀: ["ENABLE_HOMEPAGE_READING_BOOKS"],
+    書單: ["ENABLE_HOMEPAGE_BOOKLISTS", "BOOK_NAV"], 書單推薦: ["ENABLE_HOMEPAGE_BOOKLISTS"], 推薦書單: ["ENABLE_HOMEPAGE_BOOKLISTS"],
+    推薦給他人: ["ENABLE_BOOK_RECOMMEND_TO_OTHERS"], 他人推薦: ["ENABLE_BOOK_RECOMMEND_TO_OTHERS"],
+    // 網站與外觀 · 書籍分類
+    分類: ["BOOK_NAV", "IMPORT_CATEGORY_WITH_FOLDER", "ENABLE_FOLDER_BROWSE", "AI_ALLOW_SET_CATEGORY"], 導覽: ["BOOK_NAV"], 標籤: ["BOOK_NAV"],
+    分類導覽: ["BOOK_NAV"], 分類管理: ["BOOK_NAV"], 分類樹: ["BOOK_NAV"],
+    // 閱讀與內容 · 閱讀器與同步
+    閱讀器: ["EPUB_VIEWER", "DEVICES"], epub: ["EPUB_VIEWER"], epubjs: ["EPUB_VIEWER"], myreader: ["EPUB_VIEWER", "ENABLE_DATA_SYNC"], 閱讀引擎: ["EPUB_VIEWER"],
+    同步: ["ENABLE_DATA_SYNC", "ENABLE_WEBDAV_SERVICE", "WEBDAV_SYNC_FOLDER"], 進度: ["ENABLE_DATA_SYNC"], 閱讀資料: ["ENABLE_DATA_SYNC"], 跨裝置: ["ENABLE_DATA_SYNC", "DEVICES"],
+    封面: ["USE_DYNAMIC_COVER", "ENABLE_STAMP_FEATURE", "THUMB_CACHE"], 動態封面: ["USE_DYNAMIC_COVER"], 書封: ["USE_DYNAMIC_COVER"],
+    作者: ["ENABLE_AUTHOR_INFO"], 簡介: ["ENABLE_AUTHOR_INFO"], 頭像: ["ENABLE_AUTHOR_INFO"], 作者資訊: ["ENABLE_AUTHOR_INFO"],
+    隱私: ["ALLOW_USER_DISABLE_STATISTIC"], 採集: ["ALLOW_USER_DISABLE_STATISTIC"], 資料採集: ["ALLOW_USER_DISABLE_STATISTIC"],
+    筆記: ["ENABLE_SHARED_NOTES"], 劃線: ["ENABLE_SHARED_NOTES"], 標註: ["ENABLE_SHARED_NOTES"], 分享筆記: ["ENABLE_SHARED_NOTES"],
+    // 閱讀與內容 · 詞典
+    詞典: ["READER_MYDICTS", "READER_DICT_MYBOOKS_ENABLED", "READER_DICT_BAIKE_ENABLED"],
+    字典: ["READER_MYDICTS", "READER_DICT_MYBOOKS_ENABLED", "READER_DICT_BAIKE_ENABLED"],
+    翻譯: ["READER_MYDICTS", "READER_DICT_MYBOOKS_ENABLED", "READER_DICT_BAIKE_ENABLED"],
+    生詞: ["READER_MYDICTS"], 查詞: ["READER_MYDICTS"], 劃詞: ["READER_MYDICTS"],
+    百科: ["READER_DICT_BAIKE_ENABLED"], 百度百科: ["READER_DICT_BAIKE_ENABLED"],
+    // 閱讀與內容 · 書評與互動
+    評論: ["ENABLE_BOOK_REVIEW", "REVIEW_REQUIRES_APPROVAL", "ENABLE_BOOK_RECOMMEND_TO_OTHERS"], 評分: ["ENABLE_BOOK_REVIEW"], 書評: ["ENABLE_BOOK_REVIEW"], 打分: ["ENABLE_BOOK_REVIEW"], 星等: ["ENABLE_BOOK_REVIEW"],
+    審核: ["REVIEW_REQUIRES_APPROVAL", "ENABLE_AUTO_NEW_USER_APPROVAL"], 先審後發: ["REVIEW_REQUIRES_APPROVAL"],
+    // 閱讀與內容 · 實體書與圖章
+    實體書: ["ENABLE_PHYSICAL_BOOKS", "ENABLE_BOOKS_TYPE_CONVERT_DIRECT"], 紙書: ["ENABLE_PHYSICAL_BOOKS"], 紙本書: ["ENABLE_PHYSICAL_BOOKS"], 書架: ["ENABLE_PHYSICAL_BOOKS"], 印刷: ["ENABLE_PHYSICAL_BOOKS"],
+    類型轉換: ["ENABLE_BOOKS_TYPE_CONVERT_DIRECT"], 直接轉換: ["ENABLE_BOOKS_TYPE_CONVERT_DIRECT"], 格式轉換: ["ENABLE_BOOKS_TYPE_CONVERT_DIRECT", "ENABLE_TXT_TO_TXTZ_PLUGIN"],
+    資料夾: ["ENABLE_FOLDER_BROWSE"], 層級: ["ENABLE_FOLDER_BROWSE"], 多層目錄: ["ENABLE_FOLDER_BROWSE"], 多級分類: ["ENABLE_FOLDER_BROWSE"],
+    圖章: ["ENABLE_STAMP_FEATURE"], 蓋章: ["ENABLE_STAMP_FEATURE"], 印章: ["ENABLE_STAMP_FEATURE"],
+    // 用戶與訪問 · 訪客權限
+    訪客: ["ALLOW_GUEST_READ", "ALLOW_GUEST_DOWNLOAD", "ALLOW_GUEST_UPLOAD", "ALLOW_GUEST_PUSH"],
+    遊客: ["ALLOW_GUEST_READ", "ALLOW_GUEST_DOWNLOAD", "ALLOW_GUEST_UPLOAD", "ALLOW_GUEST_PUSH"],
+    匿名: ["ALLOW_GUEST_READ", "ALLOW_GUEST_DOWNLOAD"], 免登入: ["ALLOW_GUEST_READ", "ALLOW_GUEST_DOWNLOAD", "ALLOW_GUEST_UPLOAD", "ALLOW_GUEST_PUSH"], 未登入: ["ALLOW_GUEST_READ", "ALLOW_GUEST_DOWNLOAD"],
+    線上閱讀: ["ALLOW_GUEST_READ"], 試閱: ["ALLOW_GUEST_READ"],
+    // 用戶與訪問 · 註冊與邀請
+    邀請: ["INVITE_MODE", "INVITE_CODE"], 私人: ["INVITE_MODE"], 私人圖書館: ["INVITE_MODE"], 私密: ["INVITE_MODE"], 存取碼: ["INVITE_MODE", "INVITE_CODE"], 註冊碼: ["INVITE_CODE", "INVITE_MODE"], 邀請碼: ["INVITE_CODE", "INVITE_MODE"], 封閉: ["INVITE_MODE"],
+    密碼鎖: ["INVITE_MODE", "INVITE_CODE"], 通關密語: ["INVITE_CODE"],
+    提示語: ["INVITE_MESSAGE"], 歡迎詞: ["INVITE_MESSAGE"], 邀請訊息: ["INVITE_MESSAGE"],
+    註冊: ["ALLOW_REGISTER", "SIGNUP_MAIL_TITLE", "ENABLE_AUTO_NEW_USER_APPROVAL"], 開放註冊: ["ALLOW_REGISTER"], 信箱註冊: ["ALLOW_REGISTER"],
+    啟用: ["SIGNUP_MAIL_TITLE", "SIGNUP_MAIL_CONTENT"], 啟用信: ["SIGNUP_MAIL_TITLE", "SIGNUP_MAIL_CONTENT"], 驗證信: ["SIGNUP_MAIL_TITLE", "SIGNUP_MAIL_CONTENT"],
+    重設: ["RESET_MAIL_TITLE", "RESET_MAIL_CONTENT"], 找回: ["RESET_MAIL_TITLE", "RESET_MAIL_CONTENT"], 重設密碼: ["RESET_MAIL_TITLE", "RESET_MAIL_CONTENT"], 忘記密碼: ["RESET_MAIL_TITLE", "RESET_MAIL_CONTENT"],
+    主旨: ["push_title", "RESET_MAIL_TITLE", "SIGNUP_MAIL_TITLE"], 主題: ["push_title", "RESET_MAIL_TITLE", "SIGNUP_MAIL_TITLE"], 內文: ["push_content", "RESET_MAIL_CONTENT", "SIGNUP_MAIL_CONTENT"], 內容: ["push_content", "RESET_MAIL_CONTENT", "SIGNUP_MAIL_CONTENT", "INVITE_MESSAGE"],
+    // 用戶與訪問 · 預設權限與配額
+    審批: ["ENABLE_AUTO_NEW_USER_APPROVAL", "REVIEW_REQUIRES_APPROVAL"], 自動審批: ["ENABLE_AUTO_NEW_USER_APPROVAL"],
+    新使用者: ["ALLOW_NEW_USER_MANAGE_BOOK", "ALLOW_NEW_USER_PUSH_BOOK", "ENABLE_AUTO_NEW_USER_APPROVAL", "DEFAULT_READ_RANGE"],
+    權限: ["ALLOW_NEW_USER_MANAGE_BOOK", "ALLOW_NEW_USER_PUSH_BOOK", "ALLOW_READ_RANGE_SETTING"], 預設權限: ["ALLOW_NEW_USER_MANAGE_BOOK", "ALLOW_NEW_USER_PUSH_BOOK"], 管理權限: ["ALLOW_NEW_USER_MANAGE_BOOK"],
+    白名單: ["ALLOW_READ_RANGE_SETTING", "DEFAULT_READ_RANGE"], 黑名單: ["ALLOW_READ_RANGE_SETTING", "DEFAULT_READ_RANGE"],
+    可見: ["ALLOW_READ_RANGE_SETTING", "DEFAULT_READ_RANGE"], 封鎖: ["ALLOW_READ_RANGE_SETTING", "DEFAULT_READ_RANGE"], 不可見: ["ALLOW_READ_RANGE_SETTING", "DEFAULT_READ_RANGE"],
+    範圍: ["ALLOW_READ_RANGE_SETTING", "DEFAULT_READ_RANGE"], 閱讀範圍: ["ALLOW_READ_RANGE_SETTING", "DEFAULT_READ_RANGE"],
+    配額: ["ENABLE_DOWNLOAD_QUOTA", "GLOBAL_DOWNLOAD_QUOTA"], 下載: ["ENABLE_DOWNLOAD_QUOTA", "GLOBAL_DOWNLOAD_QUOTA", "ALLOW_GUEST_DOWNLOAD"], 每日: ["ENABLE_DOWNLOAD_QUOTA", "GLOBAL_DOWNLOAD_QUOTA"],
+    下載限制: ["ENABLE_DOWNLOAD_QUOTA", "GLOBAL_DOWNLOAD_QUOTA"], 每日下載: ["ENABLE_DOWNLOAD_QUOTA", "GLOBAL_DOWNLOAD_QUOTA"],
+    // 用戶與訪問 · 社群登入
+    登入: ["SOCIALS", "ALLOW_REGISTER", "INVITE_MODE"], 第三方: ["SOCIALS"], 社群: ["SOCIALS"], 社群網路: ["SOCIALS"], oauth: ["SOCIALS"], qq: ["SOCIALS"], 微信: ["SOCIALS"], 微博: ["SOCIALS"], github: ["SOCIALS"],
+    單一登入: ["SOCIALS"], 第三方登入: ["SOCIALS"],
+    // 匯入與儲存 · 上傳
+    掃描: ["scan_upload_path", "PDF_TILE_WITH_FILE_NAME"], 批次: ["scan_upload_path", "BATCH_ADD_IN_FORCE"], 掃描目錄: ["scan_upload_path"], 匯入目錄: ["scan_upload_path"],
+    上傳: ["MAX_UPLOAD_SIZE", "CHUNK_UPLOAD_SIZE", "scan_upload_path", "ALLOW_GUEST_UPLOAD", "KEEP_UPLOAD_SOURCE_FILE"],
+    大小: ["MAX_UPLOAD_SIZE", "CACHE_MAX_MB"], 檔案大小: ["MAX_UPLOAD_SIZE"], 上傳限制: ["MAX_UPLOAD_SIZE", "CHUNK_UPLOAD_SIZE"],
+    上限: ["MAX_UPLOAD_SIZE", "CHUNK_UPLOAD_SIZE", "ENABLE_DOWNLOAD_QUOTA", "GLOBAL_DOWNLOAD_QUOTA", "CACHE_MAX_MB"],
+    分片: ["CHUNK_UPLOAD_SIZE"], 大檔案: ["CHUNK_UPLOAD_SIZE"], 續傳: ["CHUNK_UPLOAD_SIZE"],
+    詮釋資料: ["auto_fill_meta", "META_SELECTED_SOURCES", "DEFAULT_LANGUAGE"], 中介資料: ["auto_fill_meta", "META_SELECTED_SOURCES", "DEFAULT_LANGUAGE"], 書籍資訊: ["auto_fill_meta", "META_SELECTED_SOURCES"], 資訊來源: ["META_SELECTED_SOURCES", "douban_baseurl"],
+    來源檔案: ["KEEP_UPLOAD_SOURCE_FILE", "REMOVE_IMPORTED_FILE"], 保留: ["KEEP_UPLOAD_SOURCE_FILE"], 暫存檔案: ["KEEP_UPLOAD_SOURCE_FILE"], 原始檔: ["KEEP_UPLOAD_SOURCE_FILE", "REMOVE_IMPORTED_FILE"],
+    刪除原始檔: ["REMOVE_IMPORTED_FILE"], 匯入後刪除: ["REMOVE_IMPORTED_FILE"],
+    // 匯入與儲存 · 匯入規則
+    pdf: ["PDF_TILE_WITH_FILE_NAME"], 檔名: ["PDF_TILE_WITH_FILE_NAME", "BOOK_NAMES_FORMAT"], 書名: ["PDF_TILE_WITH_FILE_NAME"],
+    txt: ["ENABLE_TXT_TO_TXTZ_PLUGIN"], txtz: ["ENABLE_TXT_TO_TXTZ_PLUGIN"], 轉換: ["ENABLE_TXT_TO_TXTZ_PLUGIN", "convert_timeout", "ENABLE_BOOKS_TYPE_CONVERT_DIRECT"],
+    伺服器: ["ENABLE_SERVER_FILE_IMPORT", "smtp_server"], 目錄瀏覽: ["ENABLE_SERVER_FILE_IMPORT"], 伺服器匯入: ["ENABLE_SERVER_FILE_IMPORT"],
+    isbn: ["BATCH_ADD_IN_FORCE"], 強制: ["BATCH_ADD_IN_FORCE"], 無效: ["BATCH_ADD_IN_FORCE"], 強制加入: ["BATCH_ADD_IN_FORCE"],
+    第一層目錄: ["IMPORT_CATEGORY_WITH_FOLDER"], 目錄分類: ["IMPORT_CATEGORY_WITH_FOLDER"], 自訂類別: ["IMPORT_CATEGORY_WITH_FOLDER"],
+    限流: ["auto_fill_pause_on_throttle", "ENABLE_DOWNLOAD_QUOTA"], 暫停: ["auto_fill_pause_on_throttle"], 自動暫停: ["auto_fill_pause_on_throttle"], 節流: ["auto_fill_pause_on_throttle"],
+    重複: ["UPLOAD_IGNORE_TITLE_CHECKING"], 同書: ["UPLOAD_IGNORE_TITLE_CHECKING"], 重複檢查: ["UPLOAD_IGNORE_TITLE_CHECKING"], 同名書: ["UPLOAD_IGNORE_TITLE_CHECKING"],
+    // 匯入與儲存 · 自動匯入 / 儲存布局
+    監控: ["IMPORT_BY_INOTIFY", "UPDATE_CATEGORY_WITH_FOLDER_RENAME"], 自動匯入: ["IMPORT_BY_INOTIFY"], inotify: ["IMPORT_BY_INOTIFY"], 監視: ["IMPORT_BY_INOTIFY"], 即時匯入: ["IMPORT_BY_INOTIFY"],
+    重新命名: ["UPDATE_CATEGORY_WITH_FOLDER_RENAME"], 目錄改名: ["UPDATE_CATEGORY_WITH_FOLDER_RENAME"],
+    拼音: ["BOOK_NAMES_FORMAT"], utf8: ["BOOK_NAMES_FORMAT"], 儲存: ["BOOK_NAMES_FORMAT", "TRASH"], 儲存布局: ["BOOK_NAMES_FORMAT"], 編碼: ["BOOK_NAMES_FORMAT"], 亂碼: ["BOOK_NAMES_FORMAT"], 檔名模式: ["BOOK_NAMES_FORMAT"],
+    // 推送與郵件 · 郵件服務
+    smtp: ["smtp_server", "smtp_username", "smtp_password", "smtp_encryption"], 郵件伺服器: ["smtp_server"], 帳號: ["smtp_username"], 使用者名稱: ["smtp_username"], 寄件: ["smtp_server", "smtp_username"],
+    授權碼: ["smtp_password"], 郵件密碼: ["smtp_password"], 加密: ["smtp_encryption"], ssl: ["smtp_encryption", "SSL"], tls: ["smtp_encryption"], 連接埠: ["smtp_server", "smtp_encryption"], 埠: ["smtp_encryption"],
+    郵件: ["smtp_server", "smtp_username", "smtp_password", "smtp_encryption", "push_title", "push_content", "SEND_MAIL_FOR_NEW_BOOKS", "SIGNUP_MAIL_TITLE", "SIGNUP_MAIL_CONTENT", "RESET_MAIL_TITLE", "RESET_MAIL_CONTENT"],
+    信箱: ["smtp_server", "smtp_username", "smtp_password", "smtp_encryption", "push_title", "SEND_MAIL_FOR_NEW_BOOKS"],
+    推送: ["DEVICES", "push_title", "push_content", "SEND_MAIL_FOR_NEW_BOOKS", "ALLOW_GUEST_PUSH", "ALLOW_NEW_USER_PUSH_BOOK", "smtp_server"],
+    kindle: ["DEVICES", "push_title", "smtp_server"], 郵件主旨: ["push_title"], 郵件內文: ["push_content"],
+    提醒: ["SEND_MAIL_FOR_NEW_BOOKS"], 郵件提醒: ["SEND_MAIL_FOR_NEW_BOOKS"], 通知信: ["SEND_MAIL_FOR_NEW_BOOKS", "push_title"], 發送: ["SEND_MAIL_FOR_NEW_BOOKS", "smtp_server"], 寄送: ["SEND_MAIL_FOR_NEW_BOOKS"],
+    // 推送與郵件 · 推送裝置
+    裝置: ["DEVICES"], 設備: ["DEVICES"], 推送裝置: ["DEVICES"], 推送設備: ["DEVICES"], 閱讀裝置: ["DEVICES"], 裝置管理: ["DEVICES"], 绑定裝置: ["DEVICES"],
+    文石: ["DEVICES"], 掌閱: ["DEVICES"], 漢王: ["DEVICES"], 當當: ["DEVICES"], koreader: ["DEVICES"], duokan: ["DEVICES"], ireader: ["DEVICES"], boox: ["DEVICES"], purelibro: ["DEVICES"], ftp: ["DEVICES"],
+    // 外部服務 · 資訊來源
+    資訊: ["auto_fill_meta"], 擷取: ["auto_fill_meta", "META_SELECTED_SOURCES"], 網路擷取: ["auto_fill_meta"],
+    豆瓣: ["auto_fill_meta", "META_SELECTED_SOURCES", "douban_baseurl", "douban_apikey", "douban_max_count"], 書源: ["META_SELECTED_SOURCES", "auto_fill_meta"], 來源: ["META_SELECTED_SOURCES"], 選擇來源: ["META_SELECTED_SOURCES"],
+    鏡像: ["douban_baseurl"], api: ["AI_API_URL", "AI_DEEPSEEK_API_KEY", "douban_apikey", "douban_baseurl"],
+    金鑰: ["douban_apikey", "AI_DEEPSEEK_API_KEY", "cookie_secret", "AI_MCP_TOKEN", "BOOKBARN_TOKEN"],
+    數量: ["douban_max_count", "MAIN_PAGE_RANDOM_COUNT", "MAIN_PAGE_RECENT_COUNT"],
+    // 外部服務 · 書棧 / AI
+    書棧: ["ENABLE_BOOKBARN", "BOOKBARN_TOKEN"], barn: ["ENABLE_BOOKBARN"], token: ["BOOKBARN_TOKEN", "AI_MCP_TOKEN"], 權杖: ["BOOKBARN_TOKEN", "AI_MCP_TOKEN"], 授權: ["BOOKBARN_TOKEN", "AI_MCP_TOKEN"],
+    ai: ["AI_ENABLED", "AI_DEEPSEEK_API_KEY", "AI_API_URL", "AI_MODEL", "AI_MCP_TOKEN", "AI_ALLOW_SET_CATEGORY"],
+    人工智慧: ["AI_ENABLED"], 助手: ["AI_ENABLED"], deepseek: ["AI_ENABLED", "AI_DEEPSEEK_API_KEY", "AI_MODEL"],
+    模型: ["AI_MODEL"], 介面: ["AI_API_URL"], url: ["AI_API_URL", "douban_baseurl"], 鏈接: ["AI_API_URL", "douban_baseurl", "static_host", "FRIENDS"],
+    mcp: ["AI_MCP_TOKEN"], 自動分類: ["AI_ALLOW_SET_CATEGORY"], 產生分類: ["AI_ALLOW_SET_CATEGORY"],
+    // 服務與協議
+    webdav: ["ENABLE_WEBDAV_SERVICE", "WEBDAV_SYNC_FOLDER"], 掛載: ["ENABLE_WEBDAV_SERVICE"], 可寫: ["WEBDAV_SYNC_FOLDER"], 可寫目錄: ["WEBDAV_SYNC_FOLDER"], 讀寫: ["ENABLE_WEBDAV_SERVICE", "WEBDAV_SYNC_FOLDER"],
+    opds: ["ENABLE_OPDS_SERVICE", "ENABLE_OPDS_AUTH"], 認證: ["ENABLE_OPDS_AUTH"], 目錄服務: ["ENABLE_OPDS_SERVICE", "ENABLE_OPDS_AUTH"], 需要密碼: ["ENABLE_OPDS_AUTH"],
+    訂閱: ["ENABLE_PODCAST_SERVICE", "ENABLE_OPDS_SERVICE"], 播客: ["ENABLE_PODCAST_SERVICE"], podcast: ["ENABLE_PODCAST_SERVICE"], 聽書: ["ENABLE_PODCAST_SERVICE", "ALLOW_GUEST_READ"], 有聲: ["ENABLE_AUDIO_CONVERSION_LOG", "ENABLE_AUDIO_SUBTITLE", "ENABLE_PODCAST_SERVICE"], 有聲書: ["ENABLE_PODCAST_SERVICE", "ENABLE_AUDIO_CONVERSION_LOG", "ENABLE_AUDIO_SUBTITLE"],
+    cdn: ["static_host"], 網域: ["static_host"], 加速: ["static_host", "PERFORMANCE_MODE"], 靜態: ["static_host"], 靜態資源: ["static_host"],
+    cookie: ["cookie_secret"], 安全: ["cookie_secret", "INVITE_MODE", "ENABLE_OPDS_AUTH", "SSL", "AI_MCP_TOKEN"], 隨機金鑰: ["cookie_secret"],
+    憑證: ["SSL", "static_host"], https: ["SSL", "static_host"], ssl憑證: ["SSL"],
+    // 系統與效能 · 效能與快取
+    極速: ["PERFORMANCE_MODE"], 效能: ["PERFORMANCE_MODE", "THUMB_CACHE"], 低階: ["PERFORMANCE_MODE"], 卡: ["PERFORMANCE_MODE", "THUMB_CACHE"], 慢: ["PERFORMANCE_MODE", "THUMB_CACHE"], 速度: ["PERFORMANCE_MODE"], 卡頓: ["PERFORMANCE_MODE", "THUMB_CACHE"],
+    快取: ["THUMB_CACHE", "CACHE_MAX_MB"], 縮圖: ["THUMB_CACHE"], 容量: ["CACHE_MAX_MB"], mb: ["CACHE_MAX_MB"], 快取清理: ["TRASH", "THUMB_CACHE"],
+    記憶體: ["LITE_GROUP_RESOURCES"], cpu: ["LITE_GROUP_RESOURCES", "PERFORMANCE_MODE"], 資源: ["LITE_GROUP_RESOURCES"], 省資源: ["LITE_GROUP_RESOURCES"],
+    精簡: ["LITE_GROUP_RECOMMEND", "LITE_GROUP_FILES", "LITE_GROUP_BACKGROUND"], 背景: ["LITE_GROUP_BACKGROUND"], 背景工作: ["LITE_GROUP_BACKGROUND"],
+    搜尋加速: ["LITE_GROUP_LISTING"], 清單加速: ["LITE_GROUP_LISTING"], 圖片處理: ["LITE_GROUP_FILES"],
+    // 系統與效能 · 日誌與除錯
+    日誌: ["LOG_LEVEL_DEBUG", "ENABLE_AUDIO_CONVERSION_LOG"], 除錯: ["LOG_LEVEL_DEBUG"], 偵錯: ["LOG_LEVEL_DEBUG"], debug: ["LOG_LEVEL_DEBUG"], 轉換日誌: ["ENABLE_AUDIO_CONVERSION_LOG"],
+    字幕: ["ENABLE_AUDIO_SUBTITLE"], srt: ["ENABLE_AUDIO_SUBTITLE"],
+    重新啟動: ["autoreload"], 重啟: ["autoreload"], 生效: ["autoreload"], 逾時: ["convert_timeout"], 超時: ["convert_timeout"], 時間: ["convert_timeout"],
+    // 系統與效能 · 更新與工具箱
+    更新: ["AUTO_CHECKING_NEW_VERSION", "ENABLE_TOOLBOX_STORE"], 版本: ["AUTO_CHECKING_NEW_VERSION"], 升級: ["AUTO_CHECKING_NEW_VERSION"], 檢查: ["AUTO_CHECKING_NEW_VERSION"], 檢查更新: ["AUTO_CHECKING_NEW_VERSION"],
+    工具箱: ["ENABLE_TOOLBOX_DEV_MODE", "ENABLE_TOOLBOX_STORE"], 開發者: ["ENABLE_TOOLBOX_DEV_MODE"], 商店: ["ENABLE_TOOLBOX_STORE"], 外掛: ["ENABLE_TOOLBOX_STORE", "ENABLE_TXT_TO_TXTZ_PLUGIN"],
+    外掛商店: ["ENABLE_TOOLBOX_STORE"], 上傳zip: ["ENABLE_TOOLBOX_DEV_MODE"],
+    // 系統與效能 · 檔案清理
+    回收筒: ["TRASH"], 回收桶: ["TRASH"], 垃圾桶: ["TRASH"], 清理: ["TRASH", "REMOVE_IMPORTED_FILE"], 磁碟: ["TRASH"], 硬碟: ["TRASH"], 空間: ["TRASH", "CACHE_MAX_MB"], 刪除: ["TRASH", "REMOVE_IMPORTED_FILE"],
+  },
+  en: {
+    // Site & Appearance · site identity
+    "site name": ["site_title"], "site title": ["site_title"], "website name": ["site_title"], name: ["site_title", "DEVICES"], title: ["site_title", "push_title"], subject: ["push_title", "RESET_MAIL_TITLE", "SIGNUP_MAIL_TITLE"],
+    icon: ["site_icon"], favicon: ["site_icon"], logo: ["site_icon"], brand: ["site_icon"],
+    header: ["HEADER"], announcement: ["HEADER"], notice: ["HEADER"], "site header": ["HEADER"],
+    footer: ["FOOTER"], copyright: ["FOOTER"], watermark: ["FOOTER_WATERMARK"],
+    language: ["site_language", "DEFAULT_LANGUAGE"], languages: ["site_language"], locale: ["site_language"], i18n: ["site_language"], multilingual: ["site_language"], english: ["site_language"], chinese: ["site_language"], traditional: ["site_language"], simplified: ["site_language"], "default language": ["DEFAULT_LANGUAGE"],
+    homepage: ["INDEX_PAGE_TYPE", "MAIN_PAGE_RANDOM_COUNT", "MAIN_PAGE_RECENT_COUNT"], "index page": ["INDEX_PAGE_TYPE"], "page type": ["INDEX_PAGE_TYPE"], landing: ["INDEX_PAGE_TYPE"],
+    links: ["FRIENDS", "HIDE_PROJECT_LINKS", "douban_baseurl", "AI_API_URL", "static_host"], link: ["FRIENDS", "HIDE_PROJECT_LINKS", "douban_baseurl", "AI_API_URL", "static_host"], "friend links": ["FRIENDS"], friends: ["FRIENDS"], "project links": ["HIDE_PROJECT_LINKS"], "hide links": ["HIDE_PROJECT_LINKS"],
+    url: ["AI_API_URL", "douban_baseurl", "static_host"], address: ["douban_baseurl", "AI_API_URL", "static_host", "smtp_server"], endpoint: ["AI_API_URL", "douban_baseurl"],
+    // Site & Appearance · home & listing
+    random: ["MAIN_PAGE_RANDOM_COUNT"], shuffle: ["MAIN_PAGE_RANDOM_COUNT"],
+    recommend: ["RECOMMEND_ENABLE", "RECOMMEND_USE_CROWD", "ENABLE_BOOK_RECOMMEND_TO_OTHERS", "MAIN_PAGE_RANDOM_COUNT"], recommendation: ["RECOMMEND_ENABLE"], recommendations: ["RECOMMEND_ENABLE"], smart: ["RECOMMEND_ENABLE"], recommender: ["RECOMMEND_ENABLE"],
+    crowd: ["RECOMMEND_USE_CROWD"], collaborative: ["RECOMMEND_USE_CROWD"], "other users": ["RECOMMEND_USE_CROWD"], community: ["RECOMMEND_USE_CROWD"],
+    recent: ["MAIN_PAGE_RECENT_COUNT"], latest: ["MAIN_PAGE_RECENT_COUNT"], newest: ["MAIN_PAGE_RECENT_COUNT"], "new books": ["MAIN_PAGE_RECENT_COUNT", "SEND_MAIL_FOR_NEW_BOOKS"],
+    pagination: ["DEFAULT_PAGE_SIZE"], "page size": ["DEFAULT_PAGE_SIZE"], "per page": ["DEFAULT_PAGE_SIZE"], "items per page": ["DEFAULT_PAGE_SIZE"],
+    sidebar: ["SIDEBAR_ITEMS"], menu: ["SIDEBAR_ITEMS"], navigation: ["SIDEBAR_ITEMS"], nav: ["SIDEBAR_ITEMS", "BOOK_NAV"],
+    "homepage display": ["ENABLE_HOMEPAGE_READING_STATS", "ENABLE_HOMEPAGE_READING_BOOKS", "ENABLE_HOMEPAGE_BOOKLISTS", "ENABLE_BOOK_RECOMMEND_TO_OTHERS"], widgets: ["ENABLE_HOMEPAGE_READING_STATS", "ENABLE_HOMEPAGE_READING_BOOKS", "ENABLE_HOMEPAGE_BOOKLISTS", "ENABLE_BOOK_RECOMMEND_TO_OTHERS"],
+    stats: ["ENABLE_HOMEPAGE_READING_STATS", "ALLOW_USER_DISABLE_STATISTIC"], statistics: ["ENABLE_HOMEPAGE_READING_STATS", "ALLOW_USER_DISABLE_STATISTIC"], "reading stats": ["ENABLE_HOMEPAGE_READING_STATS"], banner: ["ENABLE_HOMEPAGE_READING_STATS"],
+    "currently reading": ["ENABLE_HOMEPAGE_READING_BOOKS"], "reading now": ["ENABLE_HOMEPAGE_READING_BOOKS"], "in progress": ["ENABLE_HOMEPAGE_READING_BOOKS"],
+    booklist: ["ENABLE_HOMEPAGE_BOOKLISTS", "BOOK_NAV"], "book list": ["ENABLE_HOMEPAGE_BOOKLISTS", "BOOK_NAV"], collections: ["ENABLE_HOMEPAGE_BOOKLISTS"], featured: ["ENABLE_HOMEPAGE_BOOKLISTS"],
+    "recommend to others": ["ENABLE_BOOK_RECOMMEND_TO_OTHERS"], "share books": ["ENABLE_BOOK_RECOMMEND_TO_OTHERS"],
+    // Site & Appearance · categories
+    category: ["BOOK_NAV", "IMPORT_CATEGORY_WITH_FOLDER", "AI_ALLOW_SET_CATEGORY"], categories: ["BOOK_NAV", "IMPORT_CATEGORY_WITH_FOLDER"], categorize: ["AI_ALLOW_SET_CATEGORY"], tag: ["BOOK_NAV"], tags: ["BOOK_NAV"],
+    // Reading & Content · reader & sync
+    reader: ["EPUB_VIEWER", "DEVICES"], epub: ["EPUB_VIEWER"], epubjs: ["EPUB_VIEWER"], myreader: ["EPUB_VIEWER", "ENABLE_DATA_SYNC"], viewer: ["EPUB_VIEWER"], engine: ["EPUB_VIEWER"],
+    sync: ["ENABLE_DATA_SYNC", "ENABLE_WEBDAV_SERVICE", "WEBDAV_SYNC_FOLDER"], progress: ["ENABLE_DATA_SYNC"], "data sync": ["ENABLE_DATA_SYNC"], "cross device": ["ENABLE_DATA_SYNC", "DEVICES"],
+    cover: ["USE_DYNAMIC_COVER", "ENABLE_STAMP_FEATURE", "THUMB_CACHE"], "dynamic cover": ["USE_DYNAMIC_COVER"], "book cover": ["USE_DYNAMIC_COVER"],
+    author: ["ENABLE_AUTHOR_INFO"], bio: ["ENABLE_AUTHOR_INFO"], biography: ["ENABLE_AUTHOR_INFO"], avatar: ["ENABLE_AUTHOR_INFO"],
+    privacy: ["ALLOW_USER_DISABLE_STATISTIC"], "opt out": ["ALLOW_USER_DISABLE_STATISTIC"], telemetry: ["ALLOW_USER_DISABLE_STATISTIC"], tracking: ["ALLOW_USER_DISABLE_STATISTIC"],
+    notes: ["ENABLE_SHARED_NOTES"], highlight: ["ENABLE_SHARED_NOTES"], highlights: ["ENABLE_SHARED_NOTES"], annotation: ["ENABLE_SHARED_NOTES"], annotations: ["ENABLE_SHARED_NOTES"], underline: ["ENABLE_SHARED_NOTES"],
+    // Reading & Content · dictionaries
+    dictionary: ["READER_MYDICTS", "READER_DICT_MYBOOKS_ENABLED", "READER_DICT_BAIKE_ENABLED"], dictionaries: ["READER_MYDICTS", "READER_DICT_MYBOOKS_ENABLED", "READER_DICT_BAIKE_ENABLED"], dict: ["READER_MYDICTS", "READER_DICT_MYBOOKS_ENABLED", "READER_DICT_BAIKE_ENABLED"],
+    translate: ["READER_MYDICTS", "READER_DICT_MYBOOKS_ENABLED", "READER_DICT_BAIKE_ENABLED"], translation: ["READER_MYDICTS", "READER_DICT_MYBOOKS_ENABLED", "READER_DICT_BAIKE_ENABLED"], vocabulary: ["READER_MYDICTS"], "word lookup": ["READER_MYDICTS"], lookup: ["READER_MYDICTS"],
+    encyclopedia: ["READER_DICT_BAIKE_ENABLED"], baike: ["READER_DICT_BAIKE_ENABLED"], baidu: ["READER_DICT_BAIKE_ENABLED"], wiki: ["READER_DICT_BAIKE_ENABLED"],
+    // Reading & Content · reviews
+    review: ["ENABLE_BOOK_REVIEW", "REVIEW_REQUIRES_APPROVAL", "ENABLE_BOOK_RECOMMEND_TO_OTHERS"], reviews: ["ENABLE_BOOK_REVIEW", "REVIEW_REQUIRES_APPROVAL"], rating: ["ENABLE_BOOK_REVIEW"], rate: ["ENABLE_BOOK_REVIEW"], comment: ["ENABLE_BOOK_REVIEW"], comments: ["ENABLE_BOOK_REVIEW"], stars: ["ENABLE_BOOK_REVIEW"],
+    approve: ["REVIEW_REQUIRES_APPROVAL", "ENABLE_AUTO_NEW_USER_APPROVAL"], moderate: ["REVIEW_REQUIRES_APPROVAL"], moderation: ["REVIEW_REQUIRES_APPROVAL"],
+    // Reading & Content · physical books & stamp
+    physical: ["ENABLE_PHYSICAL_BOOKS", "ENABLE_BOOKS_TYPE_CONVERT_DIRECT"], hardcopy: ["ENABLE_PHYSICAL_BOOKS"], print: ["ENABLE_PHYSICAL_BOOKS"], printed: ["ENABLE_PHYSICAL_BOOKS"], "paper books": ["ENABLE_PHYSICAL_BOOKS"], shelf: ["ENABLE_PHYSICAL_BOOKS"], bookshelf: ["ENABLE_PHYSICAL_BOOKS"],
+    convert: ["ENABLE_BOOKS_TYPE_CONVERT_DIRECT", "ENABLE_TXT_TO_TXTZ_PLUGIN"], conversion: ["ENABLE_BOOKS_TYPE_CONVERT_DIRECT", "ENABLE_TXT_TO_TXTZ_PLUGIN"],
+    folder: ["ENABLE_FOLDER_BROWSE"], folders: ["ENABLE_FOLDER_BROWSE"], directory: ["ENABLE_FOLDER_BROWSE", "scan_upload_path"], hierarchy: ["ENABLE_FOLDER_BROWSE"], "multi-level": ["ENABLE_FOLDER_BROWSE"],
+    stamp: ["ENABLE_STAMP_FEATURE"], seal: ["ENABLE_STAMP_FEATURE"],
+    // Users & Access · guests
+    guest: ["ALLOW_GUEST_READ", "ALLOW_GUEST_DOWNLOAD", "ALLOW_GUEST_UPLOAD", "ALLOW_GUEST_PUSH"], guests: ["ALLOW_GUEST_READ", "ALLOW_GUEST_DOWNLOAD", "ALLOW_GUEST_UPLOAD", "ALLOW_GUEST_PUSH"],
+    anonymous: ["ALLOW_GUEST_READ", "ALLOW_GUEST_DOWNLOAD"], "not logged in": ["ALLOW_GUEST_READ", "ALLOW_GUEST_DOWNLOAD"], "public access": ["ALLOW_GUEST_READ", "ALLOW_GUEST_DOWNLOAD", "ALLOW_GUEST_UPLOAD", "ALLOW_GUEST_PUSH"],
+    "read online": ["ALLOW_GUEST_READ"], browse: ["ALLOW_GUEST_READ"], download: ["ALLOW_GUEST_DOWNLOAD", "ENABLE_DOWNLOAD_QUOTA", "GLOBAL_DOWNLOAD_QUOTA"], downloads: ["ALLOW_GUEST_DOWNLOAD"], upload: ["ALLOW_GUEST_UPLOAD", "MAX_UPLOAD_SIZE", "CHUNK_UPLOAD_SIZE"], push: ["ALLOW_GUEST_PUSH", "DEVICES", "push_title", "push_content", "SEND_MAIL_FOR_NEW_BOOKS"],
+    // Users & Access · registration & invitation
+    register: ["ALLOW_REGISTER", "SIGNUP_MAIL_TITLE", "ENABLE_AUTO_NEW_USER_APPROVAL"], registration: ["ALLOW_REGISTER"], signup: ["ALLOW_REGISTER"], "sign up": ["ALLOW_REGISTER"], "create account": ["ALLOW_REGISTER"],
+    invite: ["INVITE_MODE", "INVITE_CODE"], invitation: ["INVITE_MODE", "INVITE_CODE"], "invite code": ["INVITE_CODE", "INVITE_MODE"], "access code": ["INVITE_CODE", "INVITE_MODE"], "private library": ["INVITE_MODE"], "private mode": ["INVITE_MODE"], passcode: ["INVITE_MODE", "INVITE_CODE"], closed: ["INVITE_MODE"],
+    "invite message": ["INVITE_MESSAGE"], "welcome message": ["INVITE_MESSAGE"],
+    activation: ["SIGNUP_MAIL_TITLE", "SIGNUP_MAIL_CONTENT"], "activation email": ["SIGNUP_MAIL_TITLE", "SIGNUP_MAIL_CONTENT"], "verify email": ["SIGNUP_MAIL_TITLE", "SIGNUP_MAIL_CONTENT"], confirmation: ["SIGNUP_MAIL_TITLE", "SIGNUP_MAIL_CONTENT"],
+    "reset password": ["RESET_MAIL_TITLE", "RESET_MAIL_CONTENT"], "forgot password": ["RESET_MAIL_TITLE", "RESET_MAIL_CONTENT"], "password reset": ["RESET_MAIL_TITLE", "RESET_MAIL_CONTENT"],
+    body: ["push_content", "RESET_MAIL_CONTENT", "SIGNUP_MAIL_CONTENT"], content: ["push_content", "RESET_MAIL_CONTENT", "SIGNUP_MAIL_CONTENT", "INVITE_MESSAGE"],
+    // Users & Access · default permissions & quota
+    approval: ["ENABLE_AUTO_NEW_USER_APPROVAL", "REVIEW_REQUIRES_APPROVAL"], "auto approve": ["ENABLE_AUTO_NEW_USER_APPROVAL"],
+    "new user": ["ALLOW_NEW_USER_MANAGE_BOOK", "ALLOW_NEW_USER_PUSH_BOOK", "ENABLE_AUTO_NEW_USER_APPROVAL", "DEFAULT_READ_RANGE"], "new users": ["ALLOW_NEW_USER_MANAGE_BOOK", "ALLOW_NEW_USER_PUSH_BOOK", "ENABLE_AUTO_NEW_USER_APPROVAL"],
+    permission: ["ALLOW_NEW_USER_MANAGE_BOOK", "ALLOW_NEW_USER_PUSH_BOOK", "ALLOW_READ_RANGE_SETTING"], permissions: ["ALLOW_NEW_USER_MANAGE_BOOK", "ALLOW_NEW_USER_PUSH_BOOK", "ALLOW_READ_RANGE_SETTING"],
+    whitelist: ["ALLOW_READ_RANGE_SETTING", "DEFAULT_READ_RANGE"], blacklist: ["ALLOW_READ_RANGE_SETTING", "DEFAULT_READ_RANGE"], visible: ["ALLOW_READ_RANGE_SETTING", "DEFAULT_READ_RANGE"], hidden: ["ALLOW_READ_RANGE_SETTING", "DEFAULT_READ_RANGE"], restrict: ["ALLOW_READ_RANGE_SETTING", "DEFAULT_READ_RANGE"],
+    "read range": ["ALLOW_READ_RANGE_SETTING", "DEFAULT_READ_RANGE"], "reading range": ["ALLOW_READ_RANGE_SETTING", "DEFAULT_READ_RANGE"],
+    quota: ["ENABLE_DOWNLOAD_QUOTA", "GLOBAL_DOWNLOAD_QUOTA"], quotas: ["ENABLE_DOWNLOAD_QUOTA", "GLOBAL_DOWNLOAD_QUOTA"], "daily limit": ["ENABLE_DOWNLOAD_QUOTA", "GLOBAL_DOWNLOAD_QUOTA"], "download limit": ["ENABLE_DOWNLOAD_QUOTA", "GLOBAL_DOWNLOAD_QUOTA"],
+    // Users & Access · social login
+    login: ["SOCIALS", "ALLOW_REGISTER", "INVITE_MODE"], social: ["SOCIALS"], "social login": ["SOCIALS"], oauth: ["SOCIALS"], "third party": ["SOCIALS"], sso: ["SOCIALS"], qq: ["SOCIALS"], wechat: ["SOCIALS"], weibo: ["SOCIALS"], github: ["SOCIALS"],
+    // Import & Storage · upload
+    "upload limit": ["MAX_UPLOAD_SIZE", "CHUNK_UPLOAD_SIZE"], "file size": ["MAX_UPLOAD_SIZE"], "max upload": ["MAX_UPLOAD_SIZE"], size: ["MAX_UPLOAD_SIZE", "CACHE_MAX_MB"], limit: ["MAX_UPLOAD_SIZE", "CHUNK_UPLOAD_SIZE", "ENABLE_DOWNLOAD_QUOTA", "GLOBAL_DOWNLOAD_QUOTA", "CACHE_MAX_MB"],
+    chunk: ["CHUNK_UPLOAD_SIZE"], chunks: ["CHUNK_UPLOAD_SIZE"], "chunked upload": ["CHUNK_UPLOAD_SIZE"], "large file": ["CHUNK_UPLOAD_SIZE"], resume: ["CHUNK_UPLOAD_SIZE"],
+    scan: ["scan_upload_path", "PDF_TILE_WITH_FILE_NAME"], batch: ["scan_upload_path", "BATCH_ADD_IN_FORCE"], "scan directory": ["scan_upload_path"], "import directory": ["scan_upload_path"], "batch import": ["scan_upload_path"],
+    metadata: ["auto_fill_meta", "META_SELECTED_SOURCES", "DEFAULT_LANGUAGE"], "book info": ["auto_fill_meta", "META_SELECTED_SOURCES"], "source file": ["KEEP_UPLOAD_SOURCE_FILE", "REMOVE_IMPORTED_FILE"], "keep source": ["KEEP_UPLOAD_SOURCE_FILE"], "temp file": ["KEEP_UPLOAD_SOURCE_FILE"], staged: ["KEEP_UPLOAD_SOURCE_FILE"],
+    "delete source": ["REMOVE_IMPORTED_FILE"], "remove original": ["REMOVE_IMPORTED_FILE"],
+    // Import & Storage · import rules
+    pdf: ["PDF_TILE_WITH_FILE_NAME"], filename: ["PDF_TILE_WITH_FILE_NAME", "BOOK_NAMES_FORMAT"], "file name": ["PDF_TILE_WITH_FILE_NAME", "BOOK_NAMES_FORMAT"],
+    txt: ["ENABLE_TXT_TO_TXTZ_PLUGIN"], txtz: ["ENABLE_TXT_TO_TXTZ_PLUGIN"], server: ["ENABLE_SERVER_FILE_IMPORT"], "bind directory": ["ENABLE_SERVER_FILE_IMPORT"], "browse server": ["ENABLE_SERVER_FILE_IMPORT"],
+    isbn: ["BATCH_ADD_IN_FORCE"], force: ["BATCH_ADD_IN_FORCE"], invalid: ["BATCH_ADD_IN_FORCE"],
+    "top folder": ["IMPORT_CATEGORY_WITH_FOLDER"], "first level folder": ["IMPORT_CATEGORY_WITH_FOLDER"], "custom category": ["IMPORT_CATEGORY_WITH_FOLDER"], "folder category": ["IMPORT_CATEGORY_WITH_FOLDER"],
+    throttle: ["auto_fill_pause_on_throttle", "ENABLE_DOWNLOAD_QUOTA"], "rate limit": ["auto_fill_pause_on_throttle", "ENABLE_DOWNLOAD_QUOTA"], cooldown: ["auto_fill_pause_on_throttle"], pause: ["auto_fill_pause_on_throttle"],
+    duplicate: ["UPLOAD_IGNORE_TITLE_CHECKING"], duplicated: ["UPLOAD_IGNORE_TITLE_CHECKING"], duplicates: ["UPLOAD_IGNORE_TITLE_CHECKING"], "same book": ["UPLOAD_IGNORE_TITLE_CHECKING"], "title check": ["UPLOAD_IGNORE_TITLE_CHECKING"],
+    // Import & Storage · auto import & storage layout
+    "auto import": ["IMPORT_BY_INOTIFY"], watch: ["IMPORT_BY_INOTIFY"], monitor: ["IMPORT_BY_INOTIFY"], monitoring: ["IMPORT_BY_INOTIFY"], inotify: ["IMPORT_BY_INOTIFY"], realtime: ["IMPORT_BY_INOTIFY"],
+    rename: ["UPDATE_CATEGORY_WITH_FOLDER_RENAME"], "folder rename": ["UPDATE_CATEGORY_WITH_FOLDER_RENAME"], "move folder": ["UPDATE_CATEGORY_WITH_FOLDER_RENAME"],
+    storage: ["BOOK_NAMES_FORMAT", "TRASH"], layout: ["BOOK_NAMES_FORMAT"], pinyin: ["BOOK_NAMES_FORMAT"], utf8: ["BOOK_NAMES_FORMAT"], encoding: ["BOOK_NAMES_FORMAT"], "file naming": ["BOOK_NAMES_FORMAT"],
+    // Push & Email · smtp
+    smtp: ["smtp_server", "smtp_username", "smtp_password", "smtp_encryption"], "mail server": ["smtp_server"], sender: ["smtp_server", "smtp_username"], username: ["smtp_username"], account: ["smtp_username"],
+    password: ["smtp_password", "cookie_secret", "INVITE_CODE", "AI_DEEPSEEK_API_KEY", "BOOKBARN_TOKEN", "RESET_MAIL_TITLE"], "app password": ["smtp_password"], "auth code": ["smtp_password"],
+    encryption: ["smtp_encryption"], ssl: ["smtp_encryption", "SSL"], tls: ["smtp_encryption"], port: ["smtp_server", "smtp_encryption"],
+    email: ["smtp_server", "smtp_username", "smtp_password", "smtp_encryption", "push_title", "push_content", "SEND_MAIL_FOR_NEW_BOOKS", "SIGNUP_MAIL_TITLE", "SIGNUP_MAIL_CONTENT", "RESET_MAIL_TITLE", "RESET_MAIL_CONTENT"], mail: ["smtp_server", "smtp_username", "smtp_password", "push_title", "SEND_MAIL_FOR_NEW_BOOKS"],
+    kindle: ["DEVICES", "push_title", "smtp_server"], reminder: ["SEND_MAIL_FOR_NEW_BOOKS"], notify: ["SEND_MAIL_FOR_NEW_BOOKS"], notification: ["SEND_MAIL_FOR_NEW_BOOKS", "push_title"],
+    // Push & Email · devices
+    device: ["DEVICES"], devices: ["DEVICES"], ereader: ["DEVICES"], "e-reader": ["DEVICES"], boox: ["DEVICES"], koreader: ["DEVICES"], duokan: ["DEVICES"], ireader: ["DEVICES"], hanwang: ["DEVICES"], dangdang: ["DEVICES"], purelibro: ["DEVICES"], ftp: ["DEVICES"],
+    // External Services · book info sources
+    source: ["META_SELECTED_SOURCES", "auto_fill_meta"], sources: ["META_SELECTED_SOURCES", "auto_fill_meta"], scrape: ["auto_fill_meta", "META_SELECTED_SOURCES"], scraping: ["auto_fill_meta", "META_SELECTED_SOURCES"], douban: ["auto_fill_meta", "META_SELECTED_SOURCES", "douban_baseurl", "douban_apikey", "douban_max_count"], mirror: ["douban_baseurl"],
+    api: ["AI_API_URL", "AI_DEEPSEEK_API_KEY", "douban_apikey", "douban_baseurl"], "api key": ["douban_apikey", "AI_DEEPSEEK_API_KEY", "AI_MCP_TOKEN", "BOOKBARN_TOKEN"], key: ["douban_apikey", "AI_DEEPSEEK_API_KEY", "cookie_secret", "AI_MCP_TOKEN", "BOOKBARN_TOKEN"], count: ["douban_max_count", "MAIN_PAGE_RANDOM_COUNT", "MAIN_PAGE_RECENT_COUNT"], results: ["douban_max_count"],
+    // External Services · bookbarn & AI
+    bookbarn: ["ENABLE_BOOKBARN", "BOOKBARN_TOKEN"], token: ["BOOKBARN_TOKEN", "AI_MCP_TOKEN"], "auth token": ["BOOKBARN_TOKEN", "AI_MCP_TOKEN"],
+    ai: ["AI_ENABLED", "AI_DEEPSEEK_API_KEY", "AI_API_URL", "AI_MODEL", "AI_MCP_TOKEN", "AI_ALLOW_SET_CATEGORY"], assistant: ["AI_ENABLED"], "artificial intelligence": ["AI_ENABLED"], deepseek: ["AI_ENABLED", "AI_DEEPSEEK_API_KEY", "AI_MODEL"], model: ["AI_MODEL"], mcp: ["AI_MCP_TOKEN"], "auto category": ["AI_ALLOW_SET_CATEGORY"], generate: ["AI_ALLOW_SET_CATEGORY"],
+    // Services & Protocols
+    webdav: ["ENABLE_WEBDAV_SERVICE", "WEBDAV_SYNC_FOLDER"], mount: ["ENABLE_WEBDAV_SERVICE"], writable: ["WEBDAV_SYNC_FOLDER"], "read write": ["ENABLE_WEBDAV_SERVICE", "WEBDAV_SYNC_FOLDER"],
+    opds: ["ENABLE_OPDS_SERVICE", "ENABLE_OPDS_AUTH"], auth: ["ENABLE_OPDS_AUTH"], authentication: ["ENABLE_OPDS_AUTH"], catalog: ["ENABLE_OPDS_SERVICE", "ENABLE_OPDS_AUTH"],
+    podcast: ["ENABLE_PODCAST_SERVICE"], podcasts: ["ENABLE_PODCAST_SERVICE"], subscribe: ["ENABLE_PODCAST_SERVICE", "ENABLE_OPDS_SERVICE"], subscription: ["ENABLE_PODCAST_SERVICE", "ENABLE_OPDS_SERVICE"], audiobook: ["ENABLE_PODCAST_SERVICE", "ENABLE_AUDIO_CONVERSION_LOG", "ENABLE_AUDIO_SUBTITLE"], audiobooks: ["ENABLE_PODCAST_SERVICE", "ENABLE_AUDIO_CONVERSION_LOG", "ENABLE_AUDIO_SUBTITLE"],
+    cdn: ["static_host"], domain: ["static_host"], acceleration: ["static_host", "PERFORMANCE_MODE"], "static assets": ["static_host"], "static host": ["static_host"],
+    cookie: ["cookie_secret"], secret: ["cookie_secret", "AI_MCP_TOKEN", "BOOKBARN_TOKEN"], security: ["cookie_secret", "INVITE_MODE", "ENABLE_OPDS_AUTH", "SSL"], certificate: ["SSL", "static_host"], cert: ["SSL", "static_host"], https: ["SSL", "static_host"],
+    // System & Performance · performance & cache
+    lite: ["PERFORMANCE_MODE"], performance: ["PERFORMANCE_MODE", "THUMB_CACHE"], "low-end": ["PERFORMANCE_MODE"], "low spec": ["PERFORMANCE_MODE"], slow: ["PERFORMANCE_MODE", "THUMB_CACHE"], speed: ["PERFORMANCE_MODE"], lag: ["PERFORMANCE_MODE", "THUMB_CACHE"], laggy: ["PERFORMANCE_MODE", "THUMB_CACHE"],
+    cache: ["THUMB_CACHE", "CACHE_MAX_MB"], thumbnail: ["THUMB_CACHE"], thumbnails: ["THUMB_CACHE"], thumbs: ["THUMB_CACHE"], "cache size": ["CACHE_MAX_MB"], mb: ["CACHE_MAX_MB"],
+    memory: ["LITE_GROUP_RESOURCES"], ram: ["LITE_GROUP_RESOURCES"], cpu: ["LITE_GROUP_RESOURCES", "PERFORMANCE_MODE"], resources: ["LITE_GROUP_RESOURCES"], "save resources": ["LITE_GROUP_RESOURCES"],
+    simplify: ["LITE_GROUP_RECOMMEND", "LITE_GROUP_FILES", "LITE_GROUP_BACKGROUND"], lighter: ["LITE_GROUP_RECOMMEND", "LITE_GROUP_FILES", "LITE_GROUP_BACKGROUND", "LITE_GROUP_RESOURCES"], background: ["LITE_GROUP_BACKGROUND"], "background tasks": ["LITE_GROUP_BACKGROUND"],
+    "faster search": ["LITE_GROUP_LISTING"], "list speed": ["LITE_GROUP_LISTING"], "image processing": ["LITE_GROUP_FILES"], "image handling": ["LITE_GROUP_FILES"],
+    // System & Performance · logs & debug
+    log: ["LOG_LEVEL_DEBUG", "ENABLE_AUDIO_CONVERSION_LOG"], logs: ["LOG_LEVEL_DEBUG", "ENABLE_AUDIO_CONVERSION_LOG"], logging: ["LOG_LEVEL_DEBUG", "ENABLE_AUDIO_CONVERSION_LOG"], debug: ["LOG_LEVEL_DEBUG"], debugging: ["LOG_LEVEL_DEBUG"], troubleshoot: ["LOG_LEVEL_DEBUG"],
+    subtitle: ["ENABLE_AUDIO_SUBTITLE"], subtitles: ["ENABLE_AUDIO_SUBTITLE"], srt: ["ENABLE_AUDIO_SUBTITLE"],
+    restart: ["autoreload"], reboot: ["autoreload"], reload: ["autoreload"], "take effect": ["autoreload"], timeout: ["convert_timeout"], "conversion timeout": ["convert_timeout"],
+    // System & Performance · updates & toolbox
+    update: ["AUTO_CHECKING_NEW_VERSION", "ENABLE_TOOLBOX_STORE"], updates: ["AUTO_CHECKING_NEW_VERSION", "ENABLE_TOOLBOX_STORE", "MAIN_PAGE_RECENT_COUNT"], version: ["AUTO_CHECKING_NEW_VERSION"], upgrade: ["AUTO_CHECKING_NEW_VERSION"], "check update": ["AUTO_CHECKING_NEW_VERSION"],
+    toolbox: ["ENABLE_TOOLBOX_DEV_MODE", "ENABLE_TOOLBOX_STORE"], tools: ["ENABLE_TOOLBOX_DEV_MODE", "ENABLE_TOOLBOX_STORE"], developer: ["ENABLE_TOOLBOX_DEV_MODE"], "dev mode": ["ENABLE_TOOLBOX_DEV_MODE"], store: ["ENABLE_TOOLBOX_STORE"], marketplace: ["ENABLE_TOOLBOX_STORE"], plugin: ["ENABLE_TOOLBOX_STORE", "ENABLE_TXT_TO_TXTZ_PLUGIN"], plugins: ["ENABLE_TOOLBOX_STORE", "ENABLE_TXT_TO_TXTZ_PLUGIN"], extension: ["ENABLE_TOOLBOX_STORE"], zip: ["ENABLE_TOOLBOX_DEV_MODE"],
+    // System & Performance · cleanup
+    "recycle bin": ["TRASH"], trash: ["TRASH"], "trash bin": ["TRASH"], cleanup: ["TRASH", "REMOVE_IMPORTED_FILE"], "clean up": ["TRASH", "REMOVE_IMPORTED_FILE"], disk: ["TRASH"], space: ["TRASH", "CACHE_MAX_MB"], delete: ["TRASH", "REMOVE_IMPORTED_FILE"],
+  },
 };
+
+// 三层词典合并成一张查找表：同名词条按并集合并（zh 的「登录」与 en 的 "login" 互不覆盖）；
+// 多词词条（"recycle bin"）额外登记每个 ≥3 字母的单字，因为查询串是按空格切词的
+const ALIAS_LOOKUP = Object.keys(SEARCH_ALIASES).reduce((lookup, lang) => {
+  const layer = SEARCH_ALIASES[lang];
+  const add = (word, keys) => {
+    const list = lookup[word] || (lookup[word] = []);
+    keys.forEach((key) => {
+      if (list.indexOf(key) < 0) list.push(key);
+    });
+  };
+  Object.keys(layer).forEach((word) => {
+    add(word, layer[word]);
+    if (/\s/.test(word)) {
+      word.split(/\s+/).forEach((piece) => {
+        if (piece.length >= 3) add(piece, layer[word]);
+      });
+    }
+  });
+  return lookup;
+}, {});
+
+const HAS_CJK = /[\u3400-\u9fff]/;
+// 命中分数：整词命中词典时，词条列表里排第一的关键项 82、其余 80（词条顺序即相关度）；
+// 中文组合词按命中的词条数累加（74 起，每词条 +2），封顶 79——始终排在整词命中之后
+const ALIAS_SCORE_EXACT = 82;
+const ALIAS_SCORE_SECOND = 80;
+const ALIAS_SCORE_PARTIAL = 74;
+const ALIAS_SCORE_PARTIAL_STEP = 2;
+const ALIAS_SCORE_PARTIAL_MAX = 79;
+
+// 单个查询词命中的设置项 key → 分数
+function aliasScoresFor(token) {
+  const scores = {};
+  const exact = ALIAS_LOOKUP[token];
+  if (exact) {
+    exact.forEach((key, i) => {
+      scores[key] = i === 0 ? ALIAS_SCORE_EXACT : ALIAS_SCORE_SECOND;
+    });
+  }
+  // 含中文的查询词再走一遍子串匹配（拉丁词条只按整词，避免 "catalog" 命中 "log"）
+  if (token.length < 2 || !HAS_CJK.test(token)) return scores;
+  Object.keys(ALIAS_LOOKUP).forEach((word) => {
+    if (word === token || word.length < 2) return;
+    if (token.indexOf(word) < 0 && word.indexOf(token) < 0) return;
+    ALIAS_LOOKUP[word].forEach((key) => {
+      const partial = Math.min(ALIAS_SCORE_PARTIAL_MAX, (scores[key] || ALIAS_SCORE_PARTIAL) + ALIAS_SCORE_PARTIAL_STEP);
+      scores[key] = Math.max(scores[key] || 0, partial);
+    });
+  });
+  return scores;
+}
 
 export default {
   components: {
@@ -2173,7 +2505,7 @@ export default {
       const q = (this.searchQ || "").trim().toLowerCase();
       if (!q) return [];
       const tokens = q.split(/\s+/);
-      const aliasSets = tokens.map((t) => SEARCH_ALIASES[t] || []);
+      const aliasSets = tokens.map((t) => aliasScoresFor(t));
       const out = [];
       this.flatIndex.forEach((r) => {
         const label = r.label.toLowerCase();
@@ -2182,8 +2514,7 @@ export default {
         let total = 0;
         for (let i = 0; i < tokens.length; i++) {
           const t = tokens[i];
-          let best = 0;
-          if (aliasSets[i].indexOf(r.key) >= 0) best = 82;
+          let best = aliasSets[i][r.key] || 0;
           if (label.indexOf(t) >= 0) best = Math.max(best, t.length >= 2 ? 76 : 55);
           if (key.indexOf(t) >= 0) best = Math.max(best, 60);
           if (aliasText.indexOf(t) >= 0) best = Math.max(best, 64);
