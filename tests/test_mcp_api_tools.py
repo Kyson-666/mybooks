@@ -62,6 +62,51 @@ class TestToolRequests(unittest.TestCase):
         self.assertEqual(result["err"], "confirm.required")
         self.assertEqual([c[0] for c in calls], ["GET"])
 
+    def test_refer_search_sends_only_given_conditions(self):
+        _, calls = self.run_tool("book_refer_search", {"book_id": 42, "isbn": "9787536692930"})
+        self.assertEqual(calls, [("GET", "/api/book/42/refer", {"isbn": "9787536692930"}, None)])
+
+        _, calls = self.run_tool("book_refer_search", {"book_id": 42})
+        self.assertEqual(calls, [("GET", "/api/book/42/refer", {}, None)])
+
+    def test_refer_apply_modes(self):
+        # 表单参数走 query 串（handler 用 get_argument，读不到 JSON body），三种模式各自一个 flag
+        for mode, flag in (("only_meta", "only_meta"), ("only_cover", "only_cover"),
+                           ("only_author_comments", "only_author_comments")):
+            _, calls = self.run_tool("book_refer_apply",
+                                     {"book_id": 42, "provider_key": "douban", "provider_value": "2567698", "mode": mode})
+            self.assertEqual(calls, [("POST", "/api/book/42/refer",
+                                      {"provider_key": "douban", "provider_value": "2567698", flag: "yes"}, None)], mode)
+
+    def test_refer_apply_full_mode_and_metadata(self):
+        candidate = {"title": "三体", "cover_url": "https://example.com/c.jpg", "provider_value": "2567698"}
+        _, calls = self.run_tool("book_refer_apply",
+                                 {"book_id": 42, "provider_key": "neodb", "provider_value": "2567698", "metadata": candidate})
+        self.assertEqual(calls, [("POST", "/api/book/42/refer",
+                                  {"provider_key": "neodb", "provider_value": "2567698",
+                                   "metadata": json.dumps(candidate, ensure_ascii=False)}, None)])
+
+    def test_refer_apply_requires_candidate(self):
+        result, calls = self.run_tool("book_refer_apply", {"book_id": 42, "provider_key": "douban"})
+        self.assertEqual(result["status"], "error")
+        self.assertEqual(calls, [])
+
+        result, calls = self.run_tool("book_refer_apply",
+                                      {"book_id": 42, "provider_key": "douban", "provider_value": "1", "mode": "meta"})
+        self.assertEqual(result["status"], "error")
+        self.assertEqual(calls, [])
+
+    def test_epub_fix_body(self):
+        _, calls = self.run_tool("epub_fix", {"book_ids": 42, "backup": True})
+        self.assertEqual(calls, [("POST", "/api/toolbox/epub_fixer/repair", None, {"book_ids": [42], "backup": True})])
+
+        _, calls = self.run_tool("epub_fix", {"book_ids": [42, 43]})
+        self.assertEqual(calls, [("POST", "/api/toolbox/epub_fixer/repair", None, {"book_ids": [42, 43]})])
+
+    def test_epub_fix_progress(self):
+        _, calls = self.run_tool("epub_fix_progress", {})
+        self.assertEqual(calls, [("GET", "/api/toolbox/epub_fixer/progress", None, None)])
+
     def test_legacy_search_args(self):
         args = MCPService._legacy_search_args({"name": "三体", "rating": ">=4", "tags": "科幻,长篇"})
         self.assertEqual(args, {"name": '(title:"三体" OR authors:"三体") AND rating:>=4 AND tags:"科幻" AND tags:"长篇"'})

@@ -16,6 +16,7 @@ which on an MCP server would be the *server's* filesystem):
     book_upload, tts_clone_upload, tts_clone_audio
 """
 
+import json
 from dataclasses import dataclass, field
 from typing import Any, Awaitable, Callable, Dict, List, Optional
 
@@ -24,6 +25,9 @@ ApiCall = Callable[..., Awaitable[Dict[str, Any]]]
 ToolFunc = Callable[[ApiCall, Dict[str, Any]], Awaitable[Dict[str, Any]]]
 
 API_TTS_PREFIX = "/api/toolbox/mimo_tts"
+
+# Built-in toolbox tool epub_fixer: /repair starts a background task, /progress reports it
+API_EPUB_FIXER_PREFIX = "/api/toolbox/epub_fixer"
 
 
 @dataclass
@@ -230,6 +234,51 @@ async def book_fill(call, args):
     if not idlist:
         return _err('idlist is required: an array of book IDs or "all"')
     return await call("POST", "/api/admin/book/fill", json={"idlist": idlist})
+
+
+@tool("book_refer_search",
+      "Search online sources for metadata candidates of one book (read-only; the search step of the web UI's "
+      '"联网更新信息"). Each candidate carries provider_key/provider_value — pass one to book_refer_apply.',
+      {"book_id": BOOK_ID, "title": S("Search with this title instead of the book's own"),
+       "isbn": S("Search with this ISBN"), "publisher": S("Narrow the search by publisher")}, ["book_id"])
+async def book_refer_search(call, args):
+    book_id = args.get("book_id")
+    if not book_id:
+        return _err("book_id is required")
+    params = {k: args[k] for k in ("title", "isbn", "publisher") if args.get(k)}
+    return await call("GET", f"/api/book/{book_id}/refer", params=params)
+
+
+@tool("book_refer_apply",
+      "Apply one online metadata candidate to a book (admin or book owner; the apply step of the web UI's "
+      '"联网更新信息"). mode=full replaces metadata and cover; only_meta keeps the cover; only_cover and '
+      "only_author_comments write just that part. metadata is a candidate object from book_refer_search and is "
+      "required for non-douban sources.",
+      {"book_id": BOOK_ID,
+       "provider_key": S("Source key from book_refer_search, e.g. douban"),
+       "provider_value": S("Source-side ID from book_refer_search"),
+       "mode": S("full (default) / only_meta / only_cover / only_author_comments",
+                 enum=["full", "only_meta", "only_cover", "only_author_comments"], default="full"),
+       "metadata": {"type": "object", "description": "A candidate object from book_refer_search"}},
+      ["book_id", "provider_key", "provider_value"])
+async def book_refer_apply(call, args):
+    for name in ("book_id", "provider_key", "provider_value"):
+        if not args.get(name):
+            return _err(f"{name} is required")
+
+    modes = {"full": {}, "only_meta": {"only_meta": "yes"}, "only_cover": {"only_cover": "yes"},
+             "only_author_comments": {"only_author_comments": "yes"}}
+    mode = args.get("mode") or "full"
+    if mode not in modes:
+        return _err(f"mode must be one of: {', '.join(modes)}")
+
+    params = {"provider_key": args["provider_key"], "provider_value": args["provider_value"]}
+    metadata = args.get("metadata")
+    if metadata:
+        params["metadata"] = metadata if isinstance(metadata, str) else json.dumps(metadata, ensure_ascii=False)
+    params.update(modes[mode])
+    # The handler reads only query/form arguments, so the flags travel in the query string
+    return await call("POST", f"/api/book/{args['book_id']}/refer", params=params)
 
 
 @tool("save_meta_to_file", "Write book metadata into the ebook file itself (epub/azw3/pdf only; admin or book owner).",
@@ -718,3 +767,36 @@ async def tts_prompt_delete(call, args):
     if not args.get("name"):
         return _err("name is required")
     return await call("POST", f"{API_TTS_PREFIX}/prompt/delete", json={"name": args["name"]})
+
+
+# ============================================================================
+# EPUB repair (built-in toolbox tool epub_fixer, admin only)
+# ============================================================================
+
+@tool("epub_fix",
+      "Start the EPUB structure repair task for one or more books (admin only). Asynchronous: it answers ok "
+      "immediately, poll epub_fix_progress for per-book results. write_mode=new_book keeps the original and "
+      "imports the repaired copy as a new book; overwrite (default) replaces the book's EPUB file.",
+      {"book_ids": A("One or more book IDs", {"type": "integer"}),
+       "write_mode": S("overwrite (default) or new_book", enum=["overwrite", "new_book"], default="overwrite"),
+       "backup": B("Keep a copy of the pre-repair EPUB in the tool work dir", default=False),
+       "reconvert": B("Also re-convert epub->epub after the structural pass", default=True),
+       "suffix": S("Title suffix used by new_book mode (default: （精修）)")},
+      ["book_ids"])
+async def epub_fix(call, args):
+    book_ids = args.get("book_ids")
+    if not book_ids:
+        return _err("book_ids is required: one book ID or an array of IDs")
+    if not isinstance(book_ids, list):
+        book_ids = [book_ids]
+
+    body = {"book_ids": book_ids}
+    for key in ("write_mode", "reconvert", "backup", "suffix"):
+        if args.get(key) is not None:
+            body[key] = args[key]
+    return await call("POST", f"{API_EPUB_FIXER_PREFIX}/repair", json=body)
+
+
+@tool("epub_fix_progress", "Query the EPUB repair task progress and per-book results (admin only).")
+async def epub_fix_progress(call, args):
+    return await call("GET", f"{API_EPUB_FIXER_PREFIX}/progress")
