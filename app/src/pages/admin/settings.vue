@@ -1389,6 +1389,11 @@ export default {
             type: "checkbox",
           },
           {
+            icon: "mdi-timer-sand",
+            key: "auto_fill_qpm",
+            label: "settings.auto_fill_qpm",
+          },
+          {
             icon: "mdi-source-branch",
             key: "META_SELECTED_SOURCES",
             label: "settings.meta_selected_source",
@@ -1408,6 +1413,11 @@ export default {
             icon: "mdi-information",
             key: "douban_max_count",
             label: "settings.douban_max_count",
+          },
+          {
+            icon: "mdi-speedometer",
+            key: "douban_v2_max_per_hour",
+            label: "settings.douban_v2_max_per_hour",
           }
         ],
         tips: [
@@ -1494,6 +1504,12 @@ export default {
             icon: "mdi-shape-plus",
             key: "IMPORT_CATEGORY_WITH_FOLDER",
             label: "settings.category_with_folder",
+            type: "checkbox",
+          },
+          {
+            icon: "mdi-pause-octagon",
+            key: "auto_fill_pause_on_throttle",
+            label: "settings.auto_fill_pause_on_throttle",
             type: "checkbox",
           },
           {
