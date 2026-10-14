@@ -854,6 +854,10 @@
   content: "\F03E4";
 }
 
+.mdi-pause-octagon::before {
+  content: "\F03E7";
+}
+
 .mdi-pencil::before {
   content: "\F03EB";
 }

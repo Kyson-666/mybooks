@@ -540,6 +540,19 @@ class AdminSettings(BaseHandler):
                     shutil.copy(new_icon_path, static_icon_path)
                 except Exception as e:
                     logging.info("Error: %s", str(e))
+        # 网站默认访问链接：留空表示按当前访问地址生成分享链接/二维码；
+        # 填了就必须是合法的 http/https 地址，否则前端会拼出坏链接且肉眼难发现
+        if "SITE_URL" in args:
+            site_url_raw = str(args["SITE_URL"] or "").strip()
+            site_url = utils.normalize_site_url(site_url_raw)
+            if site_url_raw and not site_url:
+                return {
+                    "err": "params.site_url.invalid",
+                    "msg": _(
+                        "网站默认访问链接无效，需以 http:// 或 https:// 开头，且不能包含空格"
+                    ),
+                }
+            args["SITE_URL"] = site_url
         # Check the douban_apikey if only number, letters, _ or -, and length <=48
         if "douban_apikey" in args:
             apikey = args["douban_apikey"]

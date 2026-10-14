@@ -30,6 +30,9 @@ settings = {
     "site_title"    : "书屋",
     "site_language" : "auto",
     "site_theme"    : "dark",
+    # 管理员配置的「网站默认访问链接」。留空时分享链接/二维码使用当前访问地址；
+    # 反代或内网访问下想让对外域名出现在分享链接里时填写（不含结尾斜杠）。
+    "SITE_URL"      : "",
     "ssl_crt_file"  : "/data/books/ssl/ssl.crt",
     "ssl_key_file"  : "/data/books/ssl/ssl.key",
 

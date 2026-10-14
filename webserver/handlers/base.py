@@ -1558,6 +1558,9 @@ class BaseHandler(web.RequestHandler):
                 "title": CONF["site_title"] if "site_title" in CONF else "MyBooks",
                 "language": CONF["site_language"] if "site_language" in CONF else "",
                 "theme": CONF["site_theme"] if "site_theme" in CONF else "light",
+                # 管理员配置的「网站默认访问链接」（反代/内网访问时让分享链接指向对外域名）：
+                # 非空时前端生成分享链接与二维码用它，留空则回退到当前访问地址
+                "siteUrl": utils.normalize_site_url(CONF.get("SITE_URL", "")),
                 "maxUploadSize": (
                     CONF["MAX_UPLOAD_SIZE"] if "MAX_UPLOAD_SIZE" in CONF else "100MB"
                 ),

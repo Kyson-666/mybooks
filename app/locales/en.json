@@ -584,6 +584,8 @@
     "light_color": "Light",
     "dark_color": "Dark",
     "site_title": "Site Title",
+    "site_default_url": "Default Site URL",
+    "site_default_url_tips": "Leave empty to use the current address in share links and QR codes. Set your public URL (must include http:// or https://) to use it instead — handy behind a reverse proxy or when the site is reachable at several addresses.",
     "site_header": "Site Header",
     "site_footer": "Site Footer",
     "footer_watermark": "Footer Watermark",

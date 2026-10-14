@@ -316,6 +316,8 @@
                 :key="f.key + '-text'"
                 :label="$t(f.label)"
                 type="text"
+                :hint="f.hint ? $t(f.hint) : undefined"
+                :persistent-hint="!!f.hint"
               >
                 <template v-if="f.icon" v-slot:prepend>
                   <v-icon :color="f.color">{{ f.icon }}</v-icon>
@@ -1077,14 +1079,15 @@ const SEARCH_ALIASES = {
     // 站点与外观 · 站点标识
     站名: ["site_title"], 站点名称: ["site_title"], 网站标题: ["site_title"], 名称: ["site_title", "DEVICES"], 标题: ["site_title", "push_title"],
     图标: ["site_icon"], 网站图标: ["site_icon"], favicon: ["site_icon"], logo: ["site_icon"], 徽标: ["site_icon"],
+    默认链接: ["SITE_URL"], 访问链接: ["SITE_URL"], 分享链接: ["SITE_URL"], 分享地址: ["SITE_URL"], 对外地址: ["SITE_URL"], 外网: ["SITE_URL"], 内网: ["SITE_URL"], 二维码: ["SITE_URL"],
     公告: ["HEADER"], 告示: ["HEADER"], 通知: ["HEADER", "SEND_MAIL_FOR_NEW_BOOKS"],
     脚注: ["FOOTER"], 页脚: ["FOOTER"], 页尾: ["FOOTER"], 底部: ["FOOTER"], 版权: ["FOOTER"],
     水印: ["FOOTER_WATERMARK"],
     语言: ["site_language", "DEFAULT_LANGUAGE"], 中文: ["site_language"], english: ["site_language"], 繁体: ["site_language"], 简体: ["site_language"], 简繁: ["site_language"], 多语言: ["site_language", "DEFAULT_LANGUAGE"], 切换: ["site_language"], 默认语言: ["DEFAULT_LANGUAGE"],
     主页: ["INDEX_PAGE_TYPE", "MAIN_PAGE_RANDOM_COUNT", "MAIN_PAGE_RECENT_COUNT"], 默认页: ["INDEX_PAGE_TYPE"], 首页类型: ["INDEX_PAGE_TYPE"],
     项目链接: ["HIDE_PROJECT_LINKS"], 隐藏链接: ["HIDE_PROJECT_LINKS"], 开源链接: ["HIDE_PROJECT_LINKS"],
-    友情链接: ["FRIENDS"], 友链: ["FRIENDS"], 链接: ["FRIENDS", "HIDE_PROJECT_LINKS", "douban_baseurl", "AI_API_URL", "static_host"],
-    网址: ["douban_baseurl", "AI_API_URL", "static_host"], 地址: ["douban_baseurl", "AI_API_URL", "static_host", "smtp_server"],
+    友情链接: ["FRIENDS"], 友链: ["FRIENDS"], 链接: ["FRIENDS", "HIDE_PROJECT_LINKS", "douban_baseurl", "AI_API_URL", "static_host", "SITE_URL"],
+    网址: ["douban_baseurl", "AI_API_URL", "static_host", "SITE_URL"], 地址: ["douban_baseurl", "AI_API_URL", "static_host", "smtp_server", "SITE_URL"],
     // 站点与外观 · 首页与列表
     随机: ["MAIN_PAGE_RANDOM_COUNT"], 推荐: ["RECOMMEND_ENABLE", "RECOMMEND_USE_CROWD", "ENABLE_BOOK_RECOMMEND_TO_OTHERS", "MAIN_PAGE_RANDOM_COUNT"], 智能: ["RECOMMEND_ENABLE"],
     协同: ["RECOMMEND_USE_CROWD"], 协同过滤: ["RECOMMEND_USE_CROWD"], 参考他人: ["RECOMMEND_USE_CROWD"],
@@ -1221,11 +1224,12 @@ const SEARCH_ALIASES = {
     公告: ["HEADER"], 告示: ["HEADER"], 通知: ["HEADER", "SEND_MAIL_FOR_NEW_BOOKS"],
     頁尾: ["FOOTER"], 頁腳: ["FOOTER"], 腳註: ["FOOTER"], 底部: ["FOOTER"], 版權: ["FOOTER"],
     浮水印: ["FOOTER_WATERMARK"], 水印: ["FOOTER_WATERMARK"],
+    預設連結: ["SITE_URL"], 存取連結: ["SITE_URL"], 分享連結: ["SITE_URL"], 分享網址: ["SITE_URL"], 對外網址: ["SITE_URL"], 外網: ["SITE_URL"], 內網: ["SITE_URL"], 二維碼: ["SITE_URL"],
     語言: ["site_language", "DEFAULT_LANGUAGE"], 語系: ["site_language"], 中文: ["site_language"], english: ["site_language"], 繁體: ["site_language"], 簡體: ["site_language"], 多語言: ["site_language", "DEFAULT_LANGUAGE"], 切換: ["site_language"], 預設語言: ["DEFAULT_LANGUAGE"],
     首頁: ["INDEX_PAGE_TYPE", "MAIN_PAGE_RANDOM_COUNT", "MAIN_PAGE_RECENT_COUNT"], 首頁類型: ["INDEX_PAGE_TYPE"], 主頁: ["INDEX_PAGE_TYPE"],
     項目連結: ["HIDE_PROJECT_LINKS"], 隱藏連結: ["HIDE_PROJECT_LINKS"], 開源連結: ["HIDE_PROJECT_LINKS"],
-    友情連結: ["FRIENDS"], 友鏈: ["FRIENDS"], 連結: ["FRIENDS", "HIDE_PROJECT_LINKS", "douban_baseurl", "AI_API_URL", "static_host"],
-    網址: ["douban_baseurl", "AI_API_URL", "static_host"], 位址: ["douban_baseurl", "AI_API_URL", "static_host", "smtp_server"],
+    友情連結: ["FRIENDS"], 友鏈: ["FRIENDS"], 連結: ["FRIENDS", "HIDE_PROJECT_LINKS", "douban_baseurl", "AI_API_URL", "static_host", "SITE_URL"],
+    網址: ["douban_baseurl", "AI_API_URL", "static_host", "SITE_URL"], 位址: ["douban_baseurl", "AI_API_URL", "static_host", "smtp_server", "SITE_URL"],
     // 網站與外觀 · 首頁與列表
     隨機: ["MAIN_PAGE_RANDOM_COUNT"], 推薦: ["RECOMMEND_ENABLE", "RECOMMEND_USE_CROWD", "ENABLE_BOOK_RECOMMEND_TO_OTHERS", "MAIN_PAGE_RANDOM_COUNT"], 智慧: ["RECOMMEND_ENABLE"], 智慧推薦: ["RECOMMEND_ENABLE"],
     協同: ["RECOMMEND_USE_CROWD"], 協同過濾: ["RECOMMEND_USE_CROWD"], 參考他人: ["RECOMMEND_USE_CROWD"],
@@ -1358,12 +1362,13 @@ const SEARCH_ALIASES = {
     // Site & Appearance · site identity
     "site name": ["site_title"], "site title": ["site_title"], "website name": ["site_title"], name: ["site_title", "DEVICES"], title: ["site_title", "push_title"], subject: ["push_title", "RESET_MAIL_TITLE", "SIGNUP_MAIL_TITLE"],
     icon: ["site_icon"], favicon: ["site_icon"], logo: ["site_icon"], brand: ["site_icon"],
+    "default url": ["SITE_URL"], "site url": ["SITE_URL"], "share link": ["SITE_URL"], "share url": ["SITE_URL"], "external url": ["SITE_URL"], "public url": ["SITE_URL"], "base url": ["SITE_URL"], qrcode: ["SITE_URL"], "qr code": ["SITE_URL"], lan: ["SITE_URL"],
     header: ["HEADER"], announcement: ["HEADER"], notice: ["HEADER"], "site header": ["HEADER"],
     footer: ["FOOTER"], copyright: ["FOOTER"], watermark: ["FOOTER_WATERMARK"],
     language: ["site_language", "DEFAULT_LANGUAGE"], languages: ["site_language"], locale: ["site_language"], i18n: ["site_language"], multilingual: ["site_language"], english: ["site_language"], chinese: ["site_language"], traditional: ["site_language"], simplified: ["site_language"], "default language": ["DEFAULT_LANGUAGE"],
     homepage: ["INDEX_PAGE_TYPE", "MAIN_PAGE_RANDOM_COUNT", "MAIN_PAGE_RECENT_COUNT"], "index page": ["INDEX_PAGE_TYPE"], "page type": ["INDEX_PAGE_TYPE"], landing: ["INDEX_PAGE_TYPE"],
-    links: ["FRIENDS", "HIDE_PROJECT_LINKS", "douban_baseurl", "AI_API_URL", "static_host"], link: ["FRIENDS", "HIDE_PROJECT_LINKS", "douban_baseurl", "AI_API_URL", "static_host"], "friend links": ["FRIENDS"], friends: ["FRIENDS"], "project links": ["HIDE_PROJECT_LINKS"], "hide links": ["HIDE_PROJECT_LINKS"],
-    url: ["AI_API_URL", "douban_baseurl", "static_host"], address: ["douban_baseurl", "AI_API_URL", "static_host", "smtp_server"], endpoint: ["AI_API_URL", "douban_baseurl"],
+    links: ["FRIENDS", "HIDE_PROJECT_LINKS", "douban_baseurl", "AI_API_URL", "static_host"], link: ["FRIENDS", "HIDE_PROJECT_LINKS", "douban_baseurl", "AI_API_URL", "static_host", "SITE_URL"], "friend links": ["FRIENDS"], friends: ["FRIENDS"], "project links": ["HIDE_PROJECT_LINKS"], "hide links": ["HIDE_PROJECT_LINKS"],
+    url: ["AI_API_URL", "douban_baseurl", "static_host", "SITE_URL"], address: ["douban_baseurl", "AI_API_URL", "static_host", "smtp_server", "SITE_URL"], endpoint: ["AI_API_URL", "douban_baseurl"],
     // Site & Appearance · home & listing
     random: ["MAIN_PAGE_RANDOM_COUNT"], shuffle: ["MAIN_PAGE_RANDOM_COUNT"],
     recommend: ["RECOMMEND_ENABLE", "RECOMMEND_USE_CROWD", "ENABLE_BOOK_RECOMMEND_TO_OTHERS", "MAIN_PAGE_RANDOM_COUNT"], recommendation: ["RECOMMEND_ENABLE"], recommendations: ["RECOMMEND_ENABLE"], smart: ["RECOMMEND_ENABLE"], recommender: ["RECOMMEND_ENABLE"],
@@ -1563,6 +1568,12 @@ export default {
             title: "settings.sec_site_id",
             fields: [
               { icon: "mdi-home", key: "site_title", label: "settings.site_title" },
+              {
+                icon: "mdi-link-variant",
+                key: "SITE_URL",
+                label: "settings.site_default_url",
+                hint: "settings.site_default_url_tips",
+              },
               {
                 icon: "mdi-information",
                 key: "site_icon",

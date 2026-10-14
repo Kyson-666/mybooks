@@ -1403,6 +1403,7 @@ import BookListQuickAddMenu from "~/components/BookListQuickAddMenu.vue";
 import { downloadImage, renderBookShareCard, shareCardFileName } from "~/utils/bookShareCard";
 import { languageOptions } from "~/utils/languageCodes";
 import { toStars } from "~/utils/rating";
+import { siteBaseUrl } from "~/utils/siteUrl";
 
 export default {
     components: {
@@ -3606,7 +3607,7 @@ export default {
                     title: this.book.title,
                     comments: this.book.comments,
                     coverUrl: this.book.img,
-                    qrUrl: `${window.location.origin}/read/${this.book.id}`,
+                    qrUrl: `${siteBaseUrl(this.$store)}/read/${this.book.id}`,
                     siteTitle: localStorage.getItem('sys_title') || 'MyBooks',
                 });
             } catch (err) {

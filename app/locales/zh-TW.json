@@ -848,6 +848,8 @@
     "light_color": "明亮",
     "dark_color": "暗黑",
     "site_title": "網站標題",
+    "site_default_url": "網站預設存取連結",
+    "site_default_url_tips": "留空則分享連結與 QR Code 使用目前存取網址；反向代理或多入口（內外網址不同）時可填對外網址，須含 http:// 或 https://，分享時預設使用它",
     "site_header": "網站公告",
     "site_footer": "網站頁尾",
     "footer_watermark": "頁尾浮水印",

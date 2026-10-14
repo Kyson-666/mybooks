@@ -68,6 +68,29 @@ class TestSysInfo(unittest.TestCase):
         asyncio.run(self.handler.get_sys_info_async())
         self.assertEqual(self.handler.calibre_db.all_tags.call_count, 2)
 
+    def test_site_url_follows_setting_and_is_normalized(self):
+        """前端据此生成分享链接/二维码：配了就用配置值（去尾部斜杠），没配下发空串。"""
+        from webserver.handlers import base as base_module
+
+        cases = [
+            ({"SITE_URL": "https://books.example.com/"}, "https://books.example.com"),
+            ({"SITE_URL": "  http://192.168.5.254:8080  "}, "http://192.168.5.254:8080"),
+            ({"SITE_URL": ""}, ""),
+            ({"SITE_URL": "not-a-url"}, ""),
+        ]
+        for conf, expected in cases:
+            with mock.patch.dict(base_module.CONF, conf):
+                info = self.handler.get_sys_info()
+            self.assertEqual(expected, info["siteUrl"], conf)
+
+        # 键完全缺失（老 auto.py 没升上来）也不能抛异常
+        sentinel = base_module.CONF.pop("SITE_URL", None)
+        try:
+            self.assertEqual("", self.handler.get_sys_info()["siteUrl"])
+        finally:
+            if sentinel is not None:
+                base_module.CONF["SITE_URL"] = sentinel
+
 
 if __name__ == "__main__":
     unittest.main()

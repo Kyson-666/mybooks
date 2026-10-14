@@ -853,6 +853,8 @@
     "light_color": "明亮",
     "dark_color": "暗黑",
     "site_title": "网站标题",
+    "site_default_url": "网站默认访问链接",
+    "site_default_url_tips": "留空则分享链接与二维码使用当前访问地址；反代或多入口（内外网地址不同）时可填对外地址，须含 http:// 或 https://，分享时默认用它",
     "site_header": "网站公告",
     "site_footer": "网站脚注",
     "footer_watermark": "脚注水印",

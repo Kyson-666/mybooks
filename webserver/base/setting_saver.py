@@ -57,6 +57,7 @@ ADMIN_SETTING_KEYS = (
     "push_title",
     "push_content",
     "site_title",
+    "SITE_URL",
     "smtp_password",
     "smtp_server",
     "smtp_username",
