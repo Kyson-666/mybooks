@@ -3226,6 +3226,11 @@ export default {
   .settings-group-bar .settings-search-expanded {
     flex: 1 1 100%;
   }
+  /* 窄屏标签页隐去图标：4 列 × 2 行的按钮宽度有限，图标挤掉文字可读性；
+     激活态靠白底 + 主色条标识，信息不损失 */
+  .settings-seg-btn .v-icon {
+    display: none;
+  }
   /* savebar 换行变高后加厚底部留白，避免遮挡最后几个字段 */
   .settings-page-root {
     padding-bottom: 128px;
