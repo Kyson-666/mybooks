@@ -1183,7 +1183,9 @@ const SEARCH_ALIASES = {
     文石: ["DEVICES"], 掌阅: ["DEVICES"], 汉王: ["DEVICES"], 当当: ["DEVICES"], koreader: ["DEVICES"], duokan: ["DEVICES"], ireader: ["DEVICES"], boox: ["DEVICES"], purelibro: ["DEVICES"], ftp: ["DEVICES"],
     // 外部服务 · 信息源
     信息: ["auto_fill_meta"], 刮削: ["auto_fill_meta", "META_SELECTED_SOURCES"], 抓取: ["auto_fill_meta", "META_SELECTED_SOURCES"],
-    豆瓣: ["auto_fill_meta", "META_SELECTED_SOURCES", "douban_baseurl", "douban_apikey", "douban_max_count"], 书源: ["META_SELECTED_SOURCES", "auto_fill_meta"], 来源: ["META_SELECTED_SOURCES"], 选择来源: ["META_SELECTED_SOURCES"],
+    频率: ["auto_fill_qpm"], 每分钟: ["auto_fill_qpm"], 填充频率: ["auto_fill_qpm"], 刮削频率: ["auto_fill_qpm"],
+    豆瓣: ["auto_fill_meta", "META_SELECTED_SOURCES", "douban_baseurl", "douban_apikey", "douban_max_count", "douban_v2_max_per_hour"], 书源: ["META_SELECTED_SOURCES", "auto_fill_meta"], 来源: ["META_SELECTED_SOURCES"], 选择来源: ["META_SELECTED_SOURCES"],
+    每小时: ["douban_v2_max_per_hour"], 每小时上限: ["douban_v2_max_per_hour"], 豆瓣频率: ["douban_v2_max_per_hour"],
     镜像: ["douban_baseurl"], api: ["AI_API_URL", "AI_DEEPSEEK_API_KEY", "douban_apikey", "douban_baseurl"],
     密钥: ["douban_apikey", "AI_DEEPSEEK_API_KEY", "cookie_secret", "AI_MCP_TOKEN", "BOOKBARN_TOKEN"],
     数量: ["douban_max_count", "MAIN_PAGE_RANDOM_COUNT", "MAIN_PAGE_RECENT_COUNT"],
@@ -1324,7 +1326,9 @@ const SEARCH_ALIASES = {
     文石: ["DEVICES"], 掌閱: ["DEVICES"], 漢王: ["DEVICES"], 當當: ["DEVICES"], koreader: ["DEVICES"], duokan: ["DEVICES"], ireader: ["DEVICES"], boox: ["DEVICES"], purelibro: ["DEVICES"], ftp: ["DEVICES"],
     // 外部服務 · 資訊來源
     資訊: ["auto_fill_meta"], 擷取: ["auto_fill_meta", "META_SELECTED_SOURCES"], 網路擷取: ["auto_fill_meta"],
-    豆瓣: ["auto_fill_meta", "META_SELECTED_SOURCES", "douban_baseurl", "douban_apikey", "douban_max_count"], 書源: ["META_SELECTED_SOURCES", "auto_fill_meta"], 來源: ["META_SELECTED_SOURCES"], 選擇來源: ["META_SELECTED_SOURCES"],
+    頻率: ["auto_fill_qpm"], 每分鐘: ["auto_fill_qpm"], 填充頻率: ["auto_fill_qpm"], 擷取頻率: ["auto_fill_qpm"],
+    豆瓣: ["auto_fill_meta", "META_SELECTED_SOURCES", "douban_baseurl", "douban_apikey", "douban_max_count", "douban_v2_max_per_hour"], 書源: ["META_SELECTED_SOURCES", "auto_fill_meta"], 來源: ["META_SELECTED_SOURCES"], 選擇來源: ["META_SELECTED_SOURCES"],
+    每小時: ["douban_v2_max_per_hour"], 每小時上限: ["douban_v2_max_per_hour"], 豆瓣頻率: ["douban_v2_max_per_hour"],
     鏡像: ["douban_baseurl"], api: ["AI_API_URL", "AI_DEEPSEEK_API_KEY", "douban_apikey", "douban_baseurl"],
     金鑰: ["douban_apikey", "AI_DEEPSEEK_API_KEY", "cookie_secret", "AI_MCP_TOKEN", "BOOKBARN_TOKEN"],
     數量: ["douban_max_count", "MAIN_PAGE_RANDOM_COUNT", "MAIN_PAGE_RECENT_COUNT"],
@@ -1448,7 +1452,9 @@ const SEARCH_ALIASES = {
     // Push & Email · devices
     device: ["DEVICES"], devices: ["DEVICES"], ereader: ["DEVICES"], "e-reader": ["DEVICES"], boox: ["DEVICES"], koreader: ["DEVICES"], duokan: ["DEVICES"], ireader: ["DEVICES"], hanwang: ["DEVICES"], dangdang: ["DEVICES"], purelibro: ["DEVICES"], ftp: ["DEVICES"],
     // External Services · book info sources
-    source: ["META_SELECTED_SOURCES", "auto_fill_meta"], sources: ["META_SELECTED_SOURCES", "auto_fill_meta"], scrape: ["auto_fill_meta", "META_SELECTED_SOURCES"], scraping: ["auto_fill_meta", "META_SELECTED_SOURCES"], douban: ["auto_fill_meta", "META_SELECTED_SOURCES", "douban_baseurl", "douban_apikey", "douban_max_count"], mirror: ["douban_baseurl"],
+    source: ["META_SELECTED_SOURCES", "auto_fill_meta"], sources: ["META_SELECTED_SOURCES", "auto_fill_meta"], scrape: ["auto_fill_meta", "META_SELECTED_SOURCES"], scraping: ["auto_fill_meta", "META_SELECTED_SOURCES"], douban: ["auto_fill_meta", "META_SELECTED_SOURCES", "douban_baseurl", "douban_apikey", "douban_max_count", "douban_v2_max_per_hour"], mirror: ["douban_baseurl"],
+    frequency: ["auto_fill_qpm"], "per minute": ["auto_fill_qpm"], qpm: ["auto_fill_qpm"], pace: ["auto_fill_qpm"],
+    "per hour": ["douban_v2_max_per_hour"], hourly: ["douban_v2_max_per_hour"], "hourly limit": ["douban_v2_max_per_hour"],
     api: ["AI_API_URL", "AI_DEEPSEEK_API_KEY", "douban_apikey", "douban_baseurl"], "api key": ["douban_apikey", "AI_DEEPSEEK_API_KEY", "AI_MCP_TOKEN", "BOOKBARN_TOKEN"], key: ["douban_apikey", "AI_DEEPSEEK_API_KEY", "cookie_secret", "AI_MCP_TOKEN", "BOOKBARN_TOKEN"], count: ["douban_max_count", "MAIN_PAGE_RANDOM_COUNT", "MAIN_PAGE_RECENT_COUNT"], results: ["douban_max_count"],
     // External Services · bookbarn & AI
     bookbarn: ["ENABLE_BOOKBARN", "BOOKBARN_TOKEN"], token: ["BOOKBARN_TOKEN", "AI_MCP_TOKEN"], "auth token": ["BOOKBARN_TOKEN", "AI_MCP_TOKEN"],
@@ -2126,6 +2132,11 @@ export default {
                 type: "checkbox",
               },
               {
+                icon: "mdi-timer-sand",
+                key: "auto_fill_qpm",
+                label: "settings.auto_fill_qpm",
+              },
+              {
                 icon: "mdi-source-branch",
                 key: "META_SELECTED_SOURCES",
                 label: "settings.meta_selected_source",
@@ -2146,6 +2157,11 @@ export default {
                 icon: "mdi-information",
                 key: "douban_max_count",
                 label: "settings.douban_max_count",
+              },
+              {
+                icon: "mdi-speedometer",
+                key: "douban_v2_max_per_hour",
+                label: "settings.douban_v2_max_per_hour",
               }
             ],
           },

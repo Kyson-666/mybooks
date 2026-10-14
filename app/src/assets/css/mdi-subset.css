@@ -854,6 +854,10 @@
   content: "\F03E4";
 }
 
+.mdi-pause-circle::before {
+  content: "\F03E5";
+}
+
 .mdi-pause-octagon::before {
   content: "\F03E7";
 }
@@ -1132,6 +1136,10 @@
 
 .mdi-timer-plus-outline::before {
   content: "\F1AE3";
+}
+
+.mdi-timer-sand::before {
+  content: "\F051F";
 }
 
 .mdi-toolbox-outline::before {
