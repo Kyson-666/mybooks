@@ -714,11 +714,12 @@ export MYBOOKS_SSL_VERIFY="false"   # 如服务器使用自签名证书，设为
 | `provider_key` | string | ✅ | — | 数据源，取 `book_refer_search` 候选里的 `provider_key` |
 | `provider_value` | string | ✅ | — | 数据源内的 ID，取候选里的 `provider_value` |
 | `mode` | string | ❌ | `full` | `full`=信息+封面；`only_meta`=只要信息（不动封面）；`only_cover`=只换封面；`only_author_comments`=只更新作者与简介 |
-| `metadata` | object | ❌ | — | 候选对象（把 `book_refer_search` 的某个候选原样传入）；**非豆瓣源必传**，豆瓣源可省略 |
+| `metadata` | object | 条件必填 | — | 候选对象（把 `book_refer_search` 的某个候选原样传入）。**非豆瓣源必填**：缺了会直接报错（服务端在这种情况下会退回用书籍自身元数据并返回 `ok`，等于静默空操作）；豆瓣源按 `provider_value` 重新拉取，可省略 |
 
 **注意**：
 - `full`（默认）是**整体替换**语义：会用候选覆盖书名、作者、简介、出版社、标签、封面等字段——与 `book_fill`"保留原书名"的行为不同。只想改一部分时用 `only_*` 模式。
-- 同一本书请先 `book_refer_search`，把候选展示给用户确认后再 `book_refer_apply`。
+- 同一本书请先 `book_refer_search`，把候选展示给用户确认后再 `book_refer_apply`；`metadata` 一律用搜索返回的候选原样传入，**不要自行构造**（其中的 `cover_url` 会被服务端抓取）。
+- 非豆瓣源拿不到候选时，不要"先试试不带 `metadata`"——那是空操作。
 
 **执行脚本**：
 ```bash
@@ -1352,6 +1353,7 @@ export MYBOOKS_SSL_VERIFY="false"   # 如服务器使用自签名证书，设为
 - 任务在后台异步执行，调用后立即返回，用 `epub_fix_progress` 查询进度与逐本结果。
 - `overwrite`（默认）会**覆盖书籍原文件**；不确定时传 `backup:true`，或先用 `write_mode:"new_book"` 另存新书。
 - 修复类任务共用同一把任务锁：已有任务在跑时返回 `task.running`，**不要重复发起**，等上一轮结束后再试。
+- 拿到 `ok` 后建议立刻用 `epub_fix_progress` 确认任务真的建立了（`data.book_total` 与本次提交的本数一致）；极短时间内重复提交时，服务端可能已经回过 `ok` 但任务没真正启动（既有服务端行为），这时重新提交即可。
 
 **执行脚本**：
 ```bash

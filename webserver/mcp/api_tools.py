@@ -252,8 +252,8 @@ async def book_refer_search(call, args):
 @tool("book_refer_apply",
       "Apply one online metadata candidate to a book (admin or book owner; the apply step of the web UI's "
       '"联网更新信息"). mode=full replaces metadata and cover; only_meta keeps the cover; only_cover and '
-      "only_author_comments write just that part. metadata is a candidate object from book_refer_search and is "
-      "required for non-douban sources.",
+      "only_author_comments write just that part. metadata must be a candidate object from book_refer_search "
+      "(required unless provider_key is douban, which re-fetches from the plugin).",
       {"book_id": BOOK_ID,
        "provider_key": S("Source key from book_refer_search, e.g. douban"),
        "provider_value": S("Source-side ID from book_refer_search"),
@@ -272,12 +272,17 @@ async def book_refer_apply(call, args):
     if mode not in modes:
         return _err(f"mode must be one of: {', '.join(modes)}")
 
-    params = {"provider_key": args["provider_key"], "provider_value": args["provider_value"]}
     metadata = args.get("metadata")
+    # 非豆瓣源由这份候选写库；不带 metadata 时 handler 会退回用书自身元数据并返回 ok（静默空操作）
+    if not metadata and args["provider_key"] != "douban":
+        return _err(f"metadata (a candidate from book_refer_search) is required for provider '{args['provider_key']}'")
+
+    params = {"provider_key": args["provider_key"], "provider_value": args["provider_value"]}
     if metadata:
         params["metadata"] = metadata if isinstance(metadata, str) else json.dumps(metadata, ensure_ascii=False)
     params.update(modes[mode])
-    # The handler reads only query/form arguments, so the flags travel in the query string
+    # handler 只读 query/form 参数（get_argument），JSON body 读不到，所以参数走 query；本调用是
+    # 进程内回环（不经过 nginx），受 Tornado 请求行上限（默认 64KB）约束，候选体积在正常范围内
     return await call("POST", f"/api/book/{args['book_id']}/refer", params=params)
 
 
@@ -709,6 +714,19 @@ def _missing(args: Dict[str, Any], required: List[str]) -> Optional[Dict[str, An
     return None
 
 
+def _bool_arg(value, default: bool = False) -> bool:
+    """Coerce a tool argument to a real boolean ("false"/"0"/"no" mean False).
+
+    Clients normally send JSON booleans, but a string would be truthy in the
+    handlers (``bool("false")``), which for backup/force means the destructive path.
+    """
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    return str(value).strip().lower() in ("1", "true", "yes", "on")
+
+
 @tool("tts_save_config", "Save TTS API configuration (encrypted server-side, admin only).", dict(TTS_API_FIELDS), TTS_API_REQUIRED)
 async def tts_save_config(call, args):
     err = _missing(args, TTS_API_REQUIRED)
@@ -777,7 +795,8 @@ async def tts_prompt_delete(call, args):
       "Start the EPUB structure repair task for one or more books (admin only). Asynchronous: it answers ok "
       "immediately, poll epub_fix_progress for per-book results. write_mode=new_book keeps the original and "
       "imports the repaired copy as a new book; overwrite (default) replaces the book's EPUB file.",
-      {"book_ids": A("One or more book IDs", {"type": "integer"}),
+      {"book_ids": {"oneOf": [{"type": "integer"}, {"type": "array", "items": {"type": "integer"}}],
+                    "description": "One book ID, or a list of book IDs (up to 100)"},
        "write_mode": S("overwrite (default) or new_book", enum=["overwrite", "new_book"], default="overwrite"),
        "backup": B("Keep a copy of the pre-repair EPUB in the tool work dir", default=False),
        "reconvert": B("Also re-convert epub->epub after the structural pass", default=True),
@@ -791,9 +810,13 @@ async def epub_fix(call, args):
         book_ids = [book_ids]
 
     body = {"book_ids": book_ids}
-    for key in ("write_mode", "reconvert", "backup", "suffix"):
+    for key in ("write_mode", "suffix"):
         if args.get(key) is not None:
             body[key] = args[key]
+    # handler 对 backup/reconvert 只做 bool(...)，字符串 "false" 会变 True，这里归一成真布尔
+    for key in ("backup", "reconvert"):
+        if args.get(key) is not None:
+            body[key] = _bool_arg(args[key])
     return await call("POST", f"{API_EPUB_FIXER_PREFIX}/repair", json=body)
 
 

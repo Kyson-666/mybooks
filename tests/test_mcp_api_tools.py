@@ -96,12 +96,38 @@ class TestToolRequests(unittest.TestCase):
         self.assertEqual(result["status"], "error")
         self.assertEqual(calls, [])
 
+    def test_refer_apply_douban_needs_no_metadata(self):
+        # 豆瓣源按 provider_value 重新拉取，metadata 可省
+        _, calls = self.run_tool("book_refer_apply",
+                                 {"book_id": 42, "provider_key": "douban", "provider_value": "2567698"})
+        self.assertEqual(calls, [("POST", "/api/book/42/refer", {"provider_key": "douban", "provider_value": "2567698"}, None)])
+
+    def test_refer_apply_metadata_required_for_other_sources(self):
+        # 非豆瓣源不带候选时 handler 会退回书自身元数据并返回 ok（静默空操作），因此直接拦下
+        result, calls = self.run_tool("book_refer_apply",
+                                      {"book_id": 42, "provider_key": "neodb", "provider_value": "2567698"})
+        self.assertEqual(result["status"], "error")
+        self.assertEqual(calls, [])
+
     def test_epub_fix_body(self):
         _, calls = self.run_tool("epub_fix", {"book_ids": 42, "backup": True})
         self.assertEqual(calls, [("POST", "/api/toolbox/epub_fixer/repair", None, {"book_ids": [42], "backup": True})])
 
         _, calls = self.run_tool("epub_fix", {"book_ids": [42, 43]})
         self.assertEqual(calls, [("POST", "/api/toolbox/epub_fixer/repair", None, {"book_ids": [42, 43]})])
+
+    def test_epub_fix_string_booleans(self):
+        # handler 对 backup/reconvert 用 bool(...)，字符串 "false" 会变 True —— 必须先归一
+        _, calls = self.run_tool("epub_fix", {"book_ids": [42], "backup": "false", "reconvert": "0"})
+        self.assertEqual(calls, [("POST", "/api/toolbox/epub_fixer/repair", None, {"book_ids": [42], "backup": False, "reconvert": False})])
+
+        _, calls = self.run_tool("epub_fix", {"book_ids": [42], "backup": "true", "reconvert": "yes"})
+        self.assertEqual(calls, [("POST", "/api/toolbox/epub_fixer/repair", None, {"book_ids": [42], "backup": True, "reconvert": True})])
+
+    def test_epub_fix_accepts_single_id_in_schema(self):
+        # 宽松客户端会按 schema 校验；单个整数必须合法，否则单本修复在客户端就被挡下
+        schema = API_TOOLS["epub_fix"].properties["book_ids"]
+        self.assertEqual(schema["oneOf"], [{"type": "integer"}, {"type": "array", "items": {"type": "integer"}}])
 
     def test_epub_fix_progress(self):
         _, calls = self.run_tool("epub_fix_progress", {})

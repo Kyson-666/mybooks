@@ -48,6 +48,14 @@ API_EPUB_FIXER_PREFIX = "/api/toolbox/epub_fixer"
 # local files such as ~/.ssh/id_rsa or .env to the server)
 EBOOK_UPLOAD_EXTS = {"epub", "mobi", "azw", "azw3", "pdf", "txt", "lrf", "rtf", "djvu", "docx"}
 
+# Douban is applied by re-fetching from the plugin by provider_value; every other source
+# is applied from the metadata payload, so book_refer_apply requires it there
+DOUBAN_PROVIDER_KEY = "douban"
+
+# The server-side refer search waits up to REFER_SEARCH_TIMEOUT (default 60s) and then
+# answers with the cached candidates, so the client must not cut the connection earlier
+REFER_TIMEOUT = 90
+
 ERROR_MESSAGES = {
     "env_missing": {
         "status": "error",
@@ -88,6 +96,21 @@ def validate_host(host: str) -> str:
             sys.exit(1)
 
     return f"{parsed.scheme}://{parsed.netloc}{parsed.path}".rstrip("/")
+
+
+def parse_bool(value, default: bool = False) -> bool:
+    """
+    Coerce a tool argument to a real boolean.
+
+    JSON callers pass booleans, but CLI/agent callers often pass the strings
+    "true"/"false". Treating any non-empty string as truthy would turn
+    force=false into a destructive overwrite, so the usual spellings are honored.
+    """
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    return str(value).strip().lower() in ("1", "true", "yes", "on")
 
 
 # ============================================================================
@@ -471,7 +494,8 @@ class MyBooksAPI:
             return {"status": "error", "message": "book_id is required"}
 
         params = {k: args[k] for k in ("title", "isbn", "publisher") if args.get(k)}
-        return self._call_with_auto_relogin("GET", f"/api/book/{book_id}/refer", params=params)
+        # 服务端最慢要等 REFER_SEARCH_TIMEOUT（默认 60s）才回退给缓存候选，别用默认的 30s 先掐断
+        return self._call_with_auto_relogin("GET", f"/api/book/{book_id}/refer", params=params, timeout=REFER_TIMEOUT)
 
     def book_refer_apply(self, args: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -485,7 +509,7 @@ class MyBooksAPI:
             mode (str, optional): full (default: info + cover) / only_meta (info without
                 cover) / only_cover / only_author_comments — one at most
             metadata (object, optional): A candidate object from book_refer_search;
-                required for non-douban sources, which are applied from this payload
+                required unless provider_key is douban, which re-fetches from the plugin
         """
         book_id = args.get("book_id")
         if not book_id:
@@ -498,6 +522,15 @@ class MyBooksAPI:
         if not provider_value:
             return {"status": "error", "message": "provider_value is required"}
 
+        metadata = args.get("metadata")
+        # 非豆瓣源是"用这份候选去写库"：不带 metadata 时服务端会退回用书自身元数据并返回 ok，
+        # 调用方会以为更新成功了，所以这里直接拦下
+        if not metadata and provider_key != DOUBAN_PROVIDER_KEY:
+            return {
+                "status": "error",
+                "message": f"metadata (a candidate from book_refer_search) is required for provider '{provider_key}'",
+            }
+
         flags = {
             "full": {},
             "only_meta": {"only_meta": "yes"},
@@ -509,12 +542,11 @@ class MyBooksAPI:
             return {"status": "error", "message": f"mode must be one of: {', '.join(flags)}"}
 
         data = {"provider_key": provider_key, "provider_value": provider_value}
-        metadata = args.get("metadata")
         if metadata:
             data["metadata"] = metadata if isinstance(metadata, str) else json.dumps(metadata, ensure_ascii=False)
         data.update(flags[mode])
 
-        return self._call_with_auto_relogin("POST", f"/api/book/{book_id}/refer", data=data)
+        return self._call_with_auto_relogin("POST", f"/api/book/{book_id}/refer", data=data, timeout=REFER_TIMEOUT)
 
     def save_meta_to_file(self, args: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -702,7 +734,7 @@ class MyBooksAPI:
         book_id = args.get("book_id")
         if book_id:
             query = {"bid": book_id}
-            if args.get("force"):
+            if parse_bool(args.get("force")):
                 query["force"] = 1
             path += "?" + urllib.parse.urlencode(query)
 
@@ -1097,9 +1129,14 @@ class MyBooksAPI:
             book_ids = [book_ids]
 
         body = {"book_ids": book_ids}
-        for key in ("write_mode", "reconvert", "backup", "suffix"):
+        for key in ("write_mode", "suffix"):
             if args.get(key) is not None:
                 body[key] = args[key]
+        # 服务端对 backup 只做 bool(...)（字符串 "false" 会变成 True），对 reconvert 才认字符串，
+        # 这里统一归一成真布尔再发
+        for key in ("backup", "reconvert"):
+            if args.get(key) is not None:
+                body[key] = parse_bool(args[key])
 
         return self._call_with_auto_relogin("POST", f"{API_EPUB_FIXER_PREFIX}/repair", json=body)
 
