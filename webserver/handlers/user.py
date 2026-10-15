@@ -11,7 +11,7 @@ from webserver.i18n import _
 
 import tornado.escape
 from tornado import web
-from webserver import loader
+from webserver import loader, site_time
 from webserver.base import calibre_fast
 from webserver.base.appearance import (
     APPEARANCE_KEY,
@@ -1133,7 +1133,7 @@ class UserReadingRange(BaseHandler):
 
         rng = reading_dashboard_service.normalize_range(
             self.get_argument("start", ""), self.get_argument("end", ""),
-            datetime.datetime.utcnow().date(),
+            site_time.site_today(),
         )
         if rng is None:
             return {"err": "failed", "msg": "invalid date range"}

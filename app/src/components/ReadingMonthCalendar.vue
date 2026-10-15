@@ -27,6 +27,7 @@
 // 未到的日期没有数据，也按空格子渲染，保证网格是完整的一个月。
 import { levelForSeconds, levelColor } from '~/utils/heatmapLevels';
 import { intlLocale } from '~/utils/intlLocale';
+import { siteTodayStr } from '~/utils/siteTime';
 
 export default {
     name: 'ReadingMonthCalendar',
@@ -74,12 +75,10 @@ export default {
             const first = new Date(`${this.monthStartSafe}T00:00:00`);
             return (first.getDay() + 6) % 7; // getDay(): 周日=0 → 周一=0 的偏移
         },
-        // 本地时区的今天；阅读桶按 UTC 日期存，深夜/清晨与桶日期可能差一天，标记仅作视觉参考
+        // 站点时区的今天：阅读桶按站点时区（sys.timezone）切天，用浏览器本地时区在
+        // 两者不一致时会高亮错一格
         todayStr() {
-            const d = new Date();
-            const m = String(d.getMonth() + 1).padStart(2, '0');
-            const day = String(d.getDate()).padStart(2, '0');
-            return `${d.getFullYear()}-${m}-${day}`;
+            return siteTodayStr((this.$store.state.sys && this.$store.state.sys.timezone) || '');
         },
         primaryColor() {
             const theme = (this.$vuetify && this.$vuetify.theme && this.$vuetify.theme.currentTheme) || {};

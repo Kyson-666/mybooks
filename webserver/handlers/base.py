@@ -21,7 +21,7 @@ from tornado import web
 from tornado.escape import utf8
 
 from webserver.i18n import _, choose_language, set_language
-from webserver import loader, perf, utils
+from webserver import loader, perf, site_time, utils
 from webserver.base import calibre_fast
 from webserver.base.book_data_cascade import cascade_delete_book_data
 from webserver.base.formatter import BookFormatter
@@ -1557,6 +1557,11 @@ class BaseHandler(web.RequestHandler):
                 "upgrable": CONF.get(UPGRABLE_REVISION, ""),
                 "title": CONF["site_title"] if "site_title" in CONF else "MyBooks",
                 "language": CONF["site_language"] if "site_language" in CONF else "",
+                # 站点时区的**解析结果**（不是设置项原文）：前端要把「今天」按同一时区算，
+                # 否则浏览器与服务端时区不同（如站点设为 UTC）时热力图/日历会高亮错一格。
+                # timezone 是 IANA 名给 Intl 用，timezoneLabel 是给界面显示的现成串。
+                "timezone": site_time.resolve_timezone_name(),
+                "timezoneLabel": site_time.timezone_label(),
                 "theme": CONF["site_theme"] if "site_theme" in CONF else "light",
                 # 管理员配置的「网站默认访问链接」（反代/内网访问时让分享链接指向对外域名）：
                 # 非空时前端生成分享链接与二维码用它，留空则回退到当前访问地址

@@ -9,6 +9,7 @@ import time
 import json
 import os
 import zlib
+from webserver import site_time
 from webserver.i18n import _
 
 from social_sqlalchemy.storage import JSONType, SQLAlchemyMixin
@@ -588,7 +589,7 @@ class Reading(Base, SQLAlchemyMixin):
     book_title = Column(String(512), default="")  # 保留字段，本轮不填充
     action = Column(String(16), nullable=False)    # read | download | push
     protocol = Column(String(16), nullable=False)  # 见 PROTOCOL_* 常量，按 action 区分含义
-    date = Column(Date, nullable=False)  # UTC 日期（不含时间）；action=read 时是唯一键的一部分
+    date = Column(Date, nullable=False)  # 站点时区（site_timezone）下的日期，见 webserver/site_time.py；action=read 时是唯一键的一部分
     start_time = Column(DateTime, nullable=False)  # UTC；read=当天最近一次阅读会话开始时间，download/push=事件发生时间
     duration = Column(Integer, default=0, nullable=False)  # 秒；仅 action=read 有意义，download/push 恒为 0
     update_time = Column(DateTime, nullable=False)  # UTC；read=最后一次心跳时间，download/push=事件发生时间
@@ -604,7 +605,9 @@ class Reading(Base, SQLAlchemyMixin):
         self.start_time = start_time
         self.duration = duration
         self.update_time = update_time or start_time
-        self.date = date or self.update_time.date()
+        # 分桶日期按站点时区切天，而不是直接取 UTC 时刻的日期：UTC+8 的读者在
+        # 00:00~08:00 的阅读，UTC 日还停在前一天
+        self.date = date or site_time.site_date(self.update_time)
 
 
 # 单本书 · 分格式的阅读时长/进度统计

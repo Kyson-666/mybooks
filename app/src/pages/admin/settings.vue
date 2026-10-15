@@ -206,6 +206,8 @@
                 :items="f.items"
                 :key="f.key + '-select'"
                 :label="$t(f.label)"
+                :hint="f.hint ? $t(f.hint) : undefined"
+                :persistent-hint="!!f.hint"
               >
                 <template v-if="f.icon" v-slot:prepend>
                   <v-icon :color="f.color">{{ f.icon }}</v-icon>
@@ -1084,6 +1086,7 @@ const SEARCH_ALIASES = {
     脚注: ["FOOTER"], 页脚: ["FOOTER"], 页尾: ["FOOTER"], 底部: ["FOOTER"], 版权: ["FOOTER"],
     水印: ["FOOTER_WATERMARK"],
     语言: ["site_language", "DEFAULT_LANGUAGE"], 中文: ["site_language"], english: ["site_language"], 繁体: ["site_language"], 简体: ["site_language"], 简繁: ["site_language"], 多语言: ["site_language", "DEFAULT_LANGUAGE"], 切换: ["site_language"], 默认语言: ["DEFAULT_LANGUAGE"],
+    时区: ["site_timezone"], 系统时区: ["site_timezone"], 时区设置: ["site_timezone"], 东八区: ["site_timezone"], 格林威治: ["site_timezone"], 跨天: ["site_timezone"], 统计口径: ["site_timezone"], utc: ["site_timezone"], timezone: ["site_timezone"],
     主页: ["INDEX_PAGE_TYPE", "MAIN_PAGE_RANDOM_COUNT", "MAIN_PAGE_RECENT_COUNT"], 默认页: ["INDEX_PAGE_TYPE"], 首页类型: ["INDEX_PAGE_TYPE"],
     项目链接: ["HIDE_PROJECT_LINKS"], 隐藏链接: ["HIDE_PROJECT_LINKS"], 开源链接: ["HIDE_PROJECT_LINKS"],
     友情链接: ["FRIENDS"], 友链: ["FRIENDS"], 链接: ["FRIENDS", "HIDE_PROJECT_LINKS", "douban_baseurl", "AI_API_URL", "static_host", "SITE_URL"],
@@ -1228,6 +1231,7 @@ const SEARCH_ALIASES = {
     浮水印: ["FOOTER_WATERMARK"], 水印: ["FOOTER_WATERMARK"],
     預設連結: ["SITE_URL"], 存取連結: ["SITE_URL"], 分享連結: ["SITE_URL"], 分享網址: ["SITE_URL"], 對外網址: ["SITE_URL"], 外網: ["SITE_URL"], 內網: ["SITE_URL"], 二維碼: ["SITE_URL"],
     語言: ["site_language", "DEFAULT_LANGUAGE"], 語系: ["site_language"], 中文: ["site_language"], english: ["site_language"], 繁體: ["site_language"], 簡體: ["site_language"], 多語言: ["site_language", "DEFAULT_LANGUAGE"], 切換: ["site_language"], 預設語言: ["DEFAULT_LANGUAGE"],
+    時區: ["site_timezone"], 系統時區: ["site_timezone"], 時區設定: ["site_timezone"], 東八區: ["site_timezone"], 格林威治: ["site_timezone"], 跨天: ["site_timezone"], 統計口徑: ["site_timezone"], utc: ["site_timezone"], timezone: ["site_timezone"],
     首頁: ["INDEX_PAGE_TYPE", "MAIN_PAGE_RANDOM_COUNT", "MAIN_PAGE_RECENT_COUNT"], 首頁類型: ["INDEX_PAGE_TYPE"], 主頁: ["INDEX_PAGE_TYPE"],
     項目連結: ["HIDE_PROJECT_LINKS"], 隱藏連結: ["HIDE_PROJECT_LINKS"], 開源連結: ["HIDE_PROJECT_LINKS"],
     友情連結: ["FRIENDS"], 友鏈: ["FRIENDS"], 連結: ["FRIENDS", "HIDE_PROJECT_LINKS", "douban_baseurl", "AI_API_URL", "static_host", "SITE_URL"],
@@ -1370,6 +1374,7 @@ const SEARCH_ALIASES = {
     header: ["HEADER"], announcement: ["HEADER"], notice: ["HEADER"], "site header": ["HEADER"],
     footer: ["FOOTER"], copyright: ["FOOTER"], watermark: ["FOOTER_WATERMARK"],
     language: ["site_language", "DEFAULT_LANGUAGE"], languages: ["site_language"], locale: ["site_language"], i18n: ["site_language"], multilingual: ["site_language"], english: ["site_language"], chinese: ["site_language"], traditional: ["site_language"], simplified: ["site_language"], "default language": ["DEFAULT_LANGUAGE"],
+    timezone: ["site_timezone"], "time zone": ["site_timezone"], tz: ["site_timezone"], utc: ["site_timezone"], gmt: ["site_timezone"], offset: ["site_timezone"], "day boundary": ["site_timezone"], streak: ["site_timezone", "ENABLE_HOMEPAGE_READING_STATS"],
     homepage: ["INDEX_PAGE_TYPE", "MAIN_PAGE_RANDOM_COUNT", "MAIN_PAGE_RECENT_COUNT"], "index page": ["INDEX_PAGE_TYPE"], "page type": ["INDEX_PAGE_TYPE"], landing: ["INDEX_PAGE_TYPE"],
     links: ["FRIENDS", "HIDE_PROJECT_LINKS", "douban_baseurl", "AI_API_URL", "static_host"], link: ["FRIENDS", "HIDE_PROJECT_LINKS", "douban_baseurl", "AI_API_URL", "static_host", "SITE_URL"], "friend links": ["FRIENDS"], friends: ["FRIENDS"], "project links": ["HIDE_PROJECT_LINKS"], "hide links": ["HIDE_PROJECT_LINKS"],
     url: ["AI_API_URL", "douban_baseurl", "static_host", "SITE_URL"], address: ["douban_baseurl", "AI_API_URL", "static_host", "smtp_server", "SITE_URL"], endpoint: ["AI_API_URL", "douban_baseurl"],
@@ -1603,6 +1608,30 @@ export default {
                   { text: this.$t('language.zh'), value: "zh" },
                   { text: this.$t('language.zh_TW'), value: "zh-TW" },
                   { text: this.$t('language.en'), value: "en" },
+                ],
+              },
+              {
+                icon: "mdi-clock-outline",
+                key: "site_timezone",
+                label: "settings.site_timezone",
+                hint: "settings.site_timezone_tips",
+                type: "select",
+                items: [
+                  { text: this.$t("settings.tz_auto"), value: "auto" },
+                  { text: this.$t("settings.tz_utc"), value: "UTC" },
+                  { text: this.$t("settings.tz_shanghai"), value: "Asia/Shanghai" },
+                  { text: this.$t("settings.tz_hongkong"), value: "Asia/Hong_Kong" },
+                  { text: this.$t("settings.tz_taipei"), value: "Asia/Taipei" },
+                  { text: this.$t("settings.tz_tokyo"), value: "Asia/Tokyo" },
+                  { text: this.$t("settings.tz_seoul"), value: "Asia/Seoul" },
+                  { text: this.$t("settings.tz_bangkok"), value: "Asia/Bangkok" },
+                  { text: this.$t("settings.tz_kolkata"), value: "Asia/Kolkata" },
+                  { text: this.$t("settings.tz_berlin"), value: "Europe/Berlin" },
+                  { text: this.$t("settings.tz_london"), value: "Europe/London" },
+                  { text: this.$t("settings.tz_saopaulo"), value: "America/Sao_Paulo" },
+                  { text: this.$t("settings.tz_newyork"), value: "America/New_York" },
+                  { text: this.$t("settings.tz_losangeles"), value: "America/Los_Angeles" },
+                  { text: this.$t("settings.tz_sydney"), value: "Australia/Sydney" },
                 ],
               },
               {
@@ -2344,6 +2373,10 @@ export default {
         if (this.settings["site_language"] === "") {
           this.settings["site_language"] = this.$i18n.locale;
         }
+        // 老 auto.py 里没有这一项：空值等于「跟随站点语言」，落到 select 上会显示空白
+        if (!this.settings["site_timezone"]) {
+          this.settings["site_timezone"] = "auto";
+        }
         if (
           !("site_icon" in this.settings) ||
           this.settings["site_icon"] === ""
@@ -2867,6 +2900,9 @@ export default {
 
       if (payload["site_language"] === "") {
         payload["site_language"] = "zh";
+      }
+      if (!payload["site_timezone"]) {
+        payload["site_timezone"] = "auto";
       }
 
       // 快照取提交时刻的值：保存期间的新编辑不会被视为已持久化

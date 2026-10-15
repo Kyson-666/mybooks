@@ -303,6 +303,7 @@ import BarChart from '~/components/charts/BarChart.vue';
 import ReadingHeatmap from '~/components/ReadingHeatmap.vue';
 import ReadingMonthCalendar from '~/components/ReadingMonthCalendar.vue';
 import { intlLocale } from '~/utils/intlLocale';
+import { siteTodayDate } from '~/utils/siteTime';
 
 // 卡片目录：默认全部展示；用户移除的卡片保存在 localStorage，可随时重新添加
 const CARD_DEFS = [
@@ -496,14 +497,23 @@ export default {
             }
             return this.$t('history.dashboard.vsLastWeekDown', { p: Math.min(-percent, 999) });
         },
+        // 站点时区（服务端解析结果，见 webserver/site_time.py）：缺省时退回浏览器本地时区
+        siteTimezone() {
+            return (this.$store.state.sys && this.$store.state.sys.timezone) || '';
+        },
+        // 站点时区的今天，构造成本地 00:00 的 Date —— 页面里的周/月/年锚点运算都是
+        // 浏览器本地时间，这里只把「是哪一天」换成站点那一天
+        siteToday() {
+            return siteTodayDate(this.siteTimezone);
+        },
         showEmptyState() {
             return !!this.dashboard && (this.dashboard.period.last30_seconds || 0) === 0;
         },
         // ---------- 周/月/年/总 ----------
         // anchor 的含义随视图变化：周 = 该周周一；月 = 该月 1 号；年 = 该年 1 月 1 号；总 = 不用
         rangeBounds() {
-            const today = new Date();
-            today.setHours(0, 0, 0, 0);
+            // 站点时区下的今天，别用 new Date()（统计按站点时区切天）
+            const today = this.siteToday;
             if (this.rangeView === 'all') {
                 if (!this.firstReadingDate) return null;
                 return { start: mondayOf(toDate(this.firstReadingDate)), end: today };
@@ -527,8 +537,8 @@ export default {
             if (!this.anchor) return false;
             const next = this.shiftAnchor(1);
             if (!next) return false;
-            const today = new Date();
-            today.setHours(0, 0, 0, 0);
+            // 站点时区下的今天，别用 new Date()（统计按站点时区切天）
+            const today = this.siteToday;
             // 月/年锚点都是 1 号，周锚点是周一：不晚于今天即可继续右翻
             return next <= today;
         },
@@ -776,8 +786,8 @@ export default {
         },
         // ---------- 周/月/年/总 ----------
         resetAnchor() {
-            const today = new Date();
-            today.setHours(0, 0, 0, 0);
+            // 站点时区下的今天，别用 new Date()（统计按站点时区切天）
+            const today = this.siteToday;
             if (this.rangeView === 'week') {
                 this.anchor = toDayStr(mondayOf(today));
             } else if (this.rangeView === 'month') {
@@ -802,8 +812,8 @@ export default {
         navRange(dir) {
             const next = this.shiftAnchor(dir);
             if (!next) return;
-            const today = new Date();
-            today.setHours(0, 0, 0, 0);
+            // 站点时区下的今天，别用 new Date()（统计按站点时区切天）
+            const today = this.siteToday;
             if (dir > 0 && next > today) return;
             this.anchor = toDayStr(next);
             this.fetchRange();
@@ -817,8 +827,8 @@ export default {
                 this.rangeDays = [];
                 return;
             }
-            const today = new Date();
-            today.setHours(0, 0, 0, 0);
+            // 站点时区下的今天，别用 new Date()（统计按站点时区切天）
+            const today = this.siteToday;
             let end = bounds.end;
             if (end > today) end = today;
             if (bounds.start > end) {
