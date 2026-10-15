@@ -14,8 +14,6 @@ import tempfile
 import threading
 import time
 import unittest
-from collections import deque
-from concurrent.futures import ThreadPoolExecutor
 from unittest import mock
 
 # apt 版 calibre（/usr/lib/calibre）需要解释器预置 extensions_location 等属性
@@ -305,6 +303,66 @@ class TestPhase1Batching(ScanP0TestBase):
         self.assertEqual(len(outcomes), 1)
         self.assertEqual(outcomes[0][1], ScanFile.READY)
 
+    def test_same_file_ops_grouped_deletes_roll_back_with_failed_save(self):
+        # 同一文件的 [del_path, save] 必须同生共死：save 因遗留 UNIQUE(hash) 冲突被丢时，
+        # del_path 的删除要一并回滚，不能留下「库里再无该路径任何行」的洞——那种路径没有
+        # 行可被 union 回填，目录快照命中后即被剪枝永久漏掉（逐 op 各自 SAVEPOINT 的旧
+        # 实现正是如此：删除已释放保存点随批提交，行却在失败 op 里被丢）。
+        self.session.execute(text("CREATE UNIQUE INDEX ux_scanfiles_hash ON scanfiles (hash)"))
+        self.svc.db = FakeCalibreDB()
+        # 同哈希 IMPORTED 锚行：del_hash 不会删它，故新行 INSERT 必然冲突
+        anchor = ScanFile(os.path.join(self.tmpdir, "anchor.txt"), "sha256:H", 1)
+        anchor.status = ScanFile.IMPORTED
+        # 该路径的陈旧残留行（触发 del_path）
+        stale = ScanFile(os.path.join(self.tmpdir, "p.txt"), "sha256:old", 1)
+        stale.status = ScanFile.NEW
+        self.session.add_all([anchor, stale])
+        self.session.commit()
+        fpath = stale.path
+
+        newrow = ScanFile(fpath, "sha256:H", 1)
+        newrow.status = ScanFile.READY
+        outcomes = self.svc._apply_phase1_batch(
+            self.session, [("del_path", fpath), ("save", newrow, ScanFile.READY)]
+        )
+        self.session.commit()
+        self.assertEqual(outcomes, [])
+        survived = self.session.query(ScanFile).filter(ScanFile.path == fpath).all()
+        self.assertEqual(len(survived), 1)
+        self.assertEqual(survived[0].status, ScanFile.NEW)
+
+    def test_phase2_batch_does_not_hold_write_lock_across_books(self):
+        # P1 回归钉：批次写事务只允许在 _apply_phase2_batch 的批边界内打开。worker 的
+        # session 若仍是 autoflush=True，每轮开头的 importing_session.get() 会把上一本
+        # 改脏的行刷出去，驱动层写事务就此打开并横跨整批的 calibre/导入 IO（NAS 上与
+        # Phase1 批提交撞锁 → 最多丢整批 500 行 + 本轮不提交快照 + 下轮全量重扫）。
+        # 用文件库 + 独立连接，才能把"worker 连接是否已在写事务中"与 Phase1 分开观测。
+        dbpath = os.path.join(self.tmpdir, "lock.db").replace("\\", "/")
+        engine = create_engine("sqlite:///%s" % dbpath)
+        session = scoped_session(sessionmaker(bind=engine, autoflush=True, autocommit=False))
+        models.bind_session(session)
+        models.Base.metadata.create_all(engine)
+        self.svc.session = session
+        self.svc.scoped_session = session
+        self.svc.db = FakeCalibreDB()
+        files = [self._touch("w%d.txt" % i, b"w-%d" % i) for i in range(6)]
+        txn_at_book_start = []
+
+        def fake_import_one_file(row, user_id, scan_upload_path, session, force, sole=False,
+                                 pending_fields=None, staged_ops=None):
+            raw = session.connection().connection.driver_connection
+            txn_at_book_start.append(getattr(raw, "in_transaction", None))
+            row.status = ScanFile.IMPORTED
+            staged_ops.append(("save_row", row))
+            return None, ScanFile.IMPORTED
+
+        self.svc._import_one_file = fake_import_one_file
+        self.addCleanup(self._restore_import_one_file)
+        self.svc.do_import_internal(files, 9)
+        self.assertEqual(len(txn_at_book_start), 6)
+        # 每本开工时都不该已经在写事务里（旧 autoflush=True 从第 2 本起恒为 True）
+        self.assertEqual(txn_at_book_start, [False] * 6)
+
     def test_do_import_internal_delivers_all_rows_batched(self):
         db = FakeCalibreDB()
         self.svc.db = db
@@ -361,49 +419,59 @@ class TestHashParallel(ScanP0TestBase):
         if "_import_one_file" in self.svc.__dict__:
             del self.svc._import_one_file
 
-    def _run_collect(self, kind):
-        """同一文件集分别按串行与并行协议收集，返回落库终态行 [(path, status, hash)]。"""
+    def _run_production(self, files, workers):
+        """驱动真实 do_import_internal 跑一轮，返回终态行 [(path, status, hash)]。
+
+        旧版用"测试自写的收割循环副本"比对串行/并行，并行臂既不受 CONF["scan_hash_workers"]
+        影响、也不走生产收割路径——把生产收割改成任意顺序它都照绿（空钉）。这里改成
+        真正跑 do_import_internal，才钉得住并行协议本身。
+        """
         self.session.query(ScanFile).delete()
         self.session.commit()
-        staged = []
-        processed_paths, processed_hashes = set(), set()
-        contents = [b"aaa", b"bbb", b"aaa", b"ccc", b"bbb", b"ddd"]  # p2=p0、p4=p1 两组重复
-        files = [self._touch("p%d.txt" % i, contents[i]) for i in range(6)]
-        if kind == "serial":
-            for fpath in files:
-                self.svc._scan_one_file(fpath, self.session, 1, processed_paths, processed_hashes, False, staged=staged)
-        else:
-            pending = deque()
-            with ThreadPoolExecutor(max_workers=2, thread_name_prefix="scan_hash") as pool:
-                for fpath in files:
-                    ctx, _state = self.svc._scan_prepare(fpath, self.session, 1, processed_paths, False, staged=staged)
-                    if ctx is None:
-                        continue
-                    pending.append((ctx, pool.submit(self.svc._hash_job, ctx)))
-                    while pending and pending[0][1].done():
-                        ctx_done, fut = pending.popleft()
-                        self.svc._scan_finalize(ctx_done, fut.result(), self.session, processed_paths, processed_hashes, staged=staged)
-                while pending:
-                    ctx_done, fut = pending.popleft()
-                    self.svc._scan_finalize(ctx_done, fut.result(), self.session, processed_paths, processed_hashes, staged=staged)
-        self.svc._apply_phase1_batch(self.session, staged)
-        self.session.commit()
+        self.svc.db = FakeCalibreDB()
+        with mock.patch.dict(scan_service.CONF, {"scan_hash_workers": workers}):
+            self.svc.do_import_internal(files, 9)
         rows = self.session.query(ScanFile).order_by(ScanFile.path).all()
         return [(r.path, r.status, r.hash) for r in rows]
 
     def test_pipeline_matches_serial_end_state(self):
-        # 内容重复文件（p2=p0、p4=p1）走 in-run 哈希去重落 DROP：并行收割按提交序
-        # 消费，processed_hashes 时序与串行一致——终态逐行相等是保序的核心回归钉。
-        with mock.patch.dict(scan_service.CONF, {"scan_hash_workers": 2}):
-            self.assertEqual(self._run_collect("serial"), self._run_collect("parallel"))
-        rows = self._run_collect("serial")
-        self.assertEqual(len(rows), 6)
-        self.assertEqual(sum(1 for _, status, _ in rows if status == ScanFile.DROP), 2)
-        self.assertEqual(sum(1 for _, status, _ in rows if status == ScanFile.READY), 4)
+        # 内容重复文件（2==0、4==1 两组）走 in-run 哈希去重落 DROP。串行（workers=1）与
+        # 并行（4）都驱动真实 do_import_internal：终态逐行相等即"保序收割 + 去重时序"
+        # 等价的核心回归钉——收割若按完成序/LIFO，READY/DROP 的归属会互换。
+        contents = [b"aaa", b"bbb", b"aaa", b"ccc", b"bbb", b"ddd"]
+        files = [self._touch("q%d.txt" % i, contents[i]) for i in range(6)]
+        serial = self._run_production(files, 1)
+        parallel = self._run_production(files, 4)
+        self.assertEqual(serial, parallel)
+        self.assertEqual(len(parallel), 6)
+        self.assertEqual(sum(1 for _, status, _ in parallel if status == ScanFile.DROP), 2)
+        self.assertEqual(sum(1 for _, status, _ in parallel if status == ScanFile.IMPORTED), 4)
 
-    def test_hash_runs_in_pool_threads(self):
+    def test_harvest_order_parallel_matches_submit_order(self):
+        # 保序收割的最小判别钉：两本同内容文件，让"先提交的那本"哈希更慢（0.4s）。
+        # 串行语义下先提交者 READY→IMPORTED、后者 DROP；收割若按完成序/LIFO 则二者互换。
         db = FakeCalibreDB()
         self.svc.db = db
+        p1 = self._touch("ord1.txt", b"same-bytes-here")
+        p2 = self._touch("ord2.txt", b"same-bytes-here")
+        orig_hash = ScanService._compute_hash
+
+        def slow_first(svc_self, fpath):
+            if fpath == p1:
+                time.sleep(0.4)
+            return orig_hash(svc_self, fpath)
+
+        with mock.patch.dict(scan_service.CONF, {"scan_hash_workers": 2}):
+            with mock.patch.object(ScanService, "_compute_hash", slow_first):
+                self.svc.do_import_internal([p1, p2], 9)
+        status = {r.path: r.status for r in self.session.query(ScanFile).all()}
+        self.assertEqual(status[p1], ScanFile.IMPORTED)
+        self.assertEqual(status[p2], ScanFile.DROP)
+
+    def test_hash_runs_in_pool_threads(self):
+        # 并行分支必须真的把哈希投到 scan_hash 池线程；scan_hash_workers=1（NAS 兜底）
+        # 必须完全串行在主线程。驱动真实 do_import_internal——旧版只看测试自建池的线程名，
+        # 把生产 if hash_workers > 1 整段删掉（配置变死键）也照样绿。
         files = [self._touch("t%d.txt" % i, b"t-%d" % i) for i in range(4)]
         seen_threads = []
         orig_hash = ScanService._compute_hash
@@ -412,19 +480,19 @@ class TestHashParallel(ScanP0TestBase):
             seen_threads.append(threading.current_thread().name)
             return orig_hash(svc_self, fpath)
 
-        staged = []
-        with mock.patch.dict(scan_service.CONF, {"scan_hash_workers": 2}):
-            with mock.patch.object(ScanService, "_compute_hash", spying_hash):
-                pending = deque()
-                with ThreadPoolExecutor(max_workers=2, thread_name_prefix="scan_hash") as pool:
-                    for fpath in files:
-                        ctx, _state = self.svc._scan_prepare(fpath, self.session, 1, set(), False, staged=staged)
-                        pending.append((ctx, pool.submit(self.svc._hash_job, ctx)))
-                    while pending:
-                        ctx, fut = pending.popleft()
-                        fut.result()
-        self.assertEqual(len(seen_threads), 4)
-        self.assertTrue(all(name.startswith("scan_hash") for name in seen_threads), seen_threads)
+        for workers, expect_pool in ((2, True), (1, False)):
+            seen_threads.clear()
+            self.session.query(ScanFile).delete()
+            self.session.commit()
+            self.svc.db = FakeCalibreDB()
+            with mock.patch.dict(scan_service.CONF, {"scan_hash_workers": workers}):
+                with mock.patch.object(ScanService, "_compute_hash", spying_hash):
+                    self.svc.do_import_internal(files, 9)
+            self.assertEqual(len(seen_threads), 4)
+            if expect_pool:
+                self.assertTrue(all(n.startswith("scan_hash") for n in seen_threads), seen_threads)
+            else:
+                self.assertTrue(all(not n.startswith("scan_hash") for n in seen_threads), seen_threads)
 
     def test_serial_branch_workers_1_end_to_end(self):
         # scan_hash_workers=1（NAS 兜底模式，注释/文档明示的用法）走 hash_pool
@@ -547,6 +615,8 @@ class TestPhase2Batching(ScanP0TestBase):
 
     def test_phase2_row_isolation_on_integrity_error(self):
         # UNIQUE(hash) 冲突的暂存行只丢自己（SAVEPOINT 行级隔离），同批其余行照常落库。
+        # 注意适用范围：这里是真的「新建对象」——失败对象会被 expunge，故隔离成立；
+        # 持久行就地改属性的生产形态另见 test_phase2_persistent_row_failure_is_accounted_not_escaped。
         # 新 schema 无该约束，这里按 legacy 库口径手工建唯一索引注入真实 IntegrityError。
         good_anchor = self._make_ready_row("iso0.txt")
         good_anchor.hash = "sha256:dup-hash"
@@ -562,6 +632,43 @@ class TestPhase2Batching(ScanP0TestBase):
         self.assertEqual(outcomes["dropped_rows"], {None})
         self.assertEqual(outcomes["saved_rows"], {other.id})
         self.assertEqual(self.session.query(ScanFile).filter(ScanFile.hash == "sha256:unique-3").count(), 1)
+
+    def test_phase2_persistent_row_failure_is_accounted_not_escaped(self):
+        # 生产形态：row 是 session.get 取回的持久行、就地改属性（与新建对象不同——新建
+        # 对象失败会被 expunge，同批其余 op 照常落库，见上一用例）。实测：持久行的 ORM
+        # flush 失败会把 session 打成 deactivated，pysqlite 下 SAVEPOINT 无法恢复会话语境，
+        # 故 _apply_phase2_batch 停手 → 本批整批回滚。这里钉住这一语义：既不以外抛
+        # PendingRollbackError 的形式失控，也要把 worker 乐观计入的状态数诚实回调。
+        self.session.execute(text("CREATE UNIQUE INDEX ux_hash_heavy ON scanfiles (hash)"))
+        anchor = self._make_ready_row("hv_anchor.txt")
+        anchor.hash = "sha256:taken"
+        anchor.status = ScanFile.IMPORTED
+        bad = self._make_ready_row("hv_bad.txt")
+        bad.hash = "sha256:b1"
+        good = self._make_ready_row("hv_good.txt")
+        good.hash = "sha256:g1"
+        self.session.commit()
+        anchor = self.session.get(ScanFile, anchor.id)
+        bad = self.session.get(ScanFile, bad.id)
+        good = self.session.get(ScanFile, good.id)
+        bad.hash = "sha256:taken"          # 与 anchor 唯一冲突：该行 UPDATE 必失败
+        good.status = ScanFile.IMPORTED
+
+        prev_cnt = ScanService.static_status_cnt
+        self.addCleanup(setattr, ScanService, "static_status_cnt", prev_cnt)
+        ScanService.static_status_cnt = {ScanFile.IMPORTED: 2}   # worker 已乐观计入
+        batch_row_status = {bad.id: ScanFile.IMPORTED, good.id: ScanFile.IMPORTED}
+        staged_ops = [("save_row", bad), ("save_row", good)]
+        self.svc._apply_phase2_batch_checked(self.session, staged_ops, batch_row_status)
+
+        self.assertEqual(staged_ops, [])
+        self.assertEqual(batch_row_status, {})
+        self.assertEqual(ScanService.static_status_cnt.get(ScanFile.IMPORTED, 0), 0)
+        # 本批整批回滚：两行都保持 READY；session 仍可用（查询不抛 PendingRollbackError）
+        self.session.expire_all()
+        self.assertEqual(self.session.get(ScanFile, bad.id).status, ScanFile.READY)
+        self.assertEqual(self.session.get(ScanFile, good.id).status, ScanFile.READY)
+        self.assertEqual(self.session.query(ScanFile).count(), 3)
 
 
 @unittest.skipUnless(HAS_CALIBRE, "needs calibre icu")
@@ -579,6 +686,7 @@ class TestTitleDedupIndex(ScanP0TestBase):
             3: "ＡＢＣ",
             5: "红楼梦", 6: "红楼梦（上下册）",
             7: "école", 8: "e\u0301cole",
+            9: "\ufeff",          # icu_lower 折成空串：legacy 会与全库逐个比该空键
         })
         try:
             probes = {
@@ -589,7 +697,8 @@ class TestTitleDedupIndex(ScanP0TestBase):
                 "红楼梦": {5},         # 带书名号副标题不算同名
                 "ÉCOLE": {7},         # icu_lower 只做大小写映射不做规范化
                 "E\u0301COLE": {8},   # NFC/NFD 不互撞（原路径同行为）
-                "": set(),
+                "\ufeff": {9},        # 空折叠键照 legacy 口径参与比较（不额外过滤）
+                "": set(),            # 守卫只看原始标题真假（照抄 legacy if title:）
                 "不存在": set(),
             }
             for probe, expected in probes.items():

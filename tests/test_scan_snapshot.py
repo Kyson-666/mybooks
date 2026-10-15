@@ -377,12 +377,66 @@ class TestNullData(SnapshotTestBase):
         self.assertEqual(state, ScanFile.READY)
 
 
+class TestUnstableEntries(SnapshotTestBase):
+    """剪枝安全：目录里出现 stat 失败/悬空符号链接（_classify_scan_entry → 'unsure'）
+    时，既不能落清单、也不能提交快照，否则该条目在目录命中快照后被剪枝永久漏掉，
+    且无行可被 union 回填。对照组：确定不是常规文件（同名目录）走旧语义，跳过不落行。"""
+
+    def _dangling(self, relpath):
+        link = os.path.join(self.tmpdir, relpath)
+        try:
+            os.symlink(os.path.join(self.tmpdir, "nope-missing-target"), link)
+        except (OSError, NotImplementedError) as err:  # Windows 无符号链接权限
+            self.skipTest("symlink not available: %s" % err)
+        return link
+
+    def test_unstable_entry_keeps_dir_unpruned(self):
+        self._touch(os.path.join("d1", "good.txt"), b"g")
+        self._dangling(os.path.join("d1", "later.txt"))
+        d1 = os.path.join(self.root, "d1")
+        files, visited = self._collect()
+        self.assertEqual(len(files), 1)                       # 悬空链接不进清单
+        self.assertEqual(visited[d1][1], scan_service.SNAPSHOT_NO_PRUNE)
+        self._commit(visited)
+        files2, _v2 = self._collect()
+        self.assertEqual(len(files2), 1)                      # 未剪枝：good.txt 仍被枚举
+
+    def test_prunable_dir_without_unstable_entry(self):
+        # 对照组：无悬空条目时正常剪枝（第二轮 filelist 为空）
+        self._touch(os.path.join("d1", "good.txt"), b"g")
+        _files, visited = self._collect()
+        self.assertEqual(visited[os.path.join(self.root, "d1")][1], 1)
+        self._commit(visited)
+        files2, _v2 = self._collect()
+        self.assertEqual(files2, [])
+
+    def test_unstable_entry_defers_with_new_row(self):
+        link = self._dangling("defer.txt")
+        ctx, state = self.svc._scan_prepare(link, self.session, 1, set(), False)
+        self.assertIsNone(ctx)
+        self.assertEqual(state, ScanFile.NEW)
+        self.session.commit()
+        row = self.session.query(ScanFile).filter(ScanFile.path == link).one()
+        self.assertEqual(row.status, ScanFile.NEW)
+
+    def test_non_regular_entry_is_skipped_without_row(self):
+        # 同名目录：确定不是常规文件 → 旧语义（跳过、不落行），不误判为 unsure
+        os.makedirs(os.path.join(self.tmpdir, "adir.txt"))
+        p = os.path.join(self.tmpdir, "adir.txt")
+        self.assertEqual(self.svc._scan_prepare(p, self.session, 1, set(), False), (None, None))
+        self.assertEqual(self.session.query(ScanFile).filter(ScanFile.path == p).count(), 0)
+
+
 class TestSnapshotLocales(unittest.TestCase):
     def test_scope_keys(self):
         # 本文件在 <worktree>/tests/ 下，locales 在 <worktree>/app/locales/
         root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        locales_dir = os.path.join(root, "app", "locales")
+        # 只部署 webserver/ + tests/ 的检出（无前端目录）应跳过而非硬失败
+        if not os.path.isdir(locales_dir):
+            self.skipTest("frontend app/locales/ not present in this checkout")
         for name in ("zh.json", "en.json", "zh-TW.json"):
-            with open(os.path.join(root, "app", "locales", name), encoding="utf-8") as f:
+            with open(os.path.join(locales_dir, name), encoding="utf-8") as f:
                 data = json.load(f)
             imports = data["imports"]
             self.assertIn("scan_scope_full_noskip", imports)

@@ -41,6 +41,7 @@ import logging
 import queue as _queue
 import shutil
 import sqlite3
+import stat
 import tempfile
 import threading
 import time
@@ -49,7 +50,7 @@ import weakref
 from collections import deque
 from concurrent.futures import ThreadPoolExecutor
 
-from sqlalchemy import or_
+from sqlalchemy import or_, inspect
 from sqlalchemy.exc import IntegrityError
 
 from webserver.i18n import _
@@ -92,6 +93,11 @@ FILE_SIG_KEY = "file_sig"
 # 划算与否只跟批量有关（legacy 总成本≈批量×库，建索引≈库，比值≈批量），与库
 # 大小无关——单本/几本上传到百万库为一次判重建索引是纯浪费。
 TITLE_INDEX_MIN_BOOKS = 50
+# 目录快照「本轮不可剪枝」占位：entry_count 用不可能的真实取值，使读取侧
+# (mtime_ns, count) 相等比较永不成立 → 该目录每轮重新枚举。用于目录内出现
+# stat 失败/悬空符号链接这类「既无法落行、又不该被剪枝」的条目（见
+# _classify_scan_entry）：它们的目标将来就位不会改动本目录 mtime。
+SNAPSHOT_NO_PRUNE = -1
 
 
 class _TitleDedupIndex:
@@ -110,8 +116,10 @@ class _TitleDedupIndex:
     Phase2 worker 线程构建/查询/回填，不加锁；close 在 join 后的主线程调用，
     连接必须 check_same_thread=False。快照窗口：索引只反映构建时刻的书库 +
     本 worker 回填，运行期间其他来源（网页上传/BookBarn 等）新增的书不可见，
-    极端并发下可能漏判重建重复书——已接受的取舍（单管理员 NAS 概率低，
-    do_import 互斥保证不会与另一轮扫描叠跑），下轮重扫自愈。运行结束
+    极端并发下可能漏判而重建重复书——已接受的取舍（单管理员 NAS 概率低，
+    do_import 互斥保证不会与另一轮扫描叠跑）。**注意：重复书不会"下轮重扫
+    自愈"**（该路径已 IMPORTED，重扫被跳过，没有再比标题的时机），需人工删书；
+    只有"行留在 READY"的那类（如中断）才靠 union-pending 自愈。运行结束
     close() 销毁；weakref.finalize 兜底异常路径的临时文件清理。
     """
 
@@ -137,7 +145,7 @@ class _TitleDedupIndex:
             conn.execute("CREATE INDEX ix_title_lc ON t (title_lc)")
             conn.executemany(
                 "INSERT INTO t VALUES (?, ?)",
-                ((icu_lower(t), bid) for bid, t in title_map.items() if t),
+                ((icu_lower(t), bid) for bid, t in title_map.items() if t is not None),
             )
             conn.commit()
             self._conn = conn
@@ -154,22 +162,27 @@ class _TitleDedupIndex:
             raise
 
     def lookup(self, title):
-        """同名候选书 id 集合；语义与 books_with_same_title 相同（空/falsy 标题
-        → 空集——照抄原实现的 if title: 前置守卫，非 str 输入也直返空集）。"""
+        """同名候选书 id 集合；语义与 books_with_same_title 逐位一致：守卫只看
+        原始标题真假（照抄 legacy 的 if title:），**不额外过滤"折叠键为空"**——
+        icu_lower 把 U+FEFF/U+FFFE 折成空串，legacy 会把空键与全库逐个比较，
+        多一道 if not key 守卫会让第二本此类书漏判重建重复书。"""
         if not title:
             return set()
         key = self._icu_lower(self._force_unicode(title))
-        if not key:
-            return set()
         rows = self._conn.execute("SELECT book_id FROM t WHERE title_lc = ?", (key,)).fetchall()
         return {r[0] for r in rows}
 
     def add(self, title, book_id):
-        """运行内增量回填：import_book 新建书后调用，同批次同名书判重要能命中。"""
-        key = self._icu_lower(self._force_unicode(title))
-        if key and book_id is not None:
-            self._conn.execute("INSERT INTO t VALUES (?, ?)", (key, book_id))
-            self._conn.commit()
+        """运行内增量回填：import_book 新建书后调用，同批次同名书判重要能命中。
+
+        与 lookup/构建同口径：不做"折叠键为空就跳过"的过滤（理由同 lookup）；
+        title 为 None 时按 legacy 的存储侧口径取空串折叠键（get_id_map 里的标题
+        恒为 str）。"""
+        if book_id is None:
+            return
+        key = self._icu_lower(self._force_unicode(title)) if title is not None else ""
+        self._conn.execute("INSERT INTO t VALUES (?, ?)", (key, book_id))
+        self._conn.commit()
 
     def close(self):
         try:
@@ -379,9 +392,18 @@ class ScanService(AsyncService):
         """在短写事务内执行一批 Phase2 行/链接写操作，返回对账结果。
 
         staged_ops 元素：("save_row", row) | ("save_item", item)，由 _import_one_file
-        在 worker 内暂存；本方法逐 op SAVEPOINT（单个失败只丢该操作，不毒化整批），
-        持写锁窗口亚秒级。调用方负责 commit 并按 outcomes 对账计数：
+        在 worker 内暂存；本方法逐 op SAVEPOINT 落库，持写锁窗口亚秒级。调用方负责
+        commit 并按 outcomes 对账计数：
         {"saved_rows": set(row_id), "dropped_rows": set(row_id), "dropped_items": n}。
+
+        隔离边界（实测钉住，勿轻信「单个失败只丢该操作」）：SAVEPOINT 只对「新建对象
+        插入失败」成立——失败对象被 expunge，同批其余 op 照常落库（见
+        test_phase2_row_isolation_on_integrity_error）。而 Phase2 生产形态是「持久行
+        就地改属性」，其 ORM flush 失败会把 session 打成 deactivated，而 pysqlite 下
+        SAVEPOINT 无法恢复会话语境（后续 op 只会抛 PendingRollbackError）——故本方法
+        检测到失败即停手，余下 op 交由 _apply_phase2_batch_checked 整批回滚 + 计数对账：
+        净效果为丢掉本批（≤batch_size 行，保持旧状态待下轮重扫自愈），绝不虚高进度。
+        要做到真正的逐行隔离需把 op 改写成 Core 语句（列为后续项，见 PR 已知限制）。
         """
         outcomes = {"saved_rows": set(), "dropped_rows": set(), "dropped_items": 0}
         if not staged_ops:
@@ -389,6 +411,13 @@ class ScanService(AsyncService):
         self._begin_scan_batch(session)
         for op in staged_ops:
             kind, obj = op
+            # id 用 inspect().identity 取：flush 失败会把 session 打成 deactivated 并
+            # expire 对象，此时 getattr(obj, "id") 会触发 refresh 而抛 PendingRollbackError，
+            # 把「单行被丢」升级成整批外抛。
+            rid_before = None
+            if kind == "save_row":
+                ident = inspect(obj).identity
+                rid_before = ident[0] if ident else None
             try:
                 with session.begin_nested():
                     session.add(obj)
@@ -397,11 +426,14 @@ class ScanService(AsyncService):
                     outcomes["saved_rows"].add(obj.id)
             except Exception as err:
                 if kind == "save_row":
-                    logging.error("[IMPORT] Phase2 row save dropped (id=%s): %s", getattr(obj, "id", "?"), err)
-                    outcomes["dropped_rows"].add(getattr(obj, "id", None))
+                    logging.error("[IMPORT] Phase2 row save dropped (id=%s): %s", rid_before, err)
+                    outcomes["dropped_rows"].add(rid_before)
                 else:
                     logging.error("[IMPORT] Phase2 item link save dropped: %s", err)
                     outcomes["dropped_items"] += 1
+                if not session.is_active:
+                    logging.error("[IMPORT] Phase2 session deactivated after row failure, dropping rest of batch")
+                    break
         return outcomes
 
     def _apply_phase2_batch_checked(self, session, staged_ops, batch_row_status):
@@ -448,40 +480,60 @@ class ScanService(AsyncService):
         staged 元素：("del_path", fpath) | ("del_hash", hash) | ("save", row, state)，
         由 _scan_one_file 在读算阶段（无写事务、可横跨任意时长磁盘 IO）里攒出；
         本方法只做纯内存对象的 INSERT/DELETE + flush，持写锁窗口亚秒级。
-        单个操作失败只丢该操作（行级 SAVEPOINT），不毒化整批；调用方负责 commit，
+        单个文件失败只丢该文件（整组 SAVEPOINT），不毒化整批；调用方负责 commit，
         commit 成功后才能计数/入队（跨会话可见性），commit 失败则整批丢弃（文件在
         磁盘，下轮重扫自愈）。
+
+        同一文件的 op（del_path / del_hash / save）**必须同生共死**：按「以 save 收尾」
+        切组，整组共用同一个 SAVEPOINT。逐 op 各自 SAVEPOINT 时，save 失败只丢自己而
+        del_path/del_hash 已释放保存点随批提交——该路径在库里从此没有任何 ScanFile 行，
+        union 回填也无行可并，目录快照命中即被剪枝永久漏书（旧 save_or_rollback 失败会
+        session.rollback() 把同一文件的删除一并回滚，语义等价于本组的整组丢弃）。
         """
         outcomes = []
         if not staged:
             return outcomes
         self._begin_scan_batch(session)
+        # _scan_finalize 每个文件的 op 序列恒为 [del_path?] [del_hash?] save，故以 save 收尾切组。
+        groups = []
+        buf = []
         for op in staged:
-            kind = op[0]
+            buf.append(op)
+            if op[0] == "save":
+                groups.append(buf)
+                buf = []
+        if buf:
+            groups.append(buf)
+        for group in groups:
             try:
                 with session.begin_nested():
-                    if kind == "del_path":
-                        session.query(ScanFile).filter(ScanFile.path == op[1]).delete(synchronize_session=False)
-                    elif kind == "del_hash":
-                        session.query(ScanFile).filter(
-                            ScanFile.hash == op[1], ScanFile.status != ScanFile.IMPORTED
-                        ).delete(synchronize_session=False)
-                    elif kind == "save":
-                        session.add(op[1])
-                    else:
-                        logging.error("[SCAN] Unknown staged op, drop it: %r", kind)
-                        continue
+                    for op in group:
+                        kind = op[0]
+                        if kind == "del_path":
+                            session.query(ScanFile).filter(ScanFile.path == op[1]).delete(synchronize_session=False)
+                        elif kind == "del_hash":
+                            session.query(ScanFile).filter(
+                                ScanFile.hash == op[1], ScanFile.status != ScanFile.IMPORTED
+                            ).delete(synchronize_session=False)
+                        elif kind == "save":
+                            session.add(op[1])
+                        else:
+                            logging.error("[SCAN] Unknown staged op, drop it: %r", kind)
+                            continue
                     session.flush()
             except IntegrityError as err:
-                logging.error("[SCAN] Staged op %s failed, drop it: %s", kind, err)
+                logging.error("[SCAN] Staged file op group failed, drop it: %s", err)
                 continue
             except Exception:
-                logging.exception("[SCAN] Staged op %s failed, drop it", kind)
+                logging.exception("[SCAN] Staged file op group failed, drop it")
                 continue
-            if kind == "save":
-                bid = "[ book-id=%s ]" % op[1].book_id if op[1].book_id else ""
-                logging.info("update: status=%-5s, path=%s %s", op[1].status, op[1].path, bid)
-                outcomes.append((op[1].id, op[2]))
+            for op in group:
+                if op[0] != "save":
+                    continue
+                row = op[1]
+                bid = "[ book-id=%s ]" % row.book_id if row.book_id else ""
+                logging.info("update: status=%-5s, path=%s %s", row.status, row.path, bid)
+                outcomes.append((row.id, op[2]))
         return outcomes
 
     def _set_calibre_fields(self, column, mapping):
@@ -533,6 +585,11 @@ class ScanService(AsyncService):
         """
         full_waits = 0
         while True:
+            if not ScanService.static_abort_flag and not worker_thread.is_alive():
+                # 队列尚有余量时 put 会立即成功——旧实现只在 Full 分支查存活，worker 已死
+                # 而队列未满时每条投递都静默成功，整轮报「成功 0 本」却不报错。取消路径
+                # 不走此处（保留下面有界放弃的语义）。
+                raise RuntimeError("importing worker thread exited unexpectedly")
             try:
                 work_queue.put(item, timeout=timeout)
                 return
@@ -802,6 +859,28 @@ class ScanService(AsyncService):
         return [st.st_size, st.st_mtime_ns, st.st_ctime_ns, st.st_ino]
 
     @staticmethod
+    def _classify_scan_entry(fpath):
+        """目录条目分类，供剪枝安全判定（扫描目录里的每本书都必须能落行或被剪枝排除）：
+
+        - 'file'   常规文件，可扫描；
+        - 'skip'   确定不是常规文件（目录/设备/管道），或 scandir 列出后此刻已不存在
+                   （ENOENT 且非符号链接——删除本身会 bump 目录 mtime，快照下轮自然失配）。
+                   合法跳过，**不影响本目录的剪枝资格**；
+        - 'unsure' stat 失败（NAS/SMB 抖动、ACL 异常）或悬空符号链接：其目标将来就位不会
+                   改动本目录 mtime，若既不落清单又让快照照常提交，该条目下轮起被剪枝永久
+                   漏掉（无行可被 union 回填）。调用方据此放弃本轮剪枝或落占位行。
+        """
+        try:
+            st = os.stat(fpath)
+        except OSError as err:
+            if err.errno in (errno.ENOENT, errno.ENOTDIR) and not os.path.islink(fpath):
+                return "skip"
+            return "unsure"
+        if not stat.S_ISREG(st.st_mode):
+            return "skip"
+        return "file"
+
+    @staticmethod
     def _load_dir_snapshots(session):
         """读出全部目录快照 {dir: (mtime_ns, entry_count)}；失败返回空（= 全量 walk）。"""
         try:
@@ -852,7 +931,8 @@ class ScanService(AsyncService):
         # realpath("") = cwd（truthy），仅判 not scan_root 挡不住未配置/卷掉挂：
         # 两种情况下 vacuum 的 not under_root 会把全部快照行清空（方向安全——
         # 下轮全量重建——但纯浪费），scan_root 必须是真实存在的目录才落盘。
-        if not scan_root or not os.path.isdir(scan_root):
+        # 未配置 scan_upload_path 时 realpath("") 恰是 cwd（也是目录），故先显式判空。
+        if not CONF.get("scan_upload_path", "").strip() or not scan_root or not os.path.isdir(scan_root):
             logging.warning("[IMPORT] Snapshot commit skipped: scan root missing or not a directory")
             return
         if ScanService.static_abort_flag:
@@ -956,16 +1036,26 @@ class ScanService(AsyncService):
                     if skip_files:
                         skipped_dirs += 1
                         continue
-                    if dir_mtime is not None:
-                        visited[real_dirpath] = (dir_mtime, entry_count)
+                    prune_ok = True
                     for fname in filenames:
                         fmt = fname.split(".")[-1].lower()
                         if not fmt or fmt not in SCAN_EXT or fname.startswith('.'):
                             continue
                         fpath = os.path.join(dirpath, fname)
-                        if not os.path.isfile(fpath):
+                        kind = ScanService._classify_scan_entry(fpath)
+                        if kind == "skip":
+                            continue
+                        if kind == "unsure":
+                            # stat 失败/悬空符号链接：既不落清单、又不能提交快照（否则本目录
+                            # 被剪枝后该路径永久漏掉）。本轮放弃本目录的剪枝资格，下轮重新枚举。
+                            prune_ok = False
+                            logging.warning("[SCAN] Unstable entry, keep %s unpruned this round: %s", dirpath, fpath)
                             continue
                         filelist.append(fpath)
+                    if dir_mtime is not None:
+                        visited[real_dirpath] = (
+                            dir_mtime, entry_count if prune_ok else SNAPSHOT_NO_PRUNE
+                        )
             else:
                 logging.warning("[SCAN] Path not found: %s", p)
         if use_snapshot:
@@ -1453,6 +1543,13 @@ class ScanService(AsyncService):
         （2-3 次 fsync/本）降为 ≤1 次/批。
         """
         importing_session = self.scoped_session()
+        # 行写只允许在 _apply_phase2_batch 的批边界 SAVEPOINT 内 flush。全局 session 是
+        # autoflush=True，若放任：worker 每轮开头的 importing_session.get() 会把上一本改
+        # 脏的行刷出去，驱动层写事务就此打开并一直持有到每 batch_size 本一次的批提交——
+        # 一次写事务横跨整批的元数据读取/import_book 磁盘 IO，正是 Phase1 修掉的那类反
+        # 模式；NAS 上批量慢于 busy_timeout 时与 Phase1 批提交双写撞锁（最多丢整批 500 行
+        # + 本轮不提交快照 → 下轮全量重扫）。
+        importing_session.autoflush = False
         importing_index = 0
         total_count = 0
         pending_fields = {"dynamic_cover": [], "translators": {}, "category": {}}
@@ -1564,6 +1661,18 @@ class ScanService(AsyncService):
         否则 ctx 只携带纯数据（无 ORM 对象、无会话引用），可安全投入线程池。
         """
         if not os.path.isfile(fpath):
+            # stat 失败/悬空符号链接不能静默丢弃：本路径由 _collect_files 收集而来，
+            # 其目录快照本轮可能照常提交，命中剪枝后该路径永久漏掉。落 NEW 占位行进
+            # union-pending（与撕裂读同路径），下轮重扫重算；真不存在则由 MISSED 终态收敛。
+            if ScanService._classify_scan_entry(fpath) == "unsure":
+                logging.warning("[SCAN] Unstable entry, defer to next run: %s", fpath)
+                deferred = ScanFile(fpath, "", import_id)
+                deferred.status = ScanFile.NEW
+                if staged is None:
+                    self.save_or_rollback(deferred, session)
+                else:
+                    staged.append(("save", deferred, ScanFile.NEW))
+                return None, ScanFile.NEW
             logging.warning("[SCAN] Not a valid file, skip: %s", fpath)
             return None, None
         if not os.access(fpath, os.R_OK):
@@ -1843,7 +1952,10 @@ class ScanService(AsyncService):
         # auto.py 手写脏值回退默认 4
         try:
             hash_workers = max(1, int(CONF.get("scan_hash_workers", 4) or 1))
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
+            # auto.py 手写脏值（如 1e400 == inf）int() 会抛 OverflowError，与 TypeError/
+            # ValueError 同口径回退；漏掉会在 sentinel 的 try/finally 之前外抛，泄漏挂在
+            # queue.get() 上的 daemon worker（对齐 _normalize_scope 的捕获集合）。
             logging.warning("[IMPORT] Invalid scan_hash_workers value, fallback to 4")
             hash_workers = 4
         hash_pool = None
@@ -1890,6 +2002,13 @@ class ScanService(AsyncService):
             # finalize 入 staged，finally 尾批统一提交；abort 不提交快照，下轮重扫）。
             while pending:
                 _drain_one(block=True)
+        except Exception as err:
+            # Phase1 主体异常（哈希 job 重抛、_put_work 放弃等）记入 put_failure 而非直接
+            # 外抛：收尾（join / 标题索引销毁 / abort 抑制）必须照常执行，否则 worker 已死
+            # 或取消的场景会跳过全部收尾，把取消误报成失败、并泄漏标题索引临时文件。
+            # 非取消场景在收尾后按原语义 raise（行为不变）。
+            logging.exception("[IMPORT] Phase1 loop error, capturing for teardown")
+            put_failure = put_failure or err
         finally:
             if hash_pool is not None:
                 hash_pool.shutdown(wait=False, cancel_futures=True)
