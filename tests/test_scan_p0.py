@@ -411,6 +411,37 @@ class TestPhase1Batching(ScanP0TestBase):
         self.assertEqual(sorted(delivered), sorted(files))
         self.assertEqual(self.session.query(ScanFile).filter(ScanFile.status == ScanFile.READY).count(), 5)
 
+    def test_duplicate_paths_in_filelist_processed_once(self):
+        # 同一路径在 filelist 里出现两次（库里同路径多行时 resolve_ready_paths/
+        # resolve_filter_paths 会产出重复路径，手动勾选也原样透传）：并行分支的 prepare
+        # 发生在收割之前（processed_paths 只在 _scan_finalize 登记），第二条照样过检查 →
+        # 多算一次哈希、并可能多落一条 DROP 记录或把同一文件重复入队；串行分支必跳过第二次。
+        # 入口保序去重后两条分支都必须「只处理一次、无 DROP 记录」。
+        orig = ScanService._import_one_file
+        svc = self.svc
+        for workers, force in ((1, False), (4, False), (4, True)):
+            self.session.query(ScanFile).delete()
+            self.session.commit()
+            svc.db = FakeCalibreDB()          # 每轮换库，避免标题判重把第二轮判成 EXIST
+            fpath = self._touch("dupq.txt", b"dupq-content")
+            calls = []
+
+            def counting(row, user_id, scan_upload_path, session, force, sole=False,
+                         pending_fields=None, staged_ops=None):
+                calls.append(row.path)
+                return orig(svc, row, user_id, scan_upload_path, session, force, sole,
+                            pending_fields, staged_ops)
+
+            svc._import_one_file = counting
+            self.addCleanup(self._restore_import_one_file)
+            with mock.patch.dict(scan_service.CONF, {"scan_hash_workers": workers}):
+                svc.do_import_internal([fpath, fpath], 9, force=force)
+            self.assertEqual(calls, [fpath], (workers, force))
+            rows = self.session.query(ScanFile).all()
+            self.assertEqual(len(rows), 1, (workers, force))
+            self.assertEqual(rows[0].status, ScanFile.IMPORTED, (workers, force))
+            self.assertEqual(rows[0].path, fpath)
+
 
 class TestHashParallel(ScanP0TestBase):
     """C2 哈希并行流水线：保序收割与串行逐位等价 / 哈希确在池线程 / abort 收割契约。"""

@@ -1867,6 +1867,17 @@ class ScanService(AsyncService):
         ScanService.static_phase1_persist_failed = False
         ScanService.static_title_index = None
         scan_upload_path = os.path.realpath(CONF.get("scan_upload_path", ""))
+        # 同一路径在 filelist 里出现两次时（库里同路径多行——force 重导会留下 IMPORTED+READY
+        # 两行，而 resolve_ready_paths/resolve_filter_paths 都不去重，手动勾选的原样透传）：
+        # 串行分支必跳过第二次（prepare+finalize 是同一次调用，processed_paths 在第二次
+        # prepare 前已登记），并行分支的 prepare 却发生在收割之前（登记只在 _scan_finalize），
+        # 第二条照样过检查 → 多算一次哈希，并可能多落一条 DROP 记录，或让「清同哈希行再建
+        # READY」这条路径把同一文件重复入队。入口按原字符串保序去重（不引入逐文件 realpath，
+        # 热路径不增 syscall）即可让两分支严格等价——去重掉的正是串行本来就会跳过的那部分；
+        # 残留的「同一文件但字符串不同」形态（符号链接变体）仍由 _scan_prepare 的 realpath 检查兜底。
+        # 注：调用方 do_import 的 static_import_files_cnt 仍按去重前长度计（保持既有消息口径）。
+        if len(filelist) > 1:
+            filelist = list(dict.fromkeys(filelist))
         total_count = len(filelist)
         ScanService.static_title_index_total = total_count
         batch_size = 20
