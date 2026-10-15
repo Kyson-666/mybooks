@@ -580,7 +580,6 @@
     "basic_info": "Basic Information",
     "language_switch": "Languages",
     "site_timezone": "System time zone",
-    "site_timezone_tips": "Reading statistics are bucketed by day, so streak counting, the heatmap and today's total all use this time zone to decide where a day ends, and back-filling today's reading is checked against it. \"Follow site language\" gives UTC+8 for Chinese and UTC for English. With a UTC server and a UTC+8 reader, reading between 0:00 and 8:00 would be filed under the previous day.",
     "tz_auto": "Follow site language (UTC+8 for Chinese, UTC for English)",
     "tz_utc": "UTC · Coordinated Universal Time",
     "tz_shanghai": "UTC+8 · Beijing / Shanghai",

@@ -849,7 +849,6 @@
     "basic_info": "基础信息",
     "language_switch": "语言切换",
     "site_timezone": "系统时区",
-    "site_timezone_tips": "阅读统计按「天」分桶：跨天连击、热力图、今日时长都以这里的时区切天，补录当天阅读也按它判「是否未来」。留空或选「跟随站点语言」时为简繁中文 UTC+8、英文 UTC；服务器在 UTC 而读者在东八区时，0 点到 8 点的阅读会被记到前一天",
     "tz_auto": "跟随站点语言（简繁 UTC+8 / 英文 UTC）",
     "tz_utc": "UTC · 协调世界时",
     "tz_shanghai": "UTC+8 · 北京 / 上海",

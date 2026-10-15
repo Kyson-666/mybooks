@@ -206,8 +206,6 @@
                 :items="f.items"
                 :key="f.key + '-select'"
                 :label="$t(f.label)"
-                :hint="f.hint ? $t(f.hint) : undefined"
-                :persistent-hint="!!f.hint"
               >
                 <template v-if="f.icon" v-slot:prepend>
                   <v-icon :color="f.color">{{ f.icon }}</v-icon>
@@ -1614,7 +1612,6 @@ export default {
                 icon: "mdi-clock-outline",
                 key: "site_timezone",
                 label: "settings.site_timezone",
-                hint: "settings.site_timezone_tips",
                 type: "select",
                 items: [
                   { text: this.$t("settings.tz_auto"), value: "auto" },
