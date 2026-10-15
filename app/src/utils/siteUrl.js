@@ -7,16 +7,17 @@
  *
  * 取值顺序：store.sys.siteUrl（/api/user/info 每次进页面刷新）→ localStorage 缓存
  * （首屏 AppHeader 请求还没回来时兜底）→ window.location.origin。
+ *
+ * store 里已经有值时不再看缓存——包括管理员清空后的空串：那种情况下缓存里还是上一次的
+ * 旧地址，继续回退会把已经作废的域名又拿去拼分享链接。
  */
 const SITE_URL_STORAGE_KEY = 'sys_site_url';
 
 export function siteBaseUrl(store) {
-    let url = '';
     const sys = store && store.state ? store.state.sys : null;
-    if (sys && typeof sys.siteUrl === 'string') {
-        url = sys.siteUrl;
-    }
-    if (!url && process.client && typeof localStorage !== 'undefined') {
+    const fromStore = !!(sys && typeof sys.siteUrl === 'string');
+    let url = fromStore ? sys.siteUrl : '';
+    if (!fromStore && process.client && typeof localStorage !== 'undefined') {
         url = localStorage.getItem(SITE_URL_STORAGE_KEY) || '';
     }
     url = url.trim().replace(/\/+$/, '');

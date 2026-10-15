@@ -371,7 +371,14 @@ class MyReaderSyncService:
         """客户端离线阅读显式上报（见 document/Reading_Stats_Design.md 的离线阅读扩展）：
         [{"book_hash": ..., "date": "YYYY-MM-DD", "seconds": N}, ...]，一本书一次 push
         里可以带多天（跨天离线场景）。日期由客户端上报前转换成 UTC，这里不再转换，只
-        做格式/范围校验。"""
+        做格式/范围校验。
+
+        已知口径差（待客户端跟进）：这条路径存的日界是 UTC 日，而网页心跳、仪表盘
+        「今日时长」、热力图都按站点时区切天（见 webserver/site_time.py）。纯日期没有
+        时刻，服务端无法反推站点时区——东八区读者在本地 00:00~08:00 的离线阅读仍会记
+        到前一天。修法在客户端：上报时就取站点时区下的日期（与心跳同口径；解析后的
+        IANA 名已随站点信息接口下发给所有客户端，见 handlers/base.py 的
+        _sys_info_with）。服务端不擅自平移——那会打乱已经在报站点本地日期的客户端。"""
         result: Dict[str, List[Tuple[datetime.date, int]]] = defaultdict(list)
         for entry in raw or []:
             if not isinstance(entry, dict):

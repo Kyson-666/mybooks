@@ -247,6 +247,15 @@ def normalize_site_url(value):
     return text.rstrip("/")
 
 
+def is_timezone_name(value) -> bool:
+    """形态校验 IANA 时区名（``auto`` 也走这条，它本身是合法形态）。
+
+    只挡空格、引号、超长这类脏值，不查库：名字是否真的存在留给 webserver/site_time.py
+    在运行时解析——精简镜像缺 tzdata 时合法名字也查不到，在这里拦会把对的也拒了。
+    """
+    return bool(re.match(r"^[A-Za-z][A-Za-z0-9_+\-./]{0,63}$", str(value or "").strip()))
+
+
 # 为保持向后兼容，从新位置重新导出
 from webserver.base.formatter import SimpleBookFormatter, MCPBookFormatter, BookFormatter, ReadingStateFormatter
 

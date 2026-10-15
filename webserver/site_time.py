@@ -2,8 +2,8 @@
 # -*- coding: UTF-8 -*-
 """站点时区：把 UTC 时刻换算成「站点的一天」。
 
-阅读统计按天分桶（``readings.date`` / ``book_reading_stats``），而库里所有时刻存的都是
-UTC naive datetime。分桶用的日期必须落在站点时区上：UTC+8 的读者在北京时间 00:00~08:00
+阅读统计按天分桶（``readings.date``；书级 ``book_reading_stats`` 只有时刻列，判天时同样
+按站点时区现算），而库里所有时刻存的都是 UTC naive datetime。分桶用的日期必须落在站点时区上：UTC+8 的读者在北京时间 00:00~08:00
 的阅读，UTC 日期还停在前一天，会被记到前一天（跨天连击、热力图、今日时长全部跟着错），
 补录当天的阅读还会被判成「未来时间」。
 
@@ -63,6 +63,43 @@ FALLBACK_UTC_OFFSETS = {
     "Australia/Sydney": 10,
 }
 
+# 名字在 FALLBACK_UTC_OFFSETS 之外、本机又取不到 tzdata 时的粗粒度兜底：按 IANA 名的
+# 大区前缀取近似偏移（同样按标准时折算，夏令时地区最多差 1 小时）。比直接退回站点语言
+# 默认更贴近管理员的意图——中文站的 ``America/Chicago`` 应为 -6 左右，退回语言默认会变成
+# +8，差 14 小时；按前缀给 -5 只差 1 小时。命中时会打 warning 说明这是近似值。
+FALLBACK_REGION_OFFSETS = (
+    ("Asia/", 8),
+    ("Europe/", 1),
+    ("America/", -5),
+    ("Australia/", 10),
+    ("Pacific/", 10),
+    ("Africa/", 1),
+    ("Atlantic/", 0),
+    ("Indian/", 5.5),
+    ("Etc/", 0),
+    ("US/", -5),
+)
+
+
+def _fallback_offset_by_region(name: str) -> Optional[float]:
+    """按大区前缀猜一个近似 UTC 偏移；没有匹配的前缀返回 None。"""
+    for prefix, offset in FALLBACK_REGION_OFFSETS:
+        if name.startswith(prefix):
+            return offset
+    return None
+
+
+def _tzdata_available() -> bool:
+    """本机能否真正按 IANA 名加载 tzinfo（Windows 未装 tzdata / 精简镜像时为 False）。"""
+    if ZoneInfo is None:
+        return False
+    try:
+        ZoneInfo(FALLBACK_TIMEZONE)
+        return True
+    except Exception:
+        return False
+
+
 # 单条缓存：键是设置项原文，管理员改完设置下次调用自然重算，不用注册任何失效回调。
 _cached_key = None
 _cached_name = None
@@ -115,6 +152,18 @@ def _resolve():
         raw = key[0]
         name = raw if raw and raw.lower() != AUTO else _language_default_name()
         tz = _load_tzinfo(name)
+        if tz is None:
+            # 分辨「IANA 名拼错」与「本机没有 tzdata」：后者连站点默认时区都加载不出来，
+            # 说明名字本身大概率没错，只是查不到库——按大区前缀给近似偏移并保留原名；
+            # 前者（能加载默认时区、唯独这个名字不行）才回退到语言默认。
+            region_offset = None if _tzdata_available() else _fallback_offset_by_region(name)
+            if region_offset is not None:
+                logging.warning(
+                    "site_timezone %s 无法解析（可能未安装 tzdata），暂按大区近似偏移 UTC%+g 处理",
+                    name,
+                    region_offset,
+                )
+                tz = datetime.timezone(datetime.timedelta(hours=region_offset), name)
         if tz is None:
             fallback = _language_default_name()
             logging.warning("site_timezone %s 无法识别，回退到 %s", name, fallback)

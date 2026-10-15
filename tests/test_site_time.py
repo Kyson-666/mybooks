@@ -7,6 +7,7 @@
 
 import datetime
 import unittest
+from unittest import mock
 
 from webserver import loader, site_time
 
@@ -118,6 +119,56 @@ class TestSiteTime(unittest.TestCase):
     def test_negative_offset_label(self):
         self._set(timezone="America/Sao_Paulo", language="en")
         self.assertEqual(site_time.timezone_label(), "UTC-03:00 (America/Sao_Paulo)")
+
+    # ---------- 夏令时（固定偏移兜底会算错的那些日子） ----------
+
+    def test_dst_aware_dates_differ_by_season_for_the_same_utc_clock(self):
+        # 纽约：同一 UTC 钟点，冬季 EST(-5) 落在前一天、夏季 EDT(-4) 落在当天。
+        # 用固定 -5 兜底会把夏季那条错到 07-14，正好钉住「必须真的走 zoneinfo」。
+        self._set(timezone="America/New_York", language="en")
+        self.assertEqual(
+            site_time.site_date(datetime.datetime(2026, 1, 15, 4, 30)),
+            datetime.date(2026, 1, 14),
+        )
+        self.assertEqual(
+            site_time.site_date(datetime.datetime(2026, 7, 15, 4, 30)),
+            datetime.date(2026, 7, 15),
+        )
+
+    def test_dst_transition_day_keeps_the_local_date(self):
+        # 2026-03-08 当地 02:00 起 EST→EDT；UTC 05:30 还在切换前（EST），即当地 00:30 同日
+        self._set(timezone="America/New_York", language="en")
+        self.assertEqual(
+            site_time.site_date(datetime.datetime(2026, 3, 8, 5, 30)),
+            datetime.date(2026, 3, 8),
+        )
+
+    def test_southern_hemisphere_dst_is_opposite_to_northern(self):
+        # 悉尼：1 月 AEDT(+11)、7 月 AEST(+10)，与北半球相反
+        self._set(timezone="Australia/Sydney", language="en")
+        self.assertEqual(
+            site_time.site_date(datetime.datetime(2026, 1, 14, 12, 30)),
+            datetime.date(2026, 1, 14),
+        )
+        self.assertEqual(
+            site_time.site_date(datetime.datetime(2026, 7, 14, 15, 30)),
+            datetime.date(2026, 7, 15),
+        )
+
+    # ---------- 无 tzdata 环境 ----------
+
+    def test_missing_tzdata_uses_region_offset_for_names_outside_the_table(self):
+        # 模拟精简镜像 / Windows 未装 tzdata：表外的 IANA 名按大区近似偏移（America/ → -5），
+        # 而不是退回站点语言默认（中文站 +8，与芝加哥差 14 小时）
+        self._set(timezone="America/Chicago", language="zh")
+        with mock.patch.object(site_time, "ZoneInfo", None):
+            self.assertEqual(site_time.site_now().utcoffset(), datetime.timedelta(hours=-5))
+            self.assertEqual(site_time.resolve_timezone_name(), "America/Chicago")
+
+    def test_misspelled_name_still_falls_back_to_the_language_default(self):
+        # 本机有 tzdata 时，拼错的名字仍走语言默认，别被大区兜底吃掉（原名不能说成有效）
+        self._set(timezone="Europe/Berlinn", language="zh")
+        self.assertEqual(site_time.resolve_timezone_name(), "Asia/Shanghai")
 
 
 if __name__ == "__main__":

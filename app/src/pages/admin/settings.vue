@@ -25,14 +25,19 @@
       <div class="settings-group-bar-row d-flex align-center">
         <div class="settings-seg" role="tablist">
           <button
-            v-for="g in groups"
+            v-for="(g, gi) in groups"
             :key="g.id"
+            :id="'group-tab-' + g.id"
             type="button"
             role="tab"
             class="settings-seg-btn"
             :class="{ 'is-active': activeGroup === g.id && !searchQuery }"
             :aria-selected="activeGroup === g.id && !searchQuery"
+            aria-controls="settings-group-panel"
+            :tabindex="activeGroup === g.id ? 0 : -1"
             @click="selectGroup(g.id)"
+            @keydown.left.prevent="focusGroupTab(gi - 1)"
+            @keydown.right.prevent="focusGroupTab(gi + 1)"
           >
             <v-icon x-small>{{ g.icon }}</v-icon>
             {{ $t(g.title) }}
@@ -40,12 +45,15 @@
           </button>
         </div>
         <div class="settings-bar-right d-flex align-center">
-          <v-chip v-if="dirtyCount > 0" color="orange" text-color="white" small class="settings-status-chip">
-            {{ $t('settings.unsaved_changes', { n: dirtyCount }) }}
-          </v-chip>
-          <v-chip v-else color="green" text-color="white" small class="settings-status-chip">
-            {{ $t('settings.all_saved') }}
-          </v-chip>
+          <!-- 稳定的 live region：chips 是 v-if/v-else 互换的节点，直接挂 aria-live 不保证播报 -->
+          <span class="settings-status-chip-wrap" role="status" aria-live="polite">
+            <v-chip v-if="dirtyCount > 0" color="orange" text-color="white" small class="settings-status-chip">
+              {{ $t('settings.unsaved_changes', { n: dirtyCount }) }}
+            </v-chip>
+            <v-chip v-else color="green" text-color="white" small class="settings-status-chip">
+              {{ $t('settings.all_saved') }}
+            </v-chip>
+          </span>
           <v-btn
             v-if="!searchOpen"
             icon
@@ -105,7 +113,13 @@
     </v-card>
 
     <template v-else>
-      <div v-for="g in currentGroups" :key="g.id">
+      <div
+        v-for="g in currentGroups"
+        :key="g.id"
+        id="settings-group-panel"
+        role="tabpanel"
+        :aria-labelledby="'group-tab-' + g.id"
+      >
         <div class="d-flex align-center flex-wrap mt-4 mb-2">
           <span class="settings-group-title-bar" :style="{ background: groupAccent(g.id) }"></span>
           <v-icon large color="primary" class="mr-3">{{ g.icon }}</v-icon>
@@ -1062,6 +1076,9 @@ const SPECIAL_BLOCKS = [
   { key: "CACHE_MAX_MB", label: "settings.thumb_cache_size", icon: "mdi-image-multiple-outline", gid: "ops", sid: "ops-perf" },
   { key: "TRASH", label: "settings.trash_clear_button", icon: "mdi-delete", gid: "ops", sid: "ops-trash", al: ["回收站", "磁盘", "清理"] },
 ];
+
+// 值型字段（可安全用空串补默认值的那些；数组/特殊块类型不在此列，缺 key 时保持原样）
+const SETTING_TEXT_TYPES = ["text", "textarea", "select", "number"];
 
 // 激活分组下色条 + 组标题竖条：默认跟随站点主色 accent（外观菜单里的「主色」），
 // 换主色即时跟随
@@ -2367,17 +2384,17 @@ export default {
 
       if (this.settings) {
         if (this.settings["site_language"] === "") {
-          this.settings["site_language"] = this.$i18n.locale;
+          this.$set(this.settings, "site_language", this.$i18n.locale);
         }
         // 老 auto.py 里没有这一项：空值等于「跟随站点语言」，落到 select 上会显示空白
         if (!this.settings["site_timezone"]) {
-          this.settings["site_timezone"] = "auto";
+          this.$set(this.settings, "site_timezone", "auto");
         }
         if (
           !("site_icon" in this.settings) ||
           this.settings["site_icon"] === ""
         ) {
-          this.settings["site_icon"] = "favicon_0";
+          this.$set(this.settings, "site_icon", "favicon_0");
         }
         if (!Array.isArray(this.settings["READER_MYDICTS"])) {
           this.$set(this.settings, "READER_MYDICTS", []);
@@ -2389,23 +2406,27 @@ export default {
           !("DEVICES" in this.settings) ||
           !Array.isArray(this.settings["DEVICES"])
         ) {
-          this.settings["DEVICES"] = [];
+          this.$set(this.settings, "DEVICES", []);
         }
         if (
           !("META_SELECTED_SOURCES" in this.settings) ||
           !Array.isArray(this.settings["META_SELECTED_SOURCES"])
         ) {
-          this.settings["META_SELECTED_SOURCES"] = (
-            this.settings["META_ALL_SOURCES"] || [
-              "douban",
-              "baidu",
-              "google",
-              "amazon",
-              "xinhua",
-              "youshu",
-              "ujxsw"
-            ]
-          ).slice();
+          this.$set(
+            this.settings,
+            "META_SELECTED_SOURCES",
+            (
+              this.settings["META_ALL_SOURCES"] || [
+                "douban",
+                "baidu",
+                "google",
+                "amazon",
+                "xinhua",
+                "youshu",
+                "ujxsw"
+              ]
+            ).slice()
+          );
         }
         if (process.client && this.settings["MAX_UPLOAD_SIZE"] !== "") {
           localStorage.setItem(
@@ -2428,6 +2449,7 @@ export default {
           ele.link = m[ele.value].link;
         });
 
+        this.ensureSettingKeysReactive();
         this.bookNavList = this.parseBookNav(this.settings["BOOK_NAV"] || "");
         this.snapshot = JSON.parse(JSON.stringify(this.settings));
         this.bookNavSnapshot = JSON.parse(JSON.stringify(this.bookNavList));
@@ -2567,6 +2589,9 @@ export default {
         const label = r.label.toLowerCase();
         const key = r.key.toLowerCase();
         const aliasText = r.al.join(" ").toLowerCase();
+        // 分组/小节/嵌套开关名也参与匹配（「外部服务」这类标签页名字是用户第一眼看到的），
+        // 打分低于字段标签命中，保证按名字找字段时排序仍以精确项在前
+        const scope = (r.path || "").toLowerCase();
         let total = 0;
         for (let i = 0; i < tokens.length; i++) {
           const t = tokens[i];
@@ -2574,6 +2599,7 @@ export default {
           if (label.indexOf(t) >= 0) best = Math.max(best, t.length >= 2 ? 76 : 55);
           if (key.indexOf(t) >= 0) best = Math.max(best, 60);
           if (aliasText.indexOf(t) >= 0) best = Math.max(best, 64);
+          if (scope.indexOf(t) >= 0) best = Math.max(best, 50);
           if (best === 0) {
             total = 0;
             break;
@@ -2721,9 +2747,40 @@ export default {
         this._barWatcher.disconnect();
         this._barWatcher = null;
       }
+      if (this._jumpTimer) {
+        clearTimeout(this._jumpTimer);
+        this._jumpTimer = null;
+      }
     }
   },
   methods: {
+    // rsp.settings 里没有的 key 拿不到响应式 getter（服务端 CONF 没给默认值的项，
+    // 如 ENABLE_BOOKS_TYPE_CONVERT_DIRECT、微信的 SOCIAL_AUTH_*_KEY/_SECRET）。
+    // Vue 2 下 v-model 的普通赋值不走 setter，dirtyCount 不会重算，「保存设置」就一直是
+    // 禁用态、离开守卫也不提示——单改这一项会被静默丢弃。这里按字段类型补默认值并 $set，
+    // 让它与其它项一样可以被单独修改和计数。
+    ensureSettingKeysReactive() {
+      const seed = (key, type) => {
+        if (!key || key in this.settings) return;
+        if (type === "checkbox") this.$set(this.settings, key, false);
+        else if (SETTING_TEXT_TYPES.indexOf(type) >= 0) this.$set(this.settings, key, "");
+      };
+      this.groups.forEach((g) => {
+        g.sections.forEach((s) => {
+          (s.fields || []).forEach((f) => seed(f.key, f.type));
+          (s.groups || []).forEach((grp) => {
+            seed(grp.key, "checkbox");
+            (grp.fields || []).forEach((f) => seed(f.key, f.type));
+          });
+        });
+      });
+      // 社交登录的 KEY/SECRET 由 SOCIALS 动态拼键，不在 groups 里
+      (this.settings.SOCIALS || []).forEach((s) => {
+        const v = String(s.value || "").toUpperCase();
+        seed("SOCIAL_AUTH_" + v + "_KEY", "text");
+        seed("SOCIAL_AUTH_" + v + "_SECRET", "text");
+      });
+    },
     // 全局 AppHeader 由 store.nav 的 v-if 控制渲染，可能晚于本页 mounted；出现后按其真实高度校准吸顶偏移
     watchAppBar() {
       const attach = () => {
@@ -2785,6 +2842,17 @@ export default {
       this.activeGroup = id;
       if (process.client) window.scrollTo({ top: 0 });
     },
+    // role="tab" 的方向键导航：按当前位置 ±1 环绕切换分组并把焦点移到对应标签
+    focusGroupTab(i) {
+      const n = this.groups.length;
+      if (!n || !process.client) return;
+      const idx = ((i % n) + n) % n;
+      this.selectGroup(this.groups[idx].id);
+      this.$nextTick(() => {
+        const btns = this.$el.querySelectorAll(".settings-seg-btn");
+        if (btns && btns[idx]) btns[idx].focus();
+      });
+    },
     jumpTo(r) {
       this.searchQ = "";
       this.searchOpen = false;
@@ -2795,7 +2863,10 @@ export default {
       }
       if (!process.client) return;
       this.$nextTick(() => {
-        setTimeout(() => {
+        // 句柄存下来，页面销毁时清掉（同页其它定时器/监听器都成对清理）
+        if (this._jumpTimer) clearTimeout(this._jumpTimer);
+        this._jumpTimer = setTimeout(() => {
+          this._jumpTimer = null;
           const el =
             document.getElementById("f-" + r.key) ||
             document.getElementById("sec-" + r.gid + "-" + r.sid);
@@ -3213,6 +3284,10 @@ export default {
   outline: 2px solid #1976d2;
   outline-offset: 1px;
 }
+/* 暗色底上 #1976d2 对比度不足 3:1，换浅一档的蓝 */
+.theme--dark .settings-seg-btn:focus-visible {
+  outline-color: #90caf9;
+}
 .settings-seg-btn .v-icon {
   margin-right: 2px;
 }
@@ -3257,6 +3332,12 @@ export default {
 .settings-status-chip {
   position: static;
   transform: none;
+  flex: 0 0 auto;
+}
+/* 状态 chip 的 live region 外壳（保持与原来一致的 flex 占位） */
+.settings-status-chip-wrap {
+  display: inline-flex;
+  align-items: center;
   flex: 0 0 auto;
 }
 .settings-search-btn {
@@ -3314,17 +3395,24 @@ export default {
     grid-template-columns: 1fr;
   }
 }
-.settings-result:hover,
-.settings-result:focus {
+.settings-result:hover {
   background: #f5f5f5;
-  outline: none;
+}
+/* 键盘焦点要给可见轮廓：原来 :focus 上写 outline:none 会抹掉焦点指示 */
+.settings-result:focus-visible {
+  background: #f5f5f5;
+  outline: 2px solid #1976d2;
+  outline-offset: -2px;
 }
 .theme--dark .settings-result {
   border-bottom-color: #424242;
 }
-.theme--dark .settings-result:hover,
-.theme--dark .settings-result:focus {
+.theme--dark .settings-result:hover {
   background: #303030;
+}
+.theme--dark .settings-result:focus-visible {
+  background: #303030;
+  outline-color: #90caf9;
 }
 [id^="f-"],
 [id^="sec-"] {

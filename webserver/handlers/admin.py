@@ -553,6 +553,18 @@ class AdminSettings(BaseHandler):
                     ),
                 }
             args["SITE_URL"] = site_url
+        # 系统时区：auto 或 IANA 时区名。只做形态校验、不查库——名字确实不存在时
+        # webserver/site_time.py 会在运行时回退到站点语言默认并打 warning（精简镜像缺
+        # tzdata 时合法名字也查不到，在这里拦会把对的也拒了）；这里挡的是空格、引号、
+        # 超长这类脏值。
+        if "site_timezone" in args:
+            tz = str(args["site_timezone"] or "").strip()
+            if tz and not utils.is_timezone_name(tz):
+                return {
+                    "err": "params.site_timezone.invalid",
+                    "msg": _("系统时区无效，需填写 auto 或 IANA 时区名（如 Asia/Shanghai）"),
+                }
+            args["site_timezone"] = tz
         # Check the douban_apikey if only number, letters, _ or -, and length <=48
         if "douban_apikey" in args:
             apikey = args["douban_apikey"]

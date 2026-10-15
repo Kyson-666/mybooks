@@ -75,6 +75,32 @@ class TestAdminSettingsPost(unittest.TestCase):
         self.assertNotIn("SITE_URL", saved)
         self.assertEqual("abc", saved["site_title"])
 
+    def test_site_timezone_accepts_auto_and_iana_names(self):
+        """合法的取值都要放行（含双斜杠/加号/短横线/点的罕见 IANA 名）。"""
+        for ok in (
+            "auto",
+            "UTC",
+            "Asia/Shanghai",
+            "America/Argentina/Buenos_Aires",
+            "America/Port-au-Prince",
+            "Etc/GMT+8",
+        ):
+            rsp, saved = self.post({"site_timezone": ok})
+            self.assertEqual("ok", rsp["err"], ok)
+            self.assertEqual(ok, saved["site_timezone"], ok)
+
+    def test_site_timezone_rejects_malformed_values(self):
+        """形态脏值直接拦下，别落进 auto.py；名字不存在时不拦（运行时回退 + warning）。"""
+        for bad in ("Asia/Shang hai", "Asia/Shanghai'", "x" * 65, "123", "Europe/柏林"):
+            rsp, saved = self.post({"site_timezone": bad})
+            self.assertEqual("params.site_timezone.invalid", rsp["err"], bad)
+            self.assertNotIn("site_timezone", saved, bad)
+
+    def test_site_timezone_trimmed(self):
+        rsp, saved = self.post({"site_timezone": "  Asia/Shanghai  "})
+        self.assertEqual("ok", rsp["err"])
+        self.assertEqual("Asia/Shanghai", saved["site_timezone"])
+
 
 if __name__ == "__main__":
     unittest.main()
