@@ -155,7 +155,10 @@
             <strong class="white--text">{{ progressPrefix }} {{ count_processed }} / {{ count_total }} ({{ progressPercent }}%)</strong>
         </v-progress-linear>
         <v-card-text>
-            <div v-if="bulkStatus">{{ $t('imports.bulk_hint') }}</div>
+            <div v-if="bulkStatus">
+                <strong class="primary--text">{{ $t('imports.bulk_selected_count', { count: bulkSelectedCount }) }}</strong>
+                <span class="ml-2">{{ $t('imports.bulk_hint') }}</span>
+            </div>
             <div v-else-if="selected.length == 0">{{ $t('imports.select_files') }}</div>
             <div v-else>{{ $t('imports.selected_count', { count: selected.length }) }}</div>
         </v-card-text>
@@ -294,7 +297,7 @@
             :confirm-disabled="bulkDeleting"
             @confirm="runBulkDelete"
         >
-            <p>{{ $t('imports.bulk_delete_desc', { count: bulkDeleteCount, status: bulkStatusLabel }) }}</p>
+            <p>{{ $t('imports.bulk_delete_desc', { count: bulkSelectedCount, status: bulkStatusLabel }) }}</p>
             <p>{{ $t('imports.bulk_delete_audiobook_note') }}</p>
             <v-checkbox
                 v-model="bulkDeleteFiles"
@@ -446,8 +449,10 @@ export default {
             if (this.bulkStatus === "todo") return this.$t("imports.bulk_all_todo");
             return this.$t("imports.status." + this.bulkStatus);
         },
-        bulkDeleteCount() {
+        bulkSelectedCount() {
             if (!this.bulkStatus) return 0;
+            // 批量模式的作用范围由后端选择器决定（跨页全量、电子书口径），
+            // 与批量删除确认框、列表下方「已选中 N 本」提示同源；
             // todo 口径必须与后端 not_in([IMPORTED]) 一致（含存在同名），直接对 counts 求和
             if (this.bulkStatus === "todo") {
                 let sum = 0;

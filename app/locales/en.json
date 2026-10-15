@@ -456,6 +456,7 @@
     "bulk_select_label": "Bulk Select",
     "import_bulk": "Bulk Import",
     "bulk_hint": "Bulk selection by status: import/delete applies to ALL matching e-book scan records across pages (audiobook records are not included). Ticking a checkbox manually exits bulk mode.",
+    "bulk_selected_count": "{count} selected",
     "bulk_all_todo": "All Pending",
     "scope_by_dirs": "Import by Folder",
     "bulk_delete_title": "Bulk Delete",
