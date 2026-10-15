@@ -713,6 +713,33 @@
                 </span>
                 <span v-else>{{ $t('settings.test_ai_settings') }}</span>
               </v-btn>
+              <v-divider class="my-4"></v-divider>
+              <h3 class="text-subtitle-1 mb-2">{{ $t("settings.mynexus_title") }}</h3>
+              <p class="text-caption">{{ $t("settings.mynexus_description") }}</p>
+              <v-text-field
+                v-model="settings['MYNEXUS_URL']"
+                prepend-icon="mdi-link"
+                :label="$t('settings.mynexus_url')"
+                :placeholder="$t('settings.mynexus_url_hint')"
+                type="url"
+              ></v-text-field>
+              <v-text-field
+                v-model="mynexusToken"
+                prepend-icon="mdi-key"
+                :label="$t('settings.mynexus_token')"
+                :placeholder="settings['MYNEXUS_TOKEN_CONFIGURED'] ? $t('settings.mynexus_token_saved') : $t('settings.mynexus_token_hint')"
+                type="password"
+                autocomplete="new-password"
+              ></v-text-field>
+              <v-btn
+                :disabled="testingMynexus"
+                color="primary"
+                class="mt-2"
+                @click="testMyNexusConnection"
+              >
+                <span v-if="testingMynexus">{{ $t("settings.testing") }}</span>
+                <span v-else>{{ $t("settings.mynexus_test") }}</span>
+              </v-btn>
               <v-divider class="my-2"></v-divider>
               <v-checkbox
                 small
@@ -2480,6 +2507,8 @@ export default {
     appliedToken: false,
     testingConnection: false,
     testingAI: false,
+    testingMynexus: false,
+    mynexusToken: "",
     deviceTypes: [],
     deviceSchemas: [
       { text: "HTTP", value: "http" },
@@ -2983,6 +3012,21 @@ export default {
           this.$alert("error", rsp.msg || this.$t("settings.save_error"));
           return;
         }
+      });
+      const settingsToSave = { ...this.settings };
+      const hasNewMynexusToken = Boolean(this.mynexusToken);
+      if (hasNewMynexusToken) settingsToSave.MYNEXUS_TOKEN = this.mynexusToken;
+      this.$backend("/admin/settings", {
+        method: "POST",
+        body: JSON.stringify(settingsToSave),
+      }).then((rsp) => {
+        if (rsp.err != "ok") {
+          this.$alert("error", rsp.msg || this.$t("settings.save_error"));
+        } else {
+          if (hasNewMynexusToken) this.$set(this.settings, "MYNEXUS_TOKEN_CONFIGURED", true);
+          this.mynexusToken = "";
+          this.$alert("success", rsp.msg || this.$t("settings.save_success"));
+        }
         // 服务端确认后才把规范化结果落到本地状态与 localStorage
         this.settings["BOOK_NAV"] = payload["BOOK_NAV"];
         this.settings["READER_MYDICTS"] = payload["READER_MYDICTS"];
@@ -3216,6 +3260,26 @@ export default {
         this.$alert("error", err.message || this.$t("settings.test_ai_failed"));
       }).finally(() => {
         this.testingAI = false;
+      });
+    },
+    testMyNexusConnection() {
+      this.testingMynexus = true;
+      this.$backend("/admin/mynexus/test", {
+        method: "POST",
+        body: JSON.stringify({
+          url: this.settings["MYNEXUS_URL"],
+          token: this.mynexusToken,
+        }),
+      }).then((rsp) => {
+        if (rsp && rsp.err === "ok") {
+          this.$alert("success", rsp.msg);
+        } else {
+          this.$alert("error", rsp.msg || this.$t("settings.mynexus_test_failed"));
+        }
+      }).catch((err) => {
+        this.$alert("error", err.message || this.$t("settings.mynexus_test_failed"));
+      }).finally(() => {
+        this.testingMynexus = false;
       });
     },
   },
