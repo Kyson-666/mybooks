@@ -1581,7 +1581,6 @@ export default {
                 icon: "mdi-link-variant",
                 key: "SITE_URL",
                 label: "settings.site_default_url",
-                hint: "settings.site_default_url_tips",
               },
               {
                 icon: "mdi-information",
