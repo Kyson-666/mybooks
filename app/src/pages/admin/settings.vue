@@ -40,7 +40,7 @@
             @keydown.left.prevent="focusGroupTab(gi - 1)"
             @keydown.right.prevent="focusGroupTab(gi + 1)"
           >
-            <v-icon x-small>{{ g.icon }}</v-icon>
+            <v-icon small>{{ g.icon }}</v-icon>
             {{ $t(g.title) }}
             <span class="settings-seg-bar" :style="{ background: groupAccent(g.id) }"></span>
           </button>
@@ -706,6 +706,7 @@
               <v-divider class="my-4"></v-divider>
               <h3 class="text-subtitle-1 mb-2">{{ $t("settings.mynexus_title") }}</h3>
               <p class="text-caption">{{ $t("settings.mynexus_description") }}</p>
+              <div id="f-MYNEXUS_URL">
               <v-text-field
                 v-model="settings['MYNEXUS_URL']"
                 prepend-icon="mdi-link"
@@ -713,14 +714,17 @@
                 :placeholder="$t('settings.mynexus_url_hint')"
                 type="url"
               ></v-text-field>
+              </div>
+              <div id="f-MYNEXUS_TOKEN">
               <v-text-field
-                v-model="mynexusToken"
+                v-model="settings['MYNEXUS_TOKEN']"
                 prepend-icon="mdi-key"
                 :label="$t('settings.mynexus_token')"
-                :placeholder="settings['MYNEXUS_TOKEN_CONFIGURED'] ? $t('settings.mynexus_token_saved') : $t('settings.mynexus_token_hint')"
-                type="password"
+                :placeholder="$t('settings.mynexus_token_hint')"
+                type="text"
                 autocomplete="new-password"
               ></v-text-field>
+              </div>
               <v-btn
                 :disabled="testingMynexus"
                 color="primary"
@@ -1095,6 +1099,8 @@ const SPECIAL_BLOCKS = [
   { key: "AI_MODEL", label: "settings.ai_model", icon: "mdi-function", gid: "services", sid: "svc-ai" },
   { key: "AI_MCP_TOKEN", label: "settings.ai_mcp_token", icon: "mdi-key", gid: "services", sid: "svc-ai" },
   { key: "AI_ALLOW_SET_CATEGORY", label: "settings.ai_allow_set_category", icon: "mdi-scatter-plot-outline", gid: "services", sid: "svc-ai" },
+  { key: "MYNEXUS_URL", label: "settings.mynexus_url", icon: "mdi-link", gid: "services", sid: "svc-ai", al: ["mynexus", "nexus"] },
+  { key: "MYNEXUS_TOKEN", label: "settings.mynexus_token", icon: "mdi-key", gid: "services", sid: "svc-ai", al: ["mynexus", "nexus"] },
   { key: "SSL", label: "settings.ssl_certificate_management", icon: "mdi-lock", gid: "protocols", sid: "proto-net", al: ["证书", "https"] },
   { key: "PERFORMANCE_MODE", label: "settings.perf_mode_lite", icon: "mdi-speedometer", gid: "ops", sid: "ops-perf", al: ["性能", "速度"] },
   { key: "LITE_GROUP_LISTING", label: "settings.lite_group_listing", icon: "mdi-speedometer", gid: "ops", sid: "ops-perf" },
@@ -2238,16 +2244,16 @@ export default {
             ],
           },
           {
-            id: "svc-bookbarn",
-            icon: "mdi-key",
-            title: "settings.book_barn_service",
-            special: "bookbarn",
-          },
-          {
             id: "svc-ai",
             icon: "mdi-scatter-plot-outline",
             title: "settings.ai_capability",
             special: "ai_capabilities",
+          },
+          {
+            id: "svc-bookbarn",
+            icon: "mdi-key",
+            title: "settings.book_barn_service",
+            special: "bookbarn",
           },
         ],
       },
@@ -2762,6 +2768,10 @@ export default {
     searchQuery() {
       this.$nextTick(() => this.positionSegIndicator());
     },
+    searchOpen(val) {
+      const run = () => this.positionSegIndicator();
+      this.$nextTick(() => { run(); setTimeout(run, 260); });
+    },
   },
   mounted() {
     this.fetchTrashSize();
@@ -3053,8 +3063,6 @@ export default {
         }
       });
       const settingsToSave = { ...this.settings };
-      const hasNewMynexusToken = Boolean(this.mynexusToken);
-      if (hasNewMynexusToken) settingsToSave.MYNEXUS_TOKEN = this.mynexusToken;
       this.$backend("/admin/settings", {
         method: "POST",
         body: JSON.stringify(settingsToSave),
@@ -3062,8 +3070,6 @@ export default {
         if (rsp.err != "ok") {
           this.$alert("error", rsp.msg || this.$t("settings.save_error"));
         } else {
-          if (hasNewMynexusToken) this.$set(this.settings, "MYNEXUS_TOKEN_CONFIGURED", true);
-          this.mynexusToken = "";
           this.$alert("success", rsp.msg || this.$t("settings.save_success"));
         }
         // 服务端确认后才把规范化结果落到本地状态与 localStorage
@@ -3319,7 +3325,7 @@ export default {
         method: "POST",
         body: JSON.stringify({
           url: this.settings["MYNEXUS_URL"],
-          token: this.mynexusToken,
+          token: this.settings["MYNEXUS_TOKEN"],
         }),
       }).then((rsp) => {
         if (rsp && rsp.err === "ok") {

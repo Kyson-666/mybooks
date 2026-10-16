@@ -139,6 +139,8 @@ ADMIN_SETTING_KEYS = (
     "READER_DICT_MYBOOKS_ENABLED",
     "READER_DICT_BAIKE_ENABLED",
     "READER_MYDICTS",
+    "MYNEXUS_TOKEN",
+    "MYNEXUS_URL",
     *perf.setting_keys(),
 )
 

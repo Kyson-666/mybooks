@@ -6,17 +6,15 @@ Vue.use(VueI18n);
 // vue-i18n locale -> Vuetify lang name
 const VUETIFY_LOCALE_MAP = { zh: 'zhHans', 'zh-TW': 'zhHant', en: 'en' };
 
-const loadedLocales = [];
-
 // 按需异步加载语言包，webpackChunkName 让三份 locale JSON 各自拆成独立 chunk，
 // 而不是像之前那样被 require() 静态打进公共 vendor chunk，三份一起加载。
 function loadLocaleMessages(i18n, locale) {
-  if (loadedLocales.includes(locale)) {
+  // SSR creates a fresh i18n instance per request, so the cache must be instance-local.
+  if (i18n.availableLocales.includes(locale)) {
     return Promise.resolve();
   }
   return import(/* webpackChunkName: "locale-[request]" */ `../../locales/${locale}.json`).then((messages) => {
     i18n.setLocaleMessage(locale, messages.default || messages);
-    loadedLocales.push(locale);
   });
 }
 

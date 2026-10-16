@@ -529,7 +529,7 @@
     "group_users": "Users & Access",
     "group_import": "Import & Storage",
     "group_push": "Push & Email",
-    "group_services": "External Services",
+    "group_services": "Scraping & AI",
     "group_protocols": "Services & Protocols",
     "group_ops": "System & Performance",
     "sec_site_id": "Site Identity",
