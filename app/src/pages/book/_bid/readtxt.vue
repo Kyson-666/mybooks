@@ -126,10 +126,11 @@ export default {
             this.novelContent = res.content;
             this.inited = true;
           } else if (!this.inited) {
-            this.tip.title = this.$t('reader.error');
-            this.tip.content = (res && res.msg) || '';
+            this.showError(res && res.msg);
           }
-        }).finally(() => {
+        }).catch(() => {
+        if (!this.inited) this.showError();
+      }).finally(() => {
         this.loading = false;
       });
     },
@@ -138,10 +139,7 @@ export default {
         .then(rsp => {
           if (rsp.err !== "ok") {
             this.hintText = rsp.msg;
-            if (!this.inited) {
-              this.tip.title = this.$t('reader.error');
-              this.tip.content = rsp.msg;
-            }
+            if (!this.inited) this.showError(rsp.msg);
             return;
           }
           if (rsp.msg === "parsed") {
@@ -154,7 +152,15 @@ export default {
             this.hintText = this.$t('reader.queueMessage', { queLen });
           }
           this.startPolling(parseInt(rsp.data.wait));
+        })
+        .catch(() => {
+          if (!this.inited) this.showError();
         });
+    },
+    // 首屏加载/解析失败时在卡片上给出可读错误，避免一直转圈
+    showError(msg) {
+      this.tip.title = this.$t('reader.error');
+      this.tip.content = msg || this.$t('reader.contentError', { msg: '' });
     },
     applyToc(data) {
       this.content = data.content;

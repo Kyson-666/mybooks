@@ -3271,8 +3271,17 @@ export default {
         async onReadClick(event, fmt) {
             event.preventDefault();
             if (fmt.key === 'txt') {
-                // TXT 阅读器可先读正文、目录后台解析，打开不再等待解析完成
-                this.startReadConversion(fmt.key);
+                // 仍先请求一次：触发后台解析并入队，同时校验登录/权限；
+                // 但不等待解析完成即打开阅读器（正文可先读、目录后台补）
+                const txtRsp = await this.startReadConversion(fmt.key);
+                if (txtRsp && txtRsp.err === "user.need_login") {
+                    this.$router.push("/login");
+                    return;
+                }
+                if (!txtRsp || txtRsp.err !== "ok") {
+                    this.$alert("error", (txtRsp && txtRsp.msg) || '');
+                    return;
+                }
                 window.open(fmt.href, '_blank');
                 return;
             }
