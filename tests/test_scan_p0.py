@@ -1,8 +1,8 @@
-"""P0 扫描导入加速回归测试（calibre 轻量检查 / Phase1 批量落库 / set_field 攒批）。
+"""P0 扫描导入加速回归测试（calibre 轻量检查 / Phase1 批量落库 / set_field 逐本写）。
 
 - 不依赖 calibre 的用例（has_id 存在性、回退路径、暂存可见性、行级隔离、
   行全送达、写锁不变量、put 投递守卫）Windows 直跑；
-- 走真实 _import_one_file 的用例（同标题加格式、set_field 攒批、行失败诚实）
+- 走真实 _import_one_file 的用例（同标题加格式、set_field 逐本、行失败诚实）
   需要 calibre（函数头 import Metadata），缺 calibre 时自动跳过，WSL 全量跑。
 """
 import hashlib
@@ -349,7 +349,7 @@ class TestPhase1Batching(ScanP0TestBase):
         txn_at_book_start = []
 
         def fake_import_one_file(row, user_id, scan_upload_path, session, force, sole=False,
-                                 pending_fields=None, staged_ops=None):
+                                 staged_ops=None):
             raw = session.connection().connection.driver_connection
             txn_at_book_start.append(getattr(raw, "in_transaction", None))
             row.status = ScanFile.IMPORTED
@@ -427,10 +427,10 @@ class TestPhase1Batching(ScanP0TestBase):
             calls = []
 
             def counting(row, user_id, scan_upload_path, session, force, sole=False,
-                         pending_fields=None, staged_ops=None):
+                         staged_ops=None):
                 calls.append(row.path)
                 return orig(svc, row, user_id, scan_upload_path, session, force, sole,
-                            pending_fields, staged_ops)
+                            staged_ops)
 
             svc._import_one_file = counting
             self.addCleanup(self._restore_import_one_file)
@@ -534,7 +534,7 @@ class TestHashParallel(ScanP0TestBase):
         files = [self._touch("s%d.txt" % i, b"s-%d" % i) for i in range(2)]
         delivered = []
 
-        def fake_import_one_file(row, user_id, scan_upload_path, session, force, sole=False, pending_fields=None, staged_ops=None):
+        def fake_import_one_file(row, user_id, scan_upload_path, session, force, sole=False, staged_ops=None):
             delivered.append(row.path)
             return None, None
 
@@ -630,7 +630,7 @@ class TestPhase2Batching(ScanP0TestBase):
             batches.append(len(staged_ops))
             return orig_apply2(svc_self, session, staged_ops)
 
-        def fake_import_one_file(row, user_id, scan_upload_path, session, force, sole=False, pending_fields=None, staged_ops=None):
+        def fake_import_one_file(row, user_id, scan_upload_path, session, force, sole=False, staged_ops=None):
             row.status = ScanFile.IMPORTED
             staged_ops.append(("save_row", row))
             return None, ScanFile.IMPORTED
@@ -805,7 +805,7 @@ class TestTitleDedupDispatch(ScanP0TestBase):
 
         svc = self.svc
 
-        def fake_import_one_file(row, user_id, scan_upload_path, session, force, sole=False, pending_fields=None, staged_ops=None):
+        def fake_import_one_file(row, user_id, scan_upload_path, session, force, sole=False, staged_ops=None):
             # 仿真实流程：Phase2 每本书都走一次判重入口（索引在此首次构建）
             svc._title_dedup_ids(type("MI", (), {"title": row.path})())
             row.status = ScanFile.IMPORTED
@@ -1023,8 +1023,15 @@ class TestSameTitleEndToEnd(ScanP0TestBase):
 
 
 @unittest.skipUnless(HAS_CALIBRE, "needs calibre (real _import_one_file)")
-class TestSetFieldBatching(ScanP0TestBase):
-    def test_category_set_field_batched(self):
+class TestSetFieldPerBook(ScanP0TestBase):
+    """Fix 2 回归：calibre 自定义列一律逐本 set_field（不攒批）。
+
+    攒批（pending_fields）在 crash 时会静默丢未落盘列、且 #category 无自愈路径
+    （只在新导入时写、重扫走 EXIST 不重算），实测收益 ~0.03ms/本/列可忽略（对照
+    import_book ~50ms/本），故回到逐本同步写。这里钉「每本一次、每 dict 单键」。
+    """
+
+    def test_category_set_field_per_book(self):
         scan_service.CONF["IMPORT_CATEGORY_WITH_FOLDER"] = True
         db = FakeCalibreDB()
         self.svc.db = db
@@ -1033,19 +1040,17 @@ class TestSetFieldBatching(ScanP0TestBase):
             files.append(self._touch(os.path.join("c%d" % (i % 3), "book%02d.txt" % i), b"cat-content-%02d" % i))
         self.svc.do_import_internal(files, 9)
         cat_calls = [m for name, m in db.new_api.set_field_calls if name == constants.CALIBRE_COLUMN_CATEGORY]
-        # 攒批水位 5：25 本 = 5 次批量写回，而不是 25 次逐本；批提交/尾批 flush 都是空操作
-        self.assertEqual(len(cat_calls), 5)
+        # 逐本写回：25 本 = 25 次调用，且每次只写一本（不是攒批的多键映射）
+        self.assertEqual(len(cat_calls), 25)
+        self.assertTrue(all(len(m) == 1 for m in cat_calls), cat_calls)
         covered = set()
         for m in cat_calls:
             covered.update(m.keys())
         self.assertEqual(len(covered), 25)
         self.assertEqual(self.session.query(ScanFile).filter(ScanFile.status == ScanFile.IMPORTED).count(), 25)
 
-    def test_final_flush_fires_below_threshold(self):
-        # 单本（低于水位 5）也必须落 category：只能来自 worker finally 的兜底 flush，
-        # 阈值 flush 触发不了、批提交（20 的倍数）也赶不上——删掉 finally flush 本用例必挂
-        # （原 test_pending_fields_flushed_without_category 用根目录 txt，pending 恒空，
-        # flush 是空操作，什么都钉不住——Sourcery C7）
+    def test_category_set_for_single_book(self):
+        # 单本也必须落 category：逐本写是同步的，不依赖任何批提交/尾批兜底 flush
         old_val = scan_service.CONF.get("IMPORT_CATEGORY_WITH_FOLDER")
         scan_service.CONF["IMPORT_CATEGORY_WITH_FOLDER"] = True
         self.addCleanup(
@@ -1062,6 +1067,129 @@ class TestSetFieldBatching(ScanP0TestBase):
         cat_calls = [m for name, m in db.new_api.set_field_calls if name == constants.CALIBRE_COLUMN_CATEGORY]
         self.assertEqual(len(cat_calls), 1)
         self.assertEqual(list(cat_calls[0].keys()), [row.book_id])
+
+    def test_category_not_set_without_flag(self):
+        # IMPORT_CATEGORY_WITH_FOLDER 关闭（默认）时不写 #category
+        old_val = scan_service.CONF.get("IMPORT_CATEGORY_WITH_FOLDER")
+        scan_service.CONF["IMPORT_CATEGORY_WITH_FOLDER"] = False
+        self.addCleanup(
+            lambda: scan_service.CONF.update({"IMPORT_CATEGORY_WITH_FOLDER": old_val})
+            if old_val is not None
+            else scan_service.CONF.pop("IMPORT_CATEGORY_WITH_FOLDER", None)
+        )
+        db = FakeCalibreDB()
+        self.svc.db = db
+        fpath = self._touch(os.path.join("cats2", "plain.txt"), b"plain-content-2")
+        self.svc.do_import_internal([fpath], 9)
+        cat_calls = [m for name, m in db.new_api.set_field_calls if name == constants.CALIBRE_COLUMN_CATEGORY]
+        self.assertEqual(cat_calls, [])
+
+
+class TestIncrementalSnapshotCommit(ScanP0TestBase):
+    """Fix 1 回归：目录快照在 Phase1 中按目录增量提交（崩溃落在 Phase2 时下轮仍能剪枝）。
+
+    do_import_internal 自身不调 _commit_dir_snapshots（那是 do_import 尾部的整轮兜底），
+    故断言「跑完 do_import_internal 后快照已落库」只能来自增量路径。
+    """
+
+    def _fake_import_one_file(self):
+        def fake(row, user_id, scan_upload_path, session, force, sole=False, staged_ops=None):
+            row.status = ScanFile.IMPORTED
+            staged_ops.append(("save_row", row))
+            return None, ScanFile.IMPORTED
+        return fake
+
+    def _install_fake(self):
+        self.svc._import_one_file = self._fake_import_one_file()
+        self.addCleanup(lambda: self.svc.__dict__.pop("_import_one_file", None))
+
+    def _snapshot_dirs(self):
+        return {r.dir for r in self.session.query(models.ScanDirSnapshot).all()}
+
+    def test_snapshot_committed_incrementally(self):
+        self.svc.db = FakeCalibreDB()
+        f1 = self._touch(os.path.join("d1", "a.txt"), b"a-content")
+        f2 = self._touch(os.path.join("d1", "b.txt"), b"b-content")
+        f3 = self._touch(os.path.join("d2", "c.txt"), b"c-content")
+        filelist, visited, file_dir = self.svc._collect_files([self.tmpdir], use_snapshot=False)
+        self.assertEqual(sorted(filelist), sorted([f1, f2, f3]))
+        self._install_fake()
+        self.svc.do_import_internal(filelist, 9, visited=visited, file_dir=file_dir)
+        # d1 两个文件、d2 一个文件都已走完 Phase1 → 两者快照已增量落库
+        snap = self._snapshot_dirs()
+        self.assertIn(os.path.realpath(os.path.dirname(f1)), snap)
+        self.assertIn(os.path.realpath(os.path.dirname(f3)), snap)
+        self.assertEqual(self.session.query(ScanFile).filter(ScanFile.status == ScanFile.IMPORTED).count(), 3)
+
+    def test_no_incremental_snapshot_without_visited(self):
+        self.svc.db = FakeCalibreDB()
+        self._touch(os.path.join("d1", "a.txt"), b"a-content")
+        filelist, _visited, _file_dir = self.svc._collect_files([self.tmpdir], use_snapshot=False)
+        self._install_fake()
+        self.svc.do_import_internal(filelist, 9)  # 无 visited/file_dir → 无增量提交
+        self.assertEqual(self._snapshot_dirs(), set())
+
+    def test_dropped_phase1_row_suppresses_incremental_snapshot(self):
+        # 行级丢行（如遗留 UNIQUE(hash) 冲突）时不得推进任何增量快照：无行的文件一旦被
+        # 剪枝即永久漏掉。模拟 _apply_phase1_batch 丢一行 → 目录快照必须为空。
+        self.svc.db = FakeCalibreDB()
+        self._touch(os.path.join("d1", "a.txt"), b"a-content")
+        self._touch(os.path.join("d1", "b.txt"), b"b-content")
+        filelist, visited, file_dir = self.svc._collect_files([self.tmpdir], use_snapshot=False)
+        self._install_fake()
+        orig = ScanService._apply_phase1_batch
+
+        def dropping_apply(svc_self, session, staged):
+            outcomes = orig(svc_self, session, staged)
+            return outcomes[:-1] if outcomes else []
+
+        with mock.patch.object(ScanService, "_apply_phase1_batch", dropping_apply):
+            self.svc.do_import_internal(filelist, 9, visited=visited, file_dir=file_dir)
+        self.assertEqual(self._snapshot_dirs(), set())
+
+    def test_abort_suppresses_incremental_snapshot(self):
+        # abort 轮不推进快照（下轮按老快照重扫）：已算的行照常落库（取消不丢已算行），
+        # 但已完成目录的增量快照被 suppression 门控拦下。
+        self.svc.db = FakeCalibreDB()
+        self._touch(os.path.join("d1", "a.txt"), b"a-content")
+        filelist, visited, file_dir = self.svc._collect_files([self.tmpdir], use_snapshot=False)
+        self._install_fake()
+        orig_fin = ScanService._scan_finalize
+
+        def aborting_finalize(svc_self, *args, **kwargs):
+            r = orig_fin(svc_self, *args, **kwargs)
+            ScanService.static_abort_flag = True
+            return r
+
+        with mock.patch.dict(scan_service.CONF, {"scan_hash_workers": 1}):
+            with mock.patch.object(ScanService, "_scan_finalize", aborting_finalize):
+                self.svc.do_import_internal(filelist, 9, visited=visited, file_dir=file_dir)
+        self.assertGreaterEqual(self.session.query(ScanFile).count(), 1)
+        self.assertEqual(self._snapshot_dirs(), set())
+
+    def test_midloop_error_commits_complete_dir_only(self):
+        # 一个目录已完整落库后循环中途异常：该目录快照已增量提交，未走完的目录不提交。
+        # 强制串行（hash_pool is None）保证 d1 在 d2 抛错前完成，规避 walk 顺序不确定性。
+        self.svc.db = FakeCalibreDB()
+        f1 = self._touch(os.path.join("d1", "a.txt"), b"a-content")
+        f2 = self._touch(os.path.join("d2", "b.txt"), b"b-content")
+        _fl, visited, file_dir = self.svc._collect_files([self.tmpdir], use_snapshot=False)
+        filelist = [f1, f2]
+        self._install_fake()
+        orig_prep = ScanService._scan_prepare
+
+        def raising_prepare(svc_self, fpath, *args, **kwargs):
+            if os.path.dirname(fpath) == os.path.dirname(f2):
+                raise RuntimeError("boom mid-loop")
+            return orig_prep(svc_self, fpath, *args, **kwargs)
+
+        with mock.patch.dict(scan_service.CONF, {"scan_hash_workers": 1}):
+            with mock.patch.object(ScanService, "_scan_prepare", raising_prepare):
+                with self.assertRaises(RuntimeError):
+                    self.svc.do_import_internal(filelist, 9, visited=visited, file_dir=file_dir)
+        snap = self._snapshot_dirs()
+        self.assertIn(os.path.realpath(os.path.dirname(f1)), snap)
+        self.assertNotIn(os.path.realpath(os.path.dirname(f2)), snap)
 
 
 class TestPhase1NoWriteHold(ScanP0TestBase):

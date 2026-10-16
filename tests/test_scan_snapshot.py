@@ -56,10 +56,12 @@ class SnapshotTestBase(unittest.TestCase):
         return path
 
     def _collect(self, use_snapshot=True):
-        return self.svc._collect_files([self.tmpdir], use_snapshot=use_snapshot)
+        filelist, visited, _file_dir = self.svc._collect_files([self.tmpdir], use_snapshot=use_snapshot)
+        return filelist, visited
 
     def _collect_paths(self, paths, use_snapshot=True):
-        return self.svc._collect_files(paths, use_snapshot=use_snapshot)
+        filelist, visited, _file_dir = self.svc._collect_files(paths, use_snapshot=use_snapshot)
+        return filelist, visited
 
     def _commit(self, visited):
         self.svc._commit_dir_snapshots(self.session, visited, self.root)
@@ -148,7 +150,7 @@ class TestSnapshotPrune(SnapshotTestBase):
         self._touch(os.path.join("d1", "a.txt"), b"a")
         _files, visited = self._collect()
         self._commit(visited)
-        files2, _visited2 = self.svc._collect_files([self.tmpdir], use_snapshot=False)
+        files2, _visited2, _fd = self.svc._collect_files([self.tmpdir], use_snapshot=False)
         self.assertEqual(len(files2), 1)
 
 

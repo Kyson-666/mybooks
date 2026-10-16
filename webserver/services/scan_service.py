@@ -28,7 +28,7 @@
 #       * 标题不存在 → 全新导入（import_book），同时创建 Item 关联记录。
 #       * DJVU/UVZ/CBZ 扫描版先校验容器，以文件名编目为底合并内嵌元数据；仅唯一同名候选才并入，多候选按新书入库。
 #   - 若配置 IMPORT_CATEGORY_WITH_FOLDER=True，将文件所在上传目录的第一级子目录名
-#     作为书籍分类写入自定义字段（与动态封面/译者列一起攒批写回，批提交节奏对齐）。
+#     作为书籍分类写入自定义字段（与动态封面/译者列一样逐本 set_field 写回）。
 #   - 若配置 REMOVE_IMPORTED_FILE=True，导入后删除源文件（仅适用于全新导入或已存在的情况）。
 #   - 每 20 个文件批量提交一次事务，完成后执行最终提交并清理 scoped_session。
 #
@@ -78,9 +78,6 @@ SCAN_EXT = constants.ACCEPTED_BOOK_FORMATS
 # 读（去重查询）与算（哈希 IO）一律在写事务之外，写事务内只有纯内存对象的
 # INSERT/DELETE（亚秒级），避免长写事务横跨磁盘 IO 阻塞 worker 的并发写。
 PHASE1_BATCH_SIZE = 500
-# calibre 自定义列缓冲的 flush 水位：攒够这么多本就写回一次。durability 窗口上确界
-# ≈ 水位×单本耗时（旧逐行同步是毫秒级；20 本一批是分钟级；5 本是折中）。
-PENDING_FIELDS_FLUSH_THRESHOLD = 5
 # 扫描范围：4 = 全量扫描（不忽略所有目录）——无视目录快照、全量 walk，但保留去重。
 # 0 = 全量扫描（默认走目录快照增量）；1/2 为已删除的旧排除选项，发过来按 0 处理并告警。
 SCAN_SCOPE_FULL_NO_SKIP = 4
@@ -536,43 +533,6 @@ class ScanService(AsyncService):
                 outcomes.append((row.id, op[2]))
         return outcomes
 
-    def _set_calibre_fields(self, column, mapping):
-        """单列批量 set_field；整批失败时逐本重试，全部 best-effort（失败只记日志）。
-
-        旧语义里 dynamic_cover/translators 的单本失败会把整行标 INVALID；批量在 flush
-        时机已脱离行上下文，无法再标行——这类失败只可能是 calibre 内部故障（非单本书
-        数据问题），记 error 日志，书本身保持已入库（下次重扫跳过，不会无限重试）。
-        """
-        if not mapping:
-            return
-        try:
-            self.db.new_api.set_field(column, mapping)
-            return
-        except Exception as err:
-            logging.error("[IMPORT] Batch set_field %s failed for %d books, retry per-book: %s", column, len(mapping), err)
-        for book_id, value in mapping.items():
-            try:
-                self.db.new_api.set_field(column, {book_id: value})
-            except Exception as err:
-                logging.error("[IMPORT] Failed to set %s for book_id=%s: %s", column, book_id, err)
-
-    def _flush_pending_calibre_fields(self, pending):
-        """把累积的 calibre 自定义列写回一次性落库并清空缓冲；空缓冲直接返回（无书库调用）。"""
-        if not pending:
-            return
-        cover_ids = pending.get("dynamic_cover") or []
-        if cover_ids:
-            self._set_calibre_fields(CALIBRE_COLUMN_DYNAMIC_COVER, {bid: 1 for bid in cover_ids})
-            del cover_ids[:]
-        translators = pending.get("translators") or {}
-        if translators:
-            self._set_calibre_fields(CALIBRE_COLUMN_TRANSLATORS, dict(translators))
-            translators.clear()
-        categories = pending.get("category") or {}
-        if categories:
-            self._set_calibre_fields(CALIBRE_COLUMN_CATEGORY, dict(categories))
-            categories.clear()
-
     @staticmethod
     def _put_work(work_queue, worker_thread, item, timeout=30):
         """有界队列投递：worker 意外退出时不再永久阻塞，而是明确报错结束本轮。
@@ -920,11 +880,36 @@ class ScanService(AsyncService):
         """
         return (paths is None or paths == "all") and not force and skip_last_dirs == 0
 
+    def _upsert_dir_snapshots(self, session, subset):
+        """把一批目录快照行 upsert 进 session（不 commit、不 vacuum）；返回条数。"""
+        now = datetime.datetime.now()
+        for d, (mtime_ns, count) in subset.items():
+            row = session.get(ScanDirSnapshot, ScanDirSnapshot.hash_for(d))
+            if row is None:
+                session.add(ScanDirSnapshot(d, mtime_ns, count))
+            else:
+                row.mtime_ns = mtime_ns
+                row.entry_count = count
+                row.update_time = now
+        return len(subset)
+
+    def _incremental_snapshot_allowed(self, scan_root):
+        """增量目录快照是否允许落盘（与 _commit_dir_snapshots 同口径的门控）。
+
+        要求：scan root 配置且是真实存在的目录；非 abort 轮；且本轮尚无 Phase1
+        行丢持久化（丢行说明有文件无行，其目录一旦被剪枝将永久漏掉）。
+        """
+        if not CONF.get("scan_upload_path", "").strip() or not scan_root or not os.path.isdir(scan_root):
+            return False
+        return not (ScanService.static_abort_flag or ScanService.static_phase1_persist_failed)
+
     def _commit_dir_snapshots(self, session, visited, scan_root):
         """整轮成功后提交目录快照（单事务原子）：upsert 本轮到访目录 + 清掉已消失目录。
 
         只在整轮正常完成时调用（abort/异常路径不调）；失败回滚并告警，下轮按老快照
         重走（多干活，不漏活）。另带 abort 熔断做纵深：即使被误调，中止轮次也不落盘。
+        增量提交（Phase1 中随批同事务 upsert 已完成的目录）已落盘的目录在此重复 upsert
+        幂等；
         vacuum 删两类：扫描根内磁盘上已无的目录 + 已不在
         当前扫描根内的残留行（换过 scan_upload_path 的陈旧水位）。
         """
@@ -940,16 +925,7 @@ class ScanService(AsyncService):
             return
         upserted = vacuumed = 0
         try:
-            now = datetime.datetime.now()
-            for d, (mtime_ns, count) in visited.items():
-                row = session.get(ScanDirSnapshot, ScanDirSnapshot.hash_for(d))
-                if row is None:
-                    session.add(ScanDirSnapshot(d, mtime_ns, count))
-                else:
-                    row.mtime_ns = mtime_ns
-                    row.entry_count = count
-                    row.update_time = now
-                upserted += 1
+            upserted = self._upsert_dir_snapshots(session, visited)
             for (d,) in session.query(ScanDirSnapshot.dir).all():
                 under_root = d == scan_root or d.startswith(scan_root + os.sep)
                 if (under_root and not os.path.isdir(d)) or not under_root:
@@ -968,19 +944,23 @@ class ScanService(AsyncService):
         logging.info("[IMPORT] Snapshots committed: %d upserted, %d vacuumed", upserted, vacuumed)
 
     def _collect_files(self, paths, use_snapshot=True):
-        """收集待导入文件清单，返回 (filelist, visited)。
+        """收集待导入文件清单，返回 (filelist, visited, file_dir)。
 
         use_snapshot=True 时（仅全量扫描）：自顶向下逐目录比对快照，
         mtime_ns + entry_count 双命中则跳过该目录的文件枚举（下钻永远保留——
         深层新增只 bump 直接父目录，剪下钻会漏新书）；剪枝掉的隐藏目录等不建快照
         （规则内本来就不进去）。visited 记录本轮到访过的每个目录现状，供成功后
         提交快照；剪枝只看快照，记录不分模式（显式目录同样记录，值是文件系统事实）。
+        file_dir 记录每个枚举文件（fpath → 所属目录快照键 real_dirpath），供
+        do_import_internal 在某目录的文件全部落库后增量提交该目录快照（崩溃恢复
+        到 Phase2 时不退回全量 walk）；union-pending 并入的路径不在其中（其目录
+        若是本轮剪枝目录则本就不在 visited，无需增量提交）。
         """
         if paths is None or paths == "all":
             dirs = [CONF.get("scan_upload_path", "")]
             if not dirs[0] or not os.path.isdir(dirs[0]):
                 logging.warning("[IMPORT] scan_upload_path is not configured")
-                return [], {}
+                return [], {}, {}
         elif isinstance(paths, str):
             dirs = [paths]
         else:
@@ -989,6 +969,7 @@ class ScanService(AsyncService):
         snapshots = self._load_dir_snapshots(self.session) if use_snapshot else {}
         filelist = []
         visited: dict = {}
+        file_dir: dict = {}
         skipped_dirs = 0
         for p in dirs:
             # 归一化扫描根：尾斜杠/冗余斜杠会让下面「根一次 realpath + 后缀拼接」
@@ -1052,6 +1033,7 @@ class ScanService(AsyncService):
                             logging.warning("[SCAN] Unstable entry, keep %s unpruned this round: %s", dirpath, fpath)
                             continue
                         filelist.append(fpath)
+                        file_dir[fpath] = real_dirpath
                     if dir_mtime is not None:
                         visited[real_dirpath] = (
                             dir_mtime, entry_count if prune_ok else SNAPSHOT_NO_PRUNE
@@ -1062,7 +1044,7 @@ class ScanService(AsyncService):
             logging.info("[SCAN] Snapshot prune: %d dirs skipped, %d dirs visited", skipped_dirs, len(visited))
             scan_root = os.path.realpath(CONF.get("scan_upload_path", ""))
             filelist = self._union_pending_paths(filelist, scan_root)
-        return filelist, visited
+        return filelist, visited, file_dir
 
     def _union_pending_paths(self, filelist, scan_root):
         """把库里待处理（NEW/READY/INVALID/PERMISSION）的电子书记录路径并入清单。
@@ -1160,7 +1142,7 @@ class ScanService(AsyncService):
 
         # 快照剪枝只走全量作用域（细则见 _snapshot_active）。
         use_snapshot = ScanService._snapshot_active(paths, force, skip_last_dirs)
-        filelist, visited = self._collect_files(paths, use_snapshot=use_snapshot)
+        filelist, visited, file_dir = self._collect_files(paths, use_snapshot=use_snapshot)
         logging.info("[IMPORT] Collected %d files in %.3f seconds (skip_last_dirs=%d)", len(filelist), time.time() - start_time, skip_last_dirs)
         if not filelist:
             # 选择器模式下 paths 是全量解析结果（百万行时单条日志上百 MB），只记条数
@@ -1201,7 +1183,7 @@ class ScanService(AsyncService):
 
         ScanService.static_import_files_cnt = len(filelist)
         try:
-            self.do_import_internal(filelist, user_id, task_id, imported_id, force, sole=sole)
+            self.do_import_internal(filelist, user_id, task_id, imported_id, force, sole=sole, visited=visited, file_dir=file_dir)
             if task_id:
                 BackgroundService().complete_task(task_id=task_id)
 
@@ -1219,9 +1201,11 @@ class ScanService(AsyncService):
             else:
                 logging.info("[IMPORT] Completed")
                 self._mark_missing_scan_files()
-                # 快照只在整轮正常完成时提交：abort/异常路径不调，下轮按老快照重走
-                # （多干活，不漏活）；提交点严格在全部处理之后，崩在提交中途也不产生错误跳过。
-                # Phase1 持久化失败同样不提交：失败批次没落库的文件会被快照剪枝永久漏掉。
+                # 整轮末尾的快照兜底提交：upsert visited 全集 + vacuum 已消失目录。
+                # 注意快照并非只在此提交——Phase1 中某目录全部文件落库后，其快照已随批
+                # 同事务增量落盘（崩溃落在 Phase2 也能下轮剪枝）。此处 abort/异常路径不调，
+                # 下轮按老快照重走（多干活，不漏活）；Phase1 持久化失败同样不提交：失败批次
+                # 没落库的文件会被快照剪枝永久漏掉。
                 if ScanService.static_phase1_persist_failed:
                     logging.error(
                         "[IMPORT] Phase1 persistence failures detected, skip snapshot commit "
@@ -1292,15 +1276,13 @@ class ScanService(AsyncService):
             logging.error("[IMPORT] Error reading file %s: %s", fpath, e)
             return None, ScanFile.INVALID
 
-    def _import_one_file(self, row, user_id, scan_upload_path, session, force, sole=False, pending_fields=None, staged_ops=None):
+    def _import_one_file(self, row, user_id, scan_upload_path, session, force, sole=False, staged_ops=None):
         """
             Read metadata and import one READY ScanFile into calibre.
 
             Handles all error paths internally (sets row.status, calls save_or_rollback).
             Returns book_id if a new book was successfully linked via Item, else None.
 
-            pending_fields: worker 内累积的 calibre 自定义列缓冲（dynamic_cover 列表/
-                translators 与 category 字典），为 None 时走旧的逐本 set_field。
             staged_ops: worker 内累积的 ("save_row", row) | ("save_item", item) 暂存，
                 为 None 时行/链接走旧的逐条 commit（save_or_rollback/item.save）；
                 提供时写操作全部暂存，由 worker 攒批经 _apply_phase2_batch 在短写
@@ -1462,16 +1444,10 @@ class ScanService(AsyncService):
                                 pass
                             ScanService.static_title_index = False
                     if dynamic_cover:
-                        if pending_fields is None:
-                            self.db.new_api.set_field(CALIBRE_COLUMN_DYNAMIC_COVER, {row.book_id: 1})
-                        else:
-                            pending_fields.setdefault("dynamic_cover", []).append(row.book_id)
+                        self.db.new_api.set_field(CALIBRE_COLUMN_DYNAMIC_COVER, {row.book_id: 1})
                     if _translators:
                         translators = ",".join(_translators)
-                        if pending_fields is None:
-                            self.db.new_api.set_field(CALIBRE_COLUMN_TRANSLATORS, {row.book_id: translators})
-                        else:
-                            pending_fields.setdefault("translators", {})[row.book_id] = translators
+                        self.db.new_api.set_field(CALIBRE_COLUMN_TRANSLATORS, {row.book_id: translators})
                 row.status = ScanFile.IMPORTED
                 logging.info("[IMPORT] Calibre import done, book_id=%d [%.3fs]", row.book_id, time.time() - start_time)
 
@@ -1495,20 +1471,12 @@ class ScanService(AsyncService):
                     first_dir = rel.split(os.sep, maxsplit=1)[0] if os.sep in rel else ""
                     if first_dir and first_dir != ".." and len(first_dir) < 10 and not any(c in first_dir for c in ',:;|/\\\'"\t '):
                         try:
-                            if pending_fields is None:
-                                self.db.new_api.set_field(CALIBRE_COLUMN_CATEGORY, {row.book_id: first_dir})
-                            else:
-                                pending_fields.setdefault("category", {})[row.book_id] = first_dir
+                            self.db.new_api.set_field(CALIBRE_COLUMN_CATEGORY, {row.book_id: first_dir})
                             logging.info("[IMPORT] Set category '%s' for book_id=%d", first_dir, row.book_id)
                         except Exception as cat_err:
                             logging.warning("[IMPORT] Failed to set category for book_id=%d: %s", row.book_id, cat_err)
                     else:
                         logging.warning("[IMPORT] Skipping category for '%s': invalid dir name", first_dir)
-
-                if pending_fields is not None:
-                    buffered = sum(len(v) for v in pending_fields.values())
-                    if buffered >= PENDING_FIELDS_FLUSH_THRESHOLD:
-                        self._flush_pending_calibre_fields(pending_fields)
 
             if CONF.get("REMOVE_IMPORTED_FILE", False) and (not existed_ebook or row.status == ScanFile.EXIST):
                 self._remove_imported_file(fpath)
@@ -1537,8 +1505,7 @@ class ScanService(AsyncService):
     def _importing_worker(self, work_queue, importing_imported, task_id, user_id, scan_upload_path, batch_size, force, sole=False):
         """Worker thread for Phase 2: consumes row IDs from work_queue and imports each file.
 
-        pending_fields 把 calibre 自定义列写回攒批落库（水位/批提交/尾批与异常路径
-        在 finally 里兜底 flush）。行/Item 链接写走 staged_ops 攒批（每 batch_size 本
+        行/Item 链接写走 staged_ops 攒批（每 batch_size 本
         一个短写事务 + 计数对账，尾批与异常路径 finally 兜底）——旧逐条 commit
         （2-3 次 fsync/本）降为 ≤1 次/批。
         """
@@ -1552,7 +1519,6 @@ class ScanService(AsyncService):
         importing_session.autoflush = False
         importing_index = 0
         total_count = 0
-        pending_fields = {"dynamic_cover": [], "translators": {}, "category": {}}
         staged_ops = []       # ("save_row", row) | ("save_item", item)，本批待落库
         batch_row_status = {}  # row_id → status，落库对账用（本批暂存过的行）
 
@@ -1587,7 +1553,7 @@ class ScanService(AsyncService):
                         except Exception as e:
                             logging.error("[IMPORT] Failed to update progress: %s", e)
 
-                    new_book_id, status = self._import_one_file(row, user_id, scan_upload_path, importing_session, force, sole, pending_fields, staged_ops)
+                    new_book_id, status = self._import_one_file(row, user_id, scan_upload_path, importing_session, force, sole, staged_ops)
                     if status:
                         if status in ScanService.static_status_cnt:
                             ScanService.static_status_cnt[status] += 1
@@ -1604,17 +1570,12 @@ class ScanService(AsyncService):
                         # 并按 outcomes 对账（被丢行回调状态计数，净效果等价旧的
                         # save_or_rollback 失败 → (None, None) 不计数）。
                         self._apply_phase2_batch_checked(importing_session, staged_ops, batch_row_status)
-                        self._flush_pending_calibre_fields(pending_fields)
                 finally:
                     work_queue.task_done()
         except Exception as err:
             logging.error("[IMPORT] Fatal error in worker: %s", err)
             logging.error(traceback.format_exc())
         finally:
-            try:
-                self._flush_pending_calibre_fields(pending_fields)
-            except Exception as err:
-                logging.error("[IMPORT] Final fields flush error: %s", err)
             # 尾批（<batch_size）与 abort/异常残留的暂存操作照常落库——与旧逐行
             # commit 下“已处理行全部持久化”净效果等价。
             try:
@@ -1856,11 +1817,15 @@ class ScanService(AsyncService):
         staged.append(("save", row, ScanFile.READY))
         return None, ScanFile.READY
 
-    def do_import_internal(self, filelist, user_id, task_id=None, imported_id=0, force=False, sole=False):
+    def do_import_internal(self, filelist, user_id, task_id=None, imported_id=0, force=False, sole=False, visited=None, file_dir=None):
         """
             并行执行:
             Phase Scanning: 负责遍历文件、计算哈希、去重，并将 READY 状态的 ScanFile 行 ID 放入队列；
             Phase Importing: 从队列中取出 ID，读取对应 ScanFile 行，执行元数据读取和导入操作。
+
+            visited / file_dir: 由调用方 do_import 从 _collect_files 透传的目录快照与
+                文件→目录映射（直接调用本方法时可为 None）。提供时在 Phase1 中按目录
+                增量提交快照，使崩溃/重启落在 Phase2 时下轮仍能剪枝。
         """
         import_id = int(time.time()) if imported_id == 0 else imported_id
         ScanService.static_import_id = import_id
@@ -1914,6 +1879,35 @@ class ScanService(AsyncService):
         queued_count = 0
         staged: list = []
 
+        # 增量目录快照：某目录下的全部文件在 Phase1 落库后即可提交该目录快照，使崩溃/
+        # 重启落在 Phase2（import_book，最耗时那段）时下轮仍能剪枝，不再全量 walk。
+        # dir_remaining 记录每个目录在 filelist 中尚未走完 Phase1 的文件数；pending_snapshots
+        # 收集「已完成」目录，随 Phase1 批提交一并落盘（只在零丢行时提交，保证剪枝目录
+        # 的每个文件都有行，可被 union-pending 并回）。
+        dir_remaining: dict = {}
+        pending_snapshots: dict = {}
+        if visited and file_dir:
+            for _fp in filelist:
+                _d = file_dir.get(_fp)
+                if _d is not None:
+                    dir_remaining[_d] = dir_remaining.get(_d, 0) + 1
+
+        def _note_dir_complete(fpath):
+            d = file_dir.get(fpath) if file_dir else None
+            if d is None:
+                return
+            rem = dir_remaining.get(d)
+            if rem is None:
+                return
+            rem -= 1
+            if rem <= 0:
+                dir_remaining.pop(d, None)
+                snap = visited.get(d)
+                if snap is not None:
+                    pending_snapshots[d] = snap
+            else:
+                dir_remaining[d] = rem
+
         def _commit_phase1_stage():
             nonlocal queued_count
             save_cnt = sum(1 for op in staged if op[0] == "save")
@@ -1927,8 +1921,25 @@ class ScanService(AsyncService):
                     pass
                 staged.clear()
                 ScanService.static_phase1_persist_failed = True
+                pending_snapshots.clear()
                 return
             staged.clear()
+            if len(outcomes) < save_cnt:
+                # 行级 save 被丢（如遗留 UNIQUE(hash) 约束冲突）：该文件本轮无行，
+                # 置持久化失败位阻止本轮增量快照提交，否则这些路径会被剪枝永久漏掉。
+                ScanService.static_phase1_persist_failed = True
+                pending_snapshots.clear()
+            elif pending_snapshots:
+                # 零丢行：把已走完 Phase1 的目录快照与本批行**同事务** upsert（省一次写
+                # 事务/写锁获取）。pending 里的目录其每个文件都已落库或正在本批落库，
+                # 与行同事务提交即原子；upsert 失败只放弃本批增量（行照常提交，下轮重走）。
+                if self._incremental_snapshot_allowed(scan_upload_path):
+                    try:
+                        n = self._upsert_dir_snapshots(session, pending_snapshots)
+                        logging.info("[IMPORT] Snapshot incremental upsert: %d dirs (same txn)", n)
+                    except Exception as err:
+                        logging.error("[IMPORT] Snapshot incremental upsert failed (skip this batch): %s", err)
+                pending_snapshots.clear()
             try:
                 session.commit()
             except Exception as err:
@@ -1936,10 +1947,6 @@ class ScanService(AsyncService):
                 session.rollback()
                 ScanService.static_phase1_persist_failed = True
                 return
-            if len(outcomes) < save_cnt:
-                # 行级 save 被丢（如遗留 UNIQUE(hash) 约束冲突）：该文件本轮无行，
-                # 置持久化失败位阻止本轮快照提交，否则这些路径会被剪枝永久漏掉。
-                ScanService.static_phase1_persist_failed = True
             for rid, state in outcomes:
                 if state in ScanService.static_status_cnt:
                     ScanService.static_status_cnt[state] += 1
@@ -1983,6 +1990,7 @@ class ScanService(AsyncService):
             ctx, fut = pending.popleft()
             result = fut.result()  # 线程内未预期异常在主线程重抛（与串行同语义）
             self._scan_finalize(ctx, result, session, processed_paths, processed_hashes, staged=staged)
+            _note_dir_complete(ctx["fpath"])
             if len(staged) >= PHASE1_BATCH_SIZE:
                 _commit_phase1_stage()
 
@@ -1995,12 +2003,14 @@ class ScanService(AsyncService):
                 ctx, _state = self._scan_prepare(fpath, session, import_id, processed_paths, force, staged=staged)
                 if ctx is None:
                     # 终态（跳过或 PERMISSION 行已暂存），批提交水位照查
+                    _note_dir_complete(fpath)
                     if len(staged) >= PHASE1_BATCH_SIZE:
                         _commit_phase1_stage()
                     continue
                 if hash_pool is None:
                     result = self._hash_job(ctx)
                     self._scan_finalize(ctx, result, session, processed_paths, processed_hashes, staged=staged)
+                    _note_dir_complete(fpath)
                     if len(staged) >= PHASE1_BATCH_SIZE:
                         _commit_phase1_stage()
                     continue
@@ -2033,6 +2043,11 @@ class ScanService(AsyncService):
                     put_failure = put_failure or err
             else:
                 try:
+                    # 无尾批残留行：把尚未落盘的已完成目录快照同事务落库（正常为空，
+                    # 因为每个完成目录都随其所在批次的提交一并落盘）。
+                    if pending_snapshots and self._incremental_snapshot_allowed(scan_upload_path):
+                        self._upsert_dir_snapshots(session, pending_snapshots)
+                    pending_snapshots.clear()
                     session.commit()
                 except Exception as err:
                     logging.error("[IMPORT] Phase1 final commit error: %s", err)
