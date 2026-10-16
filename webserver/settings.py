@@ -21,6 +21,9 @@ settings = {
     "convert_path"  : "/data/books/convert/",
     "upload_path"   : "/data/books/upload/",
     "scan_upload_path"   : "/data/books/imports/",
+    # 扫描导入 Phase1 哈希并行的线程数：1=串行（NAS 机械盘兜底），默认 4。
+    # 仅存于此清单（不进设置页白名单），手工部署可写进 auto.py 调整。
+    "scan_hash_workers"  : 4,
     "extract_path"  : "/data/books/extract/",
     "with_library"  : "/data/books/library/",
     "cookie_secret" : "cookie_secret",

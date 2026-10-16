@@ -170,6 +170,9 @@ PERSISTABLE_KEYS = frozenset(ADMIN_SETTING_KEYS) | frozenset({
     "ENABLE_DATA_SYNC", "ENABLE_AUTHOR_INFO", "ALLOW_USER_DISABLE_STATISTIC",
     "ENABLE_HOMEPAGE_READING_STATS", "ENABLE_HOMEPAGE_READING_BOOKS",
     "ENABLE_BOOK_REVIEW", "REVIEW_REQUIRES_APPROVAL", "ENABLE_BOOK_RECOMMEND_TO_OTHERS", "ENABLE_SHARED_NOTES",
+    # 手工部署可写进 auto.py 的扫描调参：必须在这里，否则设置页保存时 save_partial
+    # 只回写白名单键、dumpfile() 整份覆盖 auto.py，会把手改的值静默抹回默认 4。
+    "scan_hash_workers",
 })
 
 
