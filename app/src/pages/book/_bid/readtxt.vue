@@ -177,17 +177,19 @@ export default {
     },
     startPolling(wait) {
       this.stopPolling();
-      // 1 秒一跳；小文件 wait 值很小，用 30s 兜底，避免还没轮询就超时
+      // 1 秒一跳；小文件 wait 值很小，用 30s 兜底，避免还没轮询就超时。
+      // 超出预估不放弃：后端 wait 封顶 120s，而大文件在慢机器上的解析可能远超预估，
+      // 改放慢到 10 秒一问继续等，目录就绪后仍会自动出现（不必手动刷新）
       const budget = Math.max(parseInt(wait) || 0, 30);
       let elapsed = 0;
       this.pollTimer = setInterval(() => {
         elapsed++;
         if (elapsed > budget) {
           this.hintText = this.$t('reader.timeoutMessage');
-          this.stopPolling();
+          if (elapsed % 10 !== 0) return;
+        } else if (elapsed % 3 !== 0) {
           return;
         }
-        if (elapsed % 3 !== 0) return;
         this.$backend(`/book/txt/parser?id=${this.bookid}&test=1`)
           .then(res => {
             if (res.err === "ok" && res.msg === "parsed") {

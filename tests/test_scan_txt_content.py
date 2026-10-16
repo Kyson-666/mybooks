@@ -96,6 +96,30 @@ class TestParseTxtTocProcess(unittest.TestCase):
 
         parse.assert_not_called()
 
+    def test_timeout_scales_with_file_size(self):
+        """超时按体积放宽（下限 10 分钟 / 60s per MB / 上限 2 小时）：
+        解析耗时随体积线性增长，固定超时会把慢机器上大文件的正常解析误判成失败"""
+        fd, path = tempfile.mkstemp(suffix=".txt")
+        os.close(fd)
+        try:
+            for size, expected in ((1024, 600), (20 * 1024 ** 2, 1200), (1000 * 1024 ** 2, 7200)):
+                os.truncate(path, size)  # 稀疏文件，只关心大小
+                self.assertEqual(self.service.txt_parse_timeout(path), expected, "size=%d" % size)
+        finally:
+            os.remove(path)
+
+    def test_subprocess_call_uses_scaled_timeout(self):
+        fd, path = tempfile.mkstemp(suffix=".txt")
+        os.close(fd)
+        try:
+            os.truncate(path, 20 * 1024 ** 2)
+            proc = mock.Mock(returncode=0, stdout=b'{"encoding": "utf-8", "toc": []}', stderr=b"")
+            with mock.patch("webserver.services.extract.subprocess.run", return_value=proc) as run:
+                self.service.parse_txt_toc(path)
+            self.assertEqual(run.call_args[1]["timeout"], 1200)
+        finally:
+            os.remove(path)
+
 
 if __name__ == "__main__":
     unittest.main()
