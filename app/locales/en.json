@@ -932,6 +932,7 @@
     "djvuReader": "Read DjVu file",
     "cbzReader": "Read CBZ comic",
     "fb2Reader": "Read FB2 file",
+    "txtReader": "Read TXT file",
     "manage": "Manage",
     "process": "File Processing",
     "syncBookInfo": "Sync meta from the internet",
@@ -1124,7 +1125,8 @@
     "parsing": "First read, parsing the directory, please wait... {wait}",
     "timeoutMessage": "Timeout not completed, you can continue to wait and refresh later",
     "timeout": "Parsing Timeout",
-    "contentError": "Failed to fetch content! {msg}"
+    "contentError": "Failed to fetch content! {msg}",
+    "tocParsing": "Parsing the chapter list; you can start reading now, chapters will appear shortly"
   },
   "common": {
     "cancel": "Cancel",

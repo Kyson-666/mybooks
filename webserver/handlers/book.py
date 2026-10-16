@@ -2921,6 +2921,7 @@ class BookUpload(BaseHandler):
         if CONF.get(AUTO_FILL_META, False):
             AutoFillService().auto_fill_async(book_id)
         CatalogExtractService().extract_one_async(book_id)
+        self._prepare_txt_content(book_id)
 
         if CONF.get("SEND_MAIL_FOR_NEW_BOOKS", False) and mi.title:
             try:
@@ -2945,6 +2946,18 @@ class BookUpload(BaseHandler):
                 logging.error("Failed to trigger new book notification: %s", e)
 
         return book_id
+
+    def _prepare_txt_content(self, book_id):
+        """为含 TXT 格式的书籍预生成章节索引，阅读器打开即可拿到目录。"""
+        try:
+            formats = set(self.calibre_db_cache.formats(book_id, verify_formats=False) or [])
+            if "TXT" not in formats:
+                return
+            txt_path = self.calibre_db.format_abspath(book_id, "TXT", index_is_id=True)
+            if txt_path:
+                ExtractService().parse_txt_content(book_id, txt_path)
+        except Exception as e:
+            logging.warning("Failed to prepare txt content for book %s: %s", book_id, e)
 
     def _add_new_book(self, mi, fpaths, fmt):
         dynamic_cover = self._prepare_new_book(mi, fpaths, fmt)
@@ -3016,6 +3029,9 @@ class BookUpload(BaseHandler):
         try:
             await self.run_calibre_async(self.calibre_db.add_format, book_id, fmt.upper(), fpath, index_is_id=True, replace=force)
             logging.info(f"Successfully added {fmt.upper()} format to book {book_id}")
+
+            if fmt == "txt":
+                self._prepare_txt_content(book_id)
 
             try:
                 if update_metadata and fmt in utils.meta_writable_formats():
