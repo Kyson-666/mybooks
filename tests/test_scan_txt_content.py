@@ -3,6 +3,7 @@
 
 import json
 import os
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -84,6 +85,16 @@ class TestParseTxtTocProcess(unittest.TestCase):
 
         self.assertEqual(toc, expected)
         parse.assert_called_once_with("/tmp/book.txt")
+
+    def test_timeout_does_not_fall_back_in_process(self):
+        """超时说明整本扫描跑不完；回退进程内只会更慢且独占 GIL，应当直接失败"""
+        with mock.patch("webserver.services.extract.subprocess.run",
+                        side_effect=subprocess.TimeoutExpired(cmd="parser", timeout=600)):
+            with mock.patch.object(TxtParser, "parse") as parse:
+                with self.assertRaises(subprocess.TimeoutExpired):
+                    self.service.parse_txt_toc("/tmp/book.txt")
+
+        parse.assert_not_called()
 
 
 if __name__ == "__main__":

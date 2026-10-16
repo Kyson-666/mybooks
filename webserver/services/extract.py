@@ -60,6 +60,9 @@ class ExtractService(AsyncService):
             proc = subprocess.run([sys.executable, self.TXT_PARSER_SCRIPT, fpath],
                                   stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                                   env=env, timeout=self.TXT_PARSE_TIMEOUT)
+        except subprocess.TimeoutExpired:
+            # 超时意味着整本扫描跑不完，进程内回退只会更慢、还会独占 GIL，直接失败
+            raise
         except Exception as e:
             logging.warning("TXT parser subprocess failed, fallback in-process: %s", e)
             return TxtParser().parse(fpath)
