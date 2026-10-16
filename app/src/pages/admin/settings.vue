@@ -24,6 +24,7 @@
     <v-sheet elevation="2" class="settings-group-bar">
       <div class="settings-group-bar-row d-flex align-center">
         <div class="settings-seg" role="tablist">
+          <span class="settings-seg-indicator" ref="segIndicator"></span>
           <button
             v-for="(g, gi) in groups"
             :key="g.id"
@@ -1010,6 +1011,20 @@
       {{ $t("settings.restart_confirm_message") }}
     </AppDialog>
 
+    <AppDialog
+      v-model="unsavedLeaveDialog"
+      type="confirm"
+      :title="$t('settings.unsaved_leave_title')"
+      color="orange"
+      confirm-dark
+      max-width="420"
+      :confirm-text="$t('settings.unsaved_leave_confirm_button')"
+      @confirm="confirmLeave"
+      @dismiss="cancelLeave"
+    >
+      {{ $t("settings.unsaved_leave_confirm", { n: dirtyCount }) }}
+    </AppDialog>
+
     <reading-range-dialog
       ref="defaultReadRangeDialog"
       :title="$t('settings.default_read_range_dialog_title')"
@@ -1033,9 +1048,6 @@
       </span>
       <span class="text-caption grey--text ml-4 hidden-sm-and-down">{{ $t("settings.save_hints") }}</span>
       <v-spacer></v-spacer>
-      <v-btn color="orange" dark @click="restartConfirmDialog = true">
-        <v-icon left>mdi-restart</v-icon>{{ $t("settings.restart_server") }}
-      </v-btn>
       <v-btn
         color="primary"
         class="ml-3"
@@ -1043,6 +1055,9 @@
         @click="saveSettings"
       >
         <v-icon left>mdi-content-save</v-icon>{{ $t("settings.save") }}
+      </v-btn>
+      <v-btn color="orange" dark @click="restartConfirmDialog = true">
+        <v-icon left>mdi-restart</v-icon>{{ $t("settings.restart_server") }}
       </v-btn>
     </div>
   </div>
@@ -2509,6 +2524,8 @@ export default {
     trashConfirmDialog: false,
     saveConfirmDialog: false,
     restartConfirmDialog: false,
+    unsavedLeaveDialog: false,
+    pendingLeave: null,
     stampPreviewUrl: "",
     stampPositions: [
       { value: "top-left", icon: "mdi-format-align-top" },
@@ -2730,21 +2747,32 @@ export default {
         : this.$t("settings.default_read_range_blacklist", { list });
     },
   },
-  beforeRouteLeave(to, from, next) {
-    // 未保存更改的离开守卫：切路由丢配置是本页最需要防的场景
-    if (this.dirtyCount > 0 && !window.confirm(this.$t("settings.unsaved_leave_confirm", { n: this.dirtyCount }))) {
+  beforeRouteLeave(_to, _from, next) {
+    if (this.dirtyCount > 0) {
+      this.pendingLeave = { to: _to, next };
+      this.unsavedLeaveDialog = true;
       next(false);
       return;
     }
     next();
+  },
+  watch: {
+    activeGroup() {
+      this.$nextTick(() => this.positionSegIndicator());
+    },
+    searchQuery() {
+      this.$nextTick(() => this.positionSegIndicator());
+    },
   },
   mounted() {
     this.fetchTrashSize();
     this.loadStampImage();
     this.loadThanksTo();
     this.updateBarOffset();
+    this.$nextTick(() => this.positionSegIndicator());
     if (process.client) {
       window.addEventListener("resize", this.updateBarOffset);
+      window.addEventListener("resize", this.positionSegIndicator);
       window.addEventListener("beforeunload", this.handleBeforeUnload);
       this.watchAppBar();
     }
@@ -2754,6 +2782,7 @@ export default {
     if (process.client) {
       document.body.classList.remove("settings-page");
       window.removeEventListener("resize", this.updateBarOffset);
+      window.removeEventListener("resize", this.positionSegIndicator);
       window.removeEventListener("beforeunload", this.handleBeforeUnload);
       // 清掉 documentElement 上的全局 CSS 变量，避免残留值影响其他页面
       document.documentElement.style.removeProperty("--settings-bar-top");
@@ -2851,8 +2880,30 @@ export default {
       this.searchOpen = false;
     },
     onSearchBlur() {
-      // 失焦且输入为空时自动收起；有输入时保持展开，方便点选搜索结果
       if (!this.searchQuery) this.searchOpen = false;
+    },
+    positionSegIndicator() {
+      if (!process.client) return;
+      const ind = this.$refs.segIndicator;
+      if (!ind) return;
+      const container = ind.parentElement;
+      if (!container) return;
+      const btns = container.querySelectorAll(".settings-seg-btn");
+      if (!btns.length) return;
+      let target = null;
+      if (this.searchQuery) {
+        ind.style.opacity = "0";
+        return;
+      }
+      for (const b of btns) {
+        if (b.classList.contains("is-active")) { target = b; break; }
+      }
+      if (!target) target = btns[0];
+      ind.style.opacity = "1";
+      ind.style.width = target.offsetWidth + "px";
+      ind.style.height = target.offsetHeight + "px";
+      ind.style.transform =
+        "translate(" + target.offsetLeft + "px, " + target.offsetTop + "px)";
     },
     selectGroup(id) {
       this.searchQ = "";
@@ -3061,6 +3112,18 @@ export default {
           this.$alert("success", rsp.msg || this.$t("settings.restart_success"));
         }
       });
+    },
+    confirmLeave() {
+      const pending = this.pendingLeave;
+      this.pendingLeave = null;
+      if (!pending) return;
+      const n = pending.next;
+      if (typeof n === "function") {
+        n();
+      }
+    },
+    cancelLeave() {
+      this.pendingLeave = null;
     },
     showSNSConfig: function (s) {
       var msg = `${this.$t("settings.sns_config_message", {
@@ -3297,17 +3360,45 @@ export default {
    灰底容器 + 激活项高亮 + 品牌主色条；8 个按钮均分整行，圆角跟随 --app-radius
   （与右上角外观菜单的按钮圆角同一变量） */
 .settings-seg {
+  position: relative;
   display: grid;
   grid-template-columns: repeat(8, minmax(0, 1fr));
+  grid-auto-rows: min-content;
+  gap: 4px 2px;
   flex: 1 1 auto;
-  gap: 2px;
   min-width: 0;
   background: #e8e8e8;
   border-radius: var(--app-radius, 4px);
   padding: 4px;
 }
+@media (max-width: 1100px) {
+  .settings-seg {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+@media (max-width: 440px) {
+  .settings-seg {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+.settings-seg-indicator {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 0;
+  height: 100%;
+  background: #fff;
+  border-radius: var(--app-radius, 4px);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.18);
+  transition: transform 0.32s cubic-bezier(0.4, 0, 0.2, 1),
+    width 0.32s cubic-bezier(0.4, 0, 0.2, 1),
+    height 0.32s cubic-bezier(0.4, 0, 0.2, 1);
+  pointer-events: none;
+  will-change: transform, width, height;
+}
 .settings-seg-btn {
   position: relative;
+  z-index: 1;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -3328,9 +3419,8 @@ export default {
   background: rgba(0, 0, 0, 0.06);
 }
 .settings-seg-btn.is-active {
-  background: #fff;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.18);
   font-weight: 500;
+  color: #212121;
 }
 .settings-seg-btn:focus-visible {
   outline: 2px solid #1976d2;
@@ -3367,11 +3457,14 @@ export default {
 .theme--dark .settings-seg {
   background: #2b2b2b;
 }
+.theme--dark .settings-seg-indicator {
+  background: #424242;
+}
 .theme--dark .settings-seg-btn:hover {
   background: rgba(255, 255, 255, 0.08);
 }
 .theme--dark .settings-seg-btn.is-active {
-  background: #424242;
+  color: #fafafa;
 }
 /* 右侧：状态 chip + 搜索图标/展开框 */
 .settings-bar-right {
@@ -3404,11 +3497,8 @@ export default {
   border-radius: 9999px !important;
 }
 @media (max-width: 599.98px) {
-  /* 窄屏：分段条独占一行，4 列 × 2 行仍保持均分；右侧控件另起一行靠右；
-     展开的搜索框占满整行 */
   .settings-seg {
     flex: 1 1 100%;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
   }
   .settings-bar-right {
     flex: 1 1 100%;
@@ -3418,8 +3508,6 @@ export default {
   .settings-group-bar .settings-search-expanded {
     flex: 1 1 100%;
   }
-  /* 窄屏标签页隐去图标：4 列 × 2 行的按钮宽度有限，图标挤掉文字可读性；
-     激活态靠白底 + 主色条标识，信息不损失 */
   .settings-seg-btn .v-icon {
     display: none;
   }
