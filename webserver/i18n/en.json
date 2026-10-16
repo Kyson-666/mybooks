@@ -572,5 +572,16 @@
   "分享已取消": "Sharing cancelled",
   "分享已删除": "Share deleted",
   "分享参数不正确": "Invalid share parameters",
-  "分享已保存": "Share saved"
+  "分享已保存": "Share saved",
+  "AI 助手暂不可用": "The AI assistant is temporarily unavailable",
+  "JSON 请求格式无效": "Invalid JSON request",
+  "MyNexus 会话失败": "MyNexus session failed",
+  "MyNexus 未返回会话 ID": "MyNexus did not return a session ID",
+  "请求内容无效": "Invalid request body",
+  "消息必须包含用户或助手角色及文本内容": "Messages must contain a user or assistant role and text content",
+  "未找到该图书或无权访问": "Book not found or not accessible",
+  "所选图书文件不可用": "The selected book file is unavailable",
+  "至少需要一条消息": "At least one message is required",
+  "需要 EPUB 或 TXT 格式": "EPUB or TXT format is required",
+  "最后一条消息必须来自用户": "The last message must be from the user"
 }

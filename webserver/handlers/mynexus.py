@@ -12,6 +12,7 @@ from webserver.models import MyNexusBookAnalysis, MyNexusChatSession
 from webserver.services.book_access_service import BookAccessService
 from webserver.services.mynexus_service import MyNexusClient, MyNexusError, safe_json
 from webserver import utils
+from webserver.i18n import _
 
 
 _book_locks = {}
@@ -137,7 +138,7 @@ class MyNexusBookHandler(BaseHandler):
     async def post(self, raw_id):
         book_id, book = await self._book(raw_id)
         if not book:
-            return {"err": "not_found", "msg": "Book not found or not accessible"}
+            return {"err": "not_found", "msg": _("未找到该图书或无权访问")}
         async with _book_lock(book_id):
             analysis = self.sqlite_session.get(MyNexusBookAnalysis, book_id)
             if analysis and analysis.status in ("pending", "processing", "completed", "submitting"):
@@ -152,12 +153,12 @@ class MyNexusBookHandler(BaseHandler):
                 }
                 file_format = "epub" if "epub" in formats else "txt" if "txt" in formats else None
                 if not file_format:
-                    return {"err": "unsupported_format", "msg": "EPUB or TXT format is required"}
+                    return {"err": "unsupported_format", "msg": _("需要 EPUB 或 TXT 格式")}
                 file_path = await self.run_calibre_async(
                     self.calibre_db.format_abspath, book_id, file_format.upper(), index_is_id=True
                 )
                 if not file_path or not os.path.isfile(file_path):
-                    return {"err": "book_file_missing", "msg": "The selected book file is unavailable"}
+                    return {"err": "book_file_missing", "msg": _("所选图书文件不可用")}
                 if analysis is None:
                     analysis = MyNexusBookAnalysis(book_id, status="submitting")
                     self.sqlite_session.add(analysis)
@@ -190,7 +191,7 @@ class MyNexusBookHandler(BaseHandler):
     async def get(self, raw_id):
         book_id, book = await self._book(raw_id)
         if not book:
-            return {"err": "not_found", "msg": "Book not found or not accessible"}
+            return {"err": "not_found", "msg": _("未找到该图书或无权访问")}
         analysis = self.sqlite_session.get(MyNexusBookAnalysis, book_id)
         if not analysis:
             return {"err": "ok", "analysis": _analysis_dict(None)}
@@ -226,7 +227,7 @@ class MyNexusSessionHandler(BaseHandler):
     async def get(self, raw_id):
         ready = await self._ready_book(raw_id)
         if not ready:
-            return {"err": "not_found", "msg": "AI companion is unavailable"}
+            return {"err": "not_found", "msg": _("AI 助手暂不可用")}
         book_id, _ = ready
         mapping = self.sqlite_session.get(MyNexusChatSession, (self.current_user.id, book_id))
         if not mapping:
@@ -249,39 +250,39 @@ class MyNexusSessionHandler(BaseHandler):
     async def post(self, raw_id):
         if not self.current_user:
             self.set_status(401)
-            self.finish({"err": "user.need_login", "msg": "Please sign in"})
+            self.finish({"err": "user.need_login", "msg": _("请先登录")})
             return
         ready = await self._ready_book(raw_id)
         if not ready:
             self.set_status(404)
-            self.finish({"err": "not_found", "msg": "AI companion is unavailable"})
+            self.finish({"err": "not_found", "msg": _("AI 助手暂不可用")})
             return
         book_id, analysis = ready
         try:
             data = tornado.escape.json_decode(self.request.body)
         except (ValueError, TypeError):
             self.set_status(400)
-            self.finish({"err": "params.invalid", "msg": "Invalid JSON request"})
+            self.finish({"err": "params.invalid", "msg": _("JSON 请求格式无效")})
             return
         if not isinstance(data, dict):
             self.set_status(400)
-            self.finish({"err": "params.invalid", "msg": "Invalid request body"})
+            self.finish({"err": "params.invalid", "msg": _("请求内容无效")})
             return
         messages = data.get("messages")
         if not isinstance(messages, list) or not messages:
             self.set_status(400)
-            self.finish({"err": "params.invalid", "msg": "At least one message is required"})
+            self.finish({"err": "params.invalid", "msg": _("至少需要一条消息")})
             return
         normalized = []
         for message in messages:
             if not isinstance(message, dict) or message.get("role") not in ("user", "assistant") or not isinstance(message.get("content"), str):
                 self.set_status(400)
-                self.finish({"err": "params.invalid", "msg": "Messages must contain user or assistant text"})
+                self.finish({"err": "params.invalid", "msg": _("消息必须包含用户或助手角色及文本内容")})
                 return
             normalized.append({"role": message["role"], "content": message["content"]})
         if normalized[-1]["role"] != "user":
             self.set_status(400)
-            self.finish({"err": "params.invalid", "msg": "The last message must be from the user"})
+            self.finish({"err": "params.invalid", "msg": _("最后一条消息必须来自用户")})
             return
         mapping = self.sqlite_session.get(MyNexusChatSession, (self.current_user.id, book_id))
         reader_id = self.current_user.id
@@ -342,14 +343,14 @@ class MyNexusSessionHandler(BaseHandler):
             self.set_header("Content-Type", "application/json; charset=utf-8")
             self.finish(json.dumps({
                 "err": "mynexus.error",
-                "msg": response_info.get("body") or response_info.get("error") or "MyNexus chat request failed",
+                "msg": response_info.get("body") or response_info.get("error") or _("MyNexus 会话失败"),
             }))
             return
         remote_session_id = response_info.get("session_id")
         if not remote_session_id:
             await stream_future
             self.set_status(502)
-            self.finish({"err": "mynexus.error", "msg": "MyNexus did not return a session ID"})
+            self.finish({"err": "mynexus.error", "msg": _("MyNexus 未返回会话 ID")})
             return
         if mapping is None:
             mapping = MyNexusChatSession(self.current_user.id, book_id, remote_session_id)
@@ -385,7 +386,7 @@ class MyNexusAvailabilityHandler(MyNexusBookHandler):
     async def get(self, raw_id):
         book_id, book = await self._book(raw_id)
         if not book:
-            return {"err": "not_found", "msg": "Book not found or not accessible"}
+            return {"err": "not_found", "msg": _("没有找到书籍")}
         analysis = self.sqlite_session.get(MyNexusBookAnalysis, book_id)
         if analysis and analysis.status in ("pending", "processing", "submitting"):
             try:
@@ -416,15 +417,15 @@ class MyNexusTestConnectionHandler(BaseHandler):
         try:
             data = tornado.escape.json_decode(self.request.body)
         except (ValueError, TypeError):
-            return {"err": "params.invalid", "msg": "Invalid request body"}
+            return {"err": "params.invalid", "msg": _("请求内容无效")}
         if not isinstance(data, dict):
-            return {"err": "params.invalid", "msg": "Invalid request body"}
+            return {"err": "params.invalid", "msg": _("请求内容无效")}
         try:
             client = MyNexusClient(data.get("url"), data.get("token") or None)
             await utils.run_in_threadpool(client.test_connection)
         except MyNexusError as exc:
             return {"err": "mynexus.error", "msg": exc.message}
-        return {"err": "ok", "msg": "MyNexus connection successful"}
+        return {"err": "ok", "msg": _("MyNexus连接成功")}
 
 
 def routes():

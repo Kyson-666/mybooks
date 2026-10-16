@@ -1,9 +1,35 @@
+import json
+from pathlib import Path
+
 import pytest
 
 from webserver.models import MyNexusBookAnalysis, MyNexusChatSession
 from webserver.services import mynexus_service
 from webserver.services.mynexus_service import MyNexusClient, MyNexusError
 from webserver.handlers.mynexus import routes
+
+
+@pytest.mark.parametrize("language", ["en", "zh-TW"])
+def test_response_messages_have_translations(language):
+    catalog_path = Path(__file__).resolve().parents[1] / "webserver" / "i18n" / f"{language}.json"
+    with catalog_path.open(encoding="utf-8") as catalog_file:
+        catalog = json.load(catalog_file)
+
+    messages = (
+        "AI 助手暂不可用",
+        "JSON 请求格式无效",
+        "MyNexus 会话失败",
+        "MyNexus 未返回会话 ID",
+        "请求内容无效",
+        "消息必须包含用户或助手角色及文本内容",
+        "未找到该图书或无权访问",
+        "所选图书文件不可用",
+        "至少需要一条消息",
+        "需要 EPUB 或 TXT 格式",
+        "最后一条消息必须来自用户",
+    )
+    for message in messages:
+        assert catalog.get(message, "").strip(), f"{language}.json is missing {message}"
 
 
 class FakeResponse:

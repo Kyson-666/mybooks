@@ -46,12 +46,9 @@
         </div>
         <div class="settings-bar-right d-flex align-center">
           <!-- 稳定的 live region：chips 是 v-if/v-else 互换的节点，直接挂 aria-live 不保证播报 -->
-          <span class="settings-status-chip-wrap" role="status" aria-live="polite">
-            <v-chip v-if="dirtyCount > 0" color="orange" text-color="white" small class="settings-status-chip">
+          <span v-if="dirtyCount > 0" class="settings-status-chip-wrap" role="status" aria-live="polite">
+            <v-chip color="orange" text-color="white" small class="settings-status-chip">
               {{ $t('settings.unsaved_changes', { n: dirtyCount }) }}
-            </v-chip>
-            <v-chip v-else color="green" text-color="white" small class="settings-status-chip">
-              {{ $t('settings.all_saved') }}
             </v-chip>
           </span>
           <v-btn
@@ -120,14 +117,6 @@
         role="tabpanel"
         :aria-labelledby="'group-tab-' + g.id"
       >
-        <div class="d-flex align-center flex-wrap mt-4 mb-2">
-          <span class="settings-group-title-bar" :style="{ background: groupAccent(g.id) }"></span>
-          <v-icon large color="primary" class="mr-3">{{ g.icon }}</v-icon>
-          <div class="flex-grow-1">
-            <div class="text-h5 font-weight-medium">{{ $t(g.title) }}</div>
-          </div>
-        </div>
-
         <v-card
           v-for="s in g.sections"
           :key="g.id + '-' + s.id"
@@ -3330,7 +3319,6 @@ export default {
   background: transparent;
   border-radius: var(--app-radius, 4px);
   padding: 6px 8px 9px;
-  font-size: 13px;
   line-height: 1.4;
   color: inherit;
   cursor: pointer;
@@ -3435,10 +3423,6 @@ export default {
   .settings-seg-btn .v-icon {
     display: none;
   }
-  /* savebar 换行变高后加厚底部留白，避免遮挡最后几个字段 */
-  .settings-page-root {
-    padding-bottom: 128px;
-  }
 }
 .settings-result {
   border-bottom: 1px solid #eee;
@@ -3495,9 +3479,7 @@ export default {
   border-radius: 6px;
 }
 .settings-savebar {
-  position: fixed;
-  left: 0;
-  right: 0;
+  position: sticky;
   bottom: 0;
   z-index: 200;
   display: flex;
@@ -3514,7 +3496,7 @@ export default {
   border-top-color: #424242;
 }
 .settings-page-root {
-  padding-bottom: 80px;
+  padding-bottom: 24px;
 }
 .settings-page-root .v-card {
   border-radius: 16px;
