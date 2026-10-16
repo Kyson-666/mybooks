@@ -1147,9 +1147,10 @@ class TestIncrementalSnapshotCommit(ScanP0TestBase):
             self.svc.do_import_internal(filelist, 9, visited=visited, file_dir=file_dir)
         self.assertEqual(self._snapshot_dirs(), set())
 
-    def test_abort_suppresses_incremental_snapshot(self):
-        # abort 轮不推进快照（下轮按老快照重扫）：已算的行照常落库（取消不丢已算行），
-        # 但已完成目录的增量快照被 suppression 门控拦下。
+    def test_abort_suppresses_incremental_snapshot_in_flight(self):
+        # abort 时「进行中」的目录不推进快照（下轮按老快照重扫）：已算的行照常落库
+        # （取消不丢已算行），但该目录的增量快照被门控拦下。注：abort 前已随成功批
+        # 落盘的目录快照不回滚（那是崩溃恢复特性，非本用例范围）。
         self.svc.db = FakeCalibreDB()
         self._touch(os.path.join("d1", "a.txt"), b"a-content")
         filelist, visited, file_dir = self.svc._collect_files([self.tmpdir], use_snapshot=False)

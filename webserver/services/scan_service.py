@@ -17,8 +17,9 @@
 #     PHASE1_BATCH_SIZE 经 _apply_phase1_batch 在短写事务内统一落库并提交；
 #     计数与入队只发生在提交成功后（worker 用独立会话，入队晚于提交是跨会话可见的
 #     硬要求；commit 失败整批丢弃，计数不虚高，文件在磁盘可下轮自愈）。
-#     持久化失败置 static_phase1_persist_failed：本轮不提交目录快照、不清理批量
-#     上传暂存目录——否则没落库的路径会被快照剪枝永久漏掉。
+#     持久化失败置 static_phase1_persist_failed：此后不再推进任何目录快照（增量与
+#     整轮末尾都停）、不清理批量上传暂存目录——否则没落库的路径会被快照剪枝永久漏掉
+#     （此前已随成功批落盘的增量快照不回滚，但其目录文件均已落行，安全）。
 #   - 将 READY 行的 ID 放入有界工作队列（最大 50），自然地对阶段二施加背压。
 #
 # 阶段二（Importing）：独立后台线程执行
@@ -1515,7 +1516,7 @@ class ScanService(AsyncService):
         # 脏的行刷出去，驱动层写事务就此打开并一直持有到每 batch_size 本一次的批提交——
         # 一次写事务横跨整批的元数据读取/import_book 磁盘 IO，正是 Phase1 修掉的那类反
         # 模式；NAS 上批量慢于 busy_timeout 时与 Phase1 批提交双写撞锁（最多丢整批 500 行
-        # + 本轮不提交快照 → 下轮全量重扫）。
+        # + 本轮停推快照 → 下轮重扫；已完成目录若已随早前成功批落盘增量快照则可部分剪枝）。
         importing_session.autoflush = False
         importing_index = 0
         total_count = 0
@@ -1938,6 +1939,10 @@ class ScanService(AsyncService):
                         n = self._upsert_dir_snapshots(session, pending_snapshots)
                         logging.info("[IMPORT] Snapshot incremental upsert: %d dirs (same txn)", n)
                     except Exception as err:
+                        # 不 rollback：本批行在同一事务里，回滚会连行一起丢。已 upsert 的
+                        # 部分快照随下面的 commit 落盘也是安全的——pending 里的目录其文件
+                        # 必有行（丢行分支已提前清空 pending），快照语义是"该目录本轮已到
+                        # 终态"，与逐目录全有/全无无关。
                         logging.error("[IMPORT] Snapshot incremental upsert failed (skip this batch): %s", err)
                 pending_snapshots.clear()
             try:
