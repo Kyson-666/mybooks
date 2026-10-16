@@ -49,11 +49,15 @@ ADMIN_SETTING_KEYS = (
     "douban_apikey",
     "douban_baseurl",
     "douban_max_count",
+    "douban_v2_max_per_hour",
     "ujxsw_max_count",
     "auto_fill_meta",
+    "auto_fill_qpm",
+    "auto_fill_pause_on_throttle",
     "push_title",
     "push_content",
     "site_title",
+    "SITE_URL",
     "smtp_password",
     "smtp_server",
     "smtp_username",
@@ -64,6 +68,7 @@ ADMIN_SETTING_KEYS = (
     "avatar_service",
     "google_analytics_id",
     "site_language",
+    "site_timezone",
     "site_icon",
     "ENABLE_BOOKBARN",
     "ENABLE_PHYSICAL_BOOKS",
@@ -82,6 +87,8 @@ ADMIN_SETTING_KEYS = (
     "AI_DEEPSEEK_API_KEY",
     "AI_API_URL",
     "AI_ALLOW_SET_CATEGORY",
+    "MYNEXUS_URL",
+    "MYNEXUS_TOKEN",
     "MAIN_PAGE_RANDOM_COUNT",
     "MAIN_PAGE_RECENT_COUNT",
     "RECOMMEND_ENABLE",
@@ -132,6 +139,8 @@ ADMIN_SETTING_KEYS = (
     "READER_DICT_MYBOOKS_ENABLED",
     "READER_DICT_BAIKE_ENABLED",
     "READER_MYDICTS",
+    "MYNEXUS_TOKEN",
+    "MYNEXUS_URL",
     *perf.setting_keys(),
 )
 
@@ -144,7 +153,7 @@ PERSISTABLE_KEYS = frozenset(ADMIN_SETTING_KEYS) | frozenset({
     "scan_upload_path", "convert_timeout", "douban_apikey", "douban_baseurl", "douban_max_count",
     "auto_fill_meta", "push_title", "push_content", "site_title", "smtp_password", "smtp_server",
     "smtp_username", "smtp_encryption", "static_host", "xsrf_cookies", "settings_path",
-    "avatar_service", "google_analytics_id", "site_language", "site_theme", "site_icon",
+    "avatar_service", "google_analytics_id", "site_language", "site_timezone", "site_theme", "site_icon",
     "ENABLE_BOOKBARN", "ENABLE_PHYSICAL_BOOKS", "BOOKBARN_COLLECTION_HOUR", "BOOKBARN_TOKEN",
     "ENABLE_RECEIVING_BOOKS", "USE_BOOKBARN_PROXY", "BOOK2AUDIO_PROXY", "LAST_REVISION", "DEVICES",
     "AI_ENABLED", "AI_MODEL", "AI_MCP_TOKEN", "AI_DEEPSEEK_API_KEY", "AI_API_URL",
@@ -179,6 +188,7 @@ class SettingsSaver:
         "BOOK_NAMES_FORMAT",          # Calibre path-naming hook applied at startup
         "ENABLE_TXT_TO_TXTZ_PLUGIN",  # Calibre plugin enabled/disabled at startup
         "LOG_LEVEL_DEBUG",            # Logging level configured in setup_logging() at startup
+        "douban_v2_max_per_hour",     # DoubanV2 RequestCounter built at plugin import time
     })
 
     def _check_restart_needed(self, args):

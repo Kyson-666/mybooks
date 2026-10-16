@@ -4,6 +4,12 @@
 import json
 import logging
 import re
+import time
+
+# 整本扫描是纯 Python 循环，几十万行的解析若一直占着 GIL，会把同进程里的
+# Tornado IOLoop 饿住（实测接口延迟从 5ms 恶化到数秒）。正常路径由
+# ExtractService 放到独立子进程里跑，这里定期让出只是给进程内调用兜底。
+GIL_YIELD_EVERY_LINES = 200
 
 
 def get_file_encoding(file):
@@ -92,6 +98,7 @@ class TxtParser:
         pre_seek = -1
 
         line = fileobj.readline()
+        scanned = 0
         while line:
             # 获取当前文件指针的位置（seek位置）
             seek_position = fileobj.tell()
@@ -119,6 +126,9 @@ class TxtParser:
                 idx += 1
                 break
             pre_seek = seek_position
+            scanned += 1
+            if scanned % GIL_YIELD_EVERY_LINES == 0:
+                time.sleep(0)
             line = fileobj.readline()
         if len(toc) == 0:
             toc = [{

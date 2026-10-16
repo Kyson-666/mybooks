@@ -9,6 +9,7 @@ import time
 import json
 import os
 import zlib
+from webserver import site_time
 from webserver.i18n import _
 
 from social_sqlalchemy.storage import JSONType, SQLAlchemyMixin
@@ -624,7 +625,7 @@ class Reading(Base, SQLAlchemyMixin):
     book_title = Column(String(512), default="")  # 保留字段，本轮不填充
     action = Column(String(16), nullable=False)    # read | download | push
     protocol = Column(String(16), nullable=False)  # 见 PROTOCOL_* 常量，按 action 区分含义
-    date = Column(Date, nullable=False)  # UTC 日期（不含时间）；action=read 时是唯一键的一部分
+    date = Column(Date, nullable=False)  # 站点时区（site_timezone）下的日期，见 webserver/site_time.py；action=read 时是唯一键的一部分
     start_time = Column(DateTime, nullable=False)  # UTC；read=当天最近一次阅读会话开始时间，download/push=事件发生时间
     duration = Column(Integer, default=0, nullable=False)  # 秒；仅 action=read 有意义，download/push 恒为 0
     update_time = Column(DateTime, nullable=False)  # UTC；read=最后一次心跳时间，download/push=事件发生时间
@@ -640,7 +641,9 @@ class Reading(Base, SQLAlchemyMixin):
         self.start_time = start_time
         self.duration = duration
         self.update_time = update_time or start_time
-        self.date = date or self.update_time.date()
+        # 分桶日期按站点时区切天，而不是直接取 UTC 时刻的日期：UTC+8 的读者在
+        # 00:00~08:00 的阅读，UTC 日还停在前一天
+        self.date = date or site_time.site_date(self.update_time)
 
 
 # 单本书 · 分格式的阅读时长/进度统计
@@ -1204,6 +1207,45 @@ class BookShare(Base, SQLAlchemyMixin):
         return self.status == self.STATUS_ACTIVE and not self.is_expired(now) and not self.is_exhausted()
 
 
+class MyNexusBookAnalysis(Base, SQLAlchemyMixin):
+    __tablename__ = "mynexus_book_analyses"
+
+    book_id = Column(Integer, primary_key=True)
+    remote_book_id = Column(String(64), nullable=False, default="")
+    status = Column(String(32), nullable=False, default="pending")
+    progress = Column(Integer, nullable=False, default=0)
+    error_msg = Column(Text, nullable=False, default="")
+    reading_guide = Column(Text, nullable=False, default="")
+    response_json = Column(Text, nullable=False, default="{}")
+    update_time = Column(DateTime, nullable=False)
+
+    def __init__(self, book_id, status="pending"):
+        self.book_id = book_id
+        self.status = status
+        self.progress = 0
+        self.error_msg = ""
+        self.reading_guide = ""
+        self.response_json = "{}"
+        self.update_time = datetime.datetime.now()
+
+
+class MyNexusChatSession(Base, SQLAlchemyMixin):
+    __tablename__ = "mynexus_chat_sessions"
+
+    reader_id = Column(Integer, ForeignKey("readers.id"), primary_key=True)
+    book_id = Column(Integer, primary_key=True)
+    remote_session_id = Column(String(64), nullable=False)
+    update_time = Column(DateTime, nullable=False)
+
+    __table_args__ = (Index("ix_mynexus_chat_sessions_book", "book_id", "reader_id"), )
+
+    def __init__(self, reader_id, book_id, remote_session_id):
+        self.reader_id = reader_id
+        self.book_id = book_id
+        self.remote_session_id = remote_session_id
+        self.update_time = datetime.datetime.now()
+
+
 def user_syncdb(engine):
     Base.metadata.create_all(engine)
 
@@ -1211,7 +1253,7 @@ def user_syncdb(engine):
 # 表结构随功能迭代新增的表，不希望依赖运维方手动重新执行 `--syncdb` 才能用上
 # （`docker/start.sh` 每次启动都会跑 --syncdb，但手工部署/测试环境不一定会），
 # 在正常的 make_app() 启动路径里也顺带补建一次，checkfirst=True 天然幂等。
-_NEW_TABLES_AUTO_ENSURE = (ReadingRecord, BookReview, InstalledTool, BookReadingStats, BookList, BookListBook, BookListLike, ManualReadingLog, BookVisit, BookShare, ScanDirSnapshot)
+_NEW_TABLES_AUTO_ENSURE = (ReadingRecord, BookReview, InstalledTool, BookReadingStats, BookList, BookListBook, BookListLike, ManualReadingLog, BookVisit, BookShare, ScanDirSnapshot, MyNexusBookAnalysis, MyNexusChatSession)
 
 
 def ensure_new_tables(engine):

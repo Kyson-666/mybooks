@@ -84,6 +84,8 @@
 </template>
 
 <script>
+import { siteBaseUrl } from '~/utils/siteUrl';
+
 export default {
   data() {
     return {
@@ -152,7 +154,7 @@ export default {
     },
     async copyLink(item) {
       try {
-        await navigator.clipboard.writeText(window.location.origin + item.path);
+        await navigator.clipboard.writeText(siteBaseUrl(this.$store) + item.path);
         this.$alert('success', this.$t('share.copied'));
       } catch (e) {
         this.$alert('error', this.$t('message.operationFailed'));

@@ -31,7 +31,7 @@ import tornado.escape
 from tornado import web
 from sqlalchemy import func
 
-from webserver import loader, perf, utils
+from webserver import loader, perf, site_time, utils
 from webserver.base import accel
 from webserver.base.formatter import BookFormatter, ReadingStateFormatter
 from webserver.base.image_generator import ImageGenerator
@@ -49,7 +49,7 @@ from webserver.services.converter import ConverterService
 from webserver.services.extract import ExtractService
 from webserver.services.mail import MailService
 from webserver.handlers.base import BaseHandler, ListHandler, auth, js, throttle
-from webserver.models import BookReadingStats as BookFormatReadingStatsModel, Item, Reading, ReadingState, Reader, ScanFile
+from webserver.models import BookReadingStats as BookFormatReadingStatsModel, Item, MyNexusBookAnalysis, Reading, ReadingState, Reader, ScanFile
 from webserver.services.reading_stats_service import ManualReadingService, ReadingStatsService
 from webserver.services.scan_service import ScanService, SCAN_EXT
 from webserver.services.download_quota_service import DownloadQuotaService
@@ -291,6 +291,18 @@ class BookDetail(BaseHandler):
         # 分格式的阅读时长/进度统计
         formated_book = BookFormatter(self, book).format(with_files=True, with_perms=True)
         formated_book["reading_stats"] = ReadingStatsService.get_book_format_stats(self.current_user.id, book_id) if self.current_user else []
+        analysis = self.sqlite_session.get(MyNexusBookAnalysis, book_id)
+        can_read_ai_data = bool(self.current_user or BookAccessService.guest_read_allowed(self, book_id))
+        formated_book["ai_companion_available"] = bool(self.current_user and analysis and analysis.status == "completed")
+        formated_book["ai_reading_guide"] = analysis.reading_guide if can_read_ai_data and analysis and analysis.status == "completed" else ""
+        if self.is_admin():
+            formated_book["mynexus_configured"] = bool(CONF.get("MYNEXUS_URL") and CONF.get("MYNEXUS_TOKEN"))
+            formated_book["mynexus_analysis"] = {
+                "status": analysis.status,
+                "progress": analysis.progress,
+                "error_msg": analysis.error_msg,
+                "can_retry": analysis.status == "failed" and not analysis.remote_book_id,
+            } if analysis else {"status": "not_started", "progress": 0, "error_msg": ""}
 
         return {
             "err": "ok",
@@ -611,10 +623,6 @@ class BookCategories(BaseHandler):
         # read_limit == 2: 黑名单
         return [c for c in categories if c["name"] not in limit_cats]
 
-    def _query_category_rows(self, sql):
-        with self.db_lock:
-            return [(row[0], row[1]) for row in self.calibre_db_cache.backend.conn.get(sql)]
-
     @js
     async def get(self):
         # Find the custom column for category
@@ -638,7 +646,7 @@ class BookCategories(BaseHandler):
             version = self.library_version()
             rows = BaseHandler._catalog_cache.get(("categories", sql), version)
             if rows is None:
-                rows = await self.run_calibre_async(self._query_category_rows, sql)
+                rows = [(row[0], row[1]) for row in await self.run_calibre_sql(sql)]
                 BaseHandler._catalog_cache.put(("categories", sql), version, rows)
             categories = [{"name": row[0], "count": row[1]} for row in rows]
 
@@ -653,7 +661,7 @@ class BookCategories(BaseHandler):
 
 class TagSearch(BaseHandler):
     @js
-    def get(self):
+    async def get(self):
         q = (self.get_argument("q", "") or "").strip()
         limit = min(50, int(self.get_argument("limit", 20)))
         sql = """SELECT tags.name, count(distinct book) as count
@@ -661,8 +669,7 @@ class TagSearch(BaseHandler):
         WHERE tags.name LIKE ? ESCAPE '\\'
         GROUP BY tags.id ORDER BY count DESC LIMIT ?"""
         try:
-            with self.db_lock:
-                rows = self.calibre_db_cache.backend.conn.get(sql, (q + "%", limit))
+            rows = await self.run_calibre_sql(sql, (q + "%", limit))
             tags = [{"name": r[0], "count": r[1]} for r in rows]
             return {"err": "ok", "tags": tags}
         except Exception as e:
@@ -672,7 +679,7 @@ class TagSearch(BaseHandler):
 
 class AuthorSearch(BaseHandler):
     @js
-    def get(self):
+    async def get(self):
         """按输入内容动态查询已有作者，供编辑书籍时的作者输入框做自动完成。
 
         不传q（或q为空）时，默认按藏书量降序返回前100位作者。
@@ -684,8 +691,7 @@ class AuthorSearch(BaseHandler):
         WHERE authors.name LIKE ? ESCAPE '\\'
         GROUP BY authors.id ORDER BY count DESC LIMIT ?"""
         try:
-            with self.db_lock:
-                rows = self.calibre_db_cache.backend.conn.get(sql, (q + "%", limit))
+            rows = await self.run_calibre_sql(sql, (q + "%", limit))
             authors = [{"name": r[0], "count": r[1]} for r in rows]
             return {"err": "ok", "authors": authors}
         except Exception as e:
@@ -1901,7 +1907,9 @@ class BookReadingTimeCorrection(BaseHandler):
         date = self._parse_date(data.get("date"))
         if date is None:
             return {"err": "params.invalid", "msg": _("日期格式错误")}
-        if date > datetime.datetime.utcnow().date():
+        # 与分桶同一口径：按站点时区判「未来」，否则 UTC+8 的读者在本地凌晨补录当天
+        # 会被 UTC 日判成明天而拒收
+        if date > site_time.site_today():
             return {"err": "params.invalid", "msg": _("不能补录未来的阅读时间")}
 
         try:
@@ -2382,8 +2390,8 @@ class BookDownload(BaseHandler, web.StaticFileHandler):
 
 class BookNav(ListHandler):
     @js
-    def get(self):
-        tagmap = self.all_tags_with_count()
+    async def get(self):
+        tagmap = await self.all_tags_with_count_async()
         navs = []
         done = set()
         for line in CONF['BOOK_NAV'].split("\n"):
@@ -2649,7 +2657,7 @@ class SearchBook(ListHandler):
             except Exception as e:
                 logging.error("Search book failed: %s" % e)
                 logging.error(traceback.format_exc())
-        logging.info(f"[TRACE] search took {time.time() - start:.2f} seconds.")
+        logging.info(f"[TRACE] search took {time.time() - start:.2f} seconds, found:{len(ids)}")
         return await self._render_book_ids(ids, title, exclude_id, order_by)
 
     async def _render_search(self, query, title, exclude_id, order_by):
@@ -2662,14 +2670,34 @@ class SearchBook(ListHandler):
             logging.error(traceback.format_exc())
         return await self._render_book_ids(ids, title, exclude_id, order_by)
 
-    def _render_book_ids(self, ids, title, exclude_id, order_by):
+    @staticmethod
+    def _sole_book_ids(session, ids, user_id):
+        sole_book_ids = set()
+        for offset in range(0, len(ids), 500):
+            batch = ids[offset : offset + 500]
+            sole_book_ids.update(
+                book_id
+                for (book_id,) in session.query(Item.book_id)
+                .filter(
+                    Item.book_id.in_(batch),
+                    Item.sole == 1,
+                    Item.collector_id != user_id,
+                )
+                .all()
+            )
+        return sole_book_ids
+
+    async def _render_book_ids(self, ids, title, exclude_id, order_by):
         if exclude_id > 0 and exclude_id in ids:
             ids.remove(exclude_id)
 
         # 查询被别的用户标记为sole的图书ID，并将ids中对应的ID去除
-        sole_book_ids = set(item.book_id for item in self.sqlite_session.query(Item).filter(Item.sole == 1, Item.collector_id != self.user_id()).all())
+        sole_book_ids = await self.run_sqlite_async(
+            self._sole_book_ids, ids, self.user_id()
+        )
+
         ids = [book_id for book_id in ids if book_id not in sole_book_ids]
-        return self.render_book_list([], ids=ids, title=title, sort_fields=order_by)
+        return await self.render_book_list([], ids=ids, title=title, sort_fields=order_by)
 
 
 class HotBook(ListHandler):
@@ -2893,6 +2921,7 @@ class BookUpload(BaseHandler):
         if CONF.get(AUTO_FILL_META, False):
             AutoFillService().auto_fill_async(book_id)
         CatalogExtractService().extract_one_async(book_id)
+        self._prepare_txt_content(book_id)
 
         if CONF.get("SEND_MAIL_FOR_NEW_BOOKS", False) and mi.title:
             try:
@@ -2917,6 +2946,18 @@ class BookUpload(BaseHandler):
                 logging.error("Failed to trigger new book notification: %s", e)
 
         return book_id
+
+    def _prepare_txt_content(self, book_id):
+        """为含 TXT 格式的书籍预生成章节索引，阅读器打开即可拿到目录。"""
+        try:
+            formats = set(self.calibre_db_cache.formats(book_id, verify_formats=False) or [])
+            if "TXT" not in formats:
+                return
+            txt_path = self.calibre_db.format_abspath(book_id, "TXT", index_is_id=True)
+            if txt_path:
+                ExtractService().parse_txt_content(book_id, txt_path)
+        except Exception as e:
+            logging.warning("Failed to prepare txt content for book %s: %s", book_id, e)
 
     def _add_new_book(self, mi, fpaths, fmt):
         dynamic_cover = self._prepare_new_book(mi, fpaths, fmt)
@@ -2988,6 +3029,9 @@ class BookUpload(BaseHandler):
         try:
             await self.run_calibre_async(self.calibre_db.add_format, book_id, fmt.upper(), fpath, index_is_id=True, replace=force)
             logging.info(f"Successfully added {fmt.upper()} format to book {book_id}")
+
+            if fmt == "txt":
+                self._prepare_txt_content(book_id)
 
             try:
                 if update_metadata and fmt in utils.meta_writable_formats():

@@ -25,7 +25,7 @@ from typing import Dict, Optional
 
 from sqlalchemy import func, text
 
-from webserver import loader
+from webserver import loader, site_time
 from webserver.models import BookReadingStats, Reader, Reading, ReadingState
 
 CONF = loader.get_settings()
@@ -547,14 +547,14 @@ def _rank_seconds(db, start: datetime.date, end: datetime.date, limit: int) -> l
 
 
 def get_leaderboard(db, today: Optional[datetime.date] = None) -> Dict:
-    """阅读时长排行榜三档：本周（周一起，UTC 日口径）/ 本月 / 总时长。
+    """阅读时长排行榜三档：本周（周一起，站点时区日口径）/ 本月 / 总时长。
 
     总时长直接吃 Reader.total_reading_seconds 累计列（read 心跳维护，见 models.py），
     零聚合成本；本周/本月为 _rank_seconds 聚合，走 date 前导部分索引、成本只与窗口内
     行数相关（大库上也无需缓存，数据恒新鲜）。各档取前 LEADERBOARD_LIMIT 名。
-    `today` 仅供测试注入固定时钟，默认取 UTC 今天。
+    `today` 仅供测试注入固定时钟，默认取站点时区的今天。
     """
-    today = today or datetime.datetime.utcnow().date()
+    today = today or site_time.site_today()
     all_time = db.execute(
         text(
             """
@@ -593,7 +593,7 @@ def homepage_stats_disabled(is_home_request) -> bool:
 
 
 def get_stats(db, reader: Reader, calibre_db=None) -> Dict:
-    today = datetime.datetime.utcnow().date()
+    today = site_time.site_today()
     cache = _load_cache(reader.id)
     cache = _reconcile(db, reader.id, cache, today)
 

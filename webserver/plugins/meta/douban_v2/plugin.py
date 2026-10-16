@@ -27,9 +27,22 @@ class DoubanV2MetaPlugin(MetaSourcePlugin):
     SOURCE_KEYS: tuple = (META_SOURCE_DOUBAN_V2, )
     PROVIDER_KEY = KEY
 
-    MAX_REQUESTS_PER_HOUR = 180
+    MAX_REQUESTS_PER_HOUR = max(1, int(CONF.get("douban_v2_max_per_hour", 180) or 180))
     # 插件每次调用都会新建实例，计数器必须挂在类上才能跨实例共享
     _counter = RequestCounter(MAX_REQUESTS_PER_HOUR)
+
+    @classmethod
+    def throttle_wait_seconds(cls):
+        """预算耗尽时返回距预算真正可用的秒数，否则 None。
+
+        用 seconds_until_budget_available 而非 seconds_until_window_end：
+        突发额度耗尽后下一窗口整体拒绝，只等到本窗尾会展示过早的恢复时间。
+        供批量抓取方（autofill）主动让路：与其让本插件静默跳过（书拿不到
+        元数据且无感知），不如暂停等预算恢复后继续。
+        """
+        if not cls._counter.is_exceeded():
+            return None
+        return cls._counter.seconds_until_budget_available()
 
     @classmethod
     def _acquire(cls):

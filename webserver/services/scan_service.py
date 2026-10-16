@@ -64,6 +64,7 @@ from webserver.models import Item, ScanFile, Reader, ScanDirSnapshot
 from webserver import utils, constants
 from webserver.services.autofill import AutoFillService
 from webserver.services.catalog import CatalogExtractService
+from webserver.services.extract import ExtractService
 from webserver.constants import CALIBRE_COLUMN_BOOK_TYPE, CALIBRE_COLUMN_CATEGORY, CALIBRE_ERROR_FLAG
 from webserver.constants import BOOK_TYPE_EBOOK, BOOK_TYPE_PHYSICAL, CALIBRE_COLUMN_DYNAMIC_COVER, CALIBRE_COLUMN_TRANSLATORS
 from webserver.constants import SCANNED_DOCUMENT_FORMATS
@@ -1818,6 +1819,20 @@ class ScanService(AsyncService):
         staged.append(("save", row, ScanFile.READY))
         return None, ScanFile.READY
 
+    def _prepare_txt_contents(self, book_ids):
+        """Schedule TXT chapter-index (content.json) generation for freshly imported books, so the
+        built-in TXT reader opens instantly instead of parsing on the first read. Only books that
+        actually carry a TXT format are enqueued, and ExtractService.parse_txt_content is idempotent
+        (an already cached index is reused), so this is safe to call for every imported book."""
+        for bid in book_ids:
+            try:
+                txt_path = self.db.format_abspath(bid, "TXT", index_is_id=True)
+            except Exception as e:
+                logging.debug("[IMPORT] txt path lookup failed for book=%s: %s", bid, e)
+                continue
+            if txt_path and os.path.isfile(txt_path):
+                ExtractService().parse_txt_content(bid, txt_path)
+
     def do_import_internal(self, filelist, user_id, task_id=None, imported_id=0, force=False, sole=False, visited=None, file_dir=None):
         """
             并行执行:
@@ -2110,6 +2125,7 @@ class ScanService(AsyncService):
             logging.info("[IMPORT] Starting auto-fill for %d imported books", len(importing_imported))
             AutoFillService().auto_fill_all(importing_imported)
             CatalogExtractService().extract_batch(user_id, importing_imported)
+            self._prepare_txt_contents(importing_imported)
 
             # 私藏批次不发新书通知：邮件会发全站，等于把私藏书的存在与书名公开
             if CONF.get("SEND_MAIL_FOR_NEW_BOOKS", False) and not sole:

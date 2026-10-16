@@ -483,7 +483,8 @@ class AdminSettings(BaseHandler):
                 "link": "https://developers.weixin.qq.com/doc/offiaccount/OA_Web_Apps/Wechat_webpage_authorization.html",
             },
         ]
-        return {"err": "ok", "settings": CONF, "sns": sns, "site_url": self.site_url}
+        settings = dict(CONF)
+        return {"err": "ok", "settings": settings, "sns": sns, "site_url": self.site_url}
 
     @js
     @auth
@@ -540,6 +541,31 @@ class AdminSettings(BaseHandler):
                     shutil.copy(new_icon_path, static_icon_path)
                 except Exception as e:
                     logging.info("Error: %s", str(e))
+        # 网站默认访问链接：留空表示按当前访问地址生成分享链接/二维码；
+        # 填了就必须是合法的 http/https 地址，否则前端会拼出坏链接且肉眼难发现
+        if "SITE_URL" in args:
+            site_url_raw = str(args["SITE_URL"] or "").strip()
+            site_url = utils.normalize_site_url(site_url_raw)
+            if site_url_raw and not site_url:
+                return {
+                    "err": "params.site_url.invalid",
+                    "msg": _(
+                        "网站默认访问链接无效，需以 http:// 或 https:// 开头，且不能包含空格"
+                    ),
+                }
+            args["SITE_URL"] = site_url
+        # 系统时区：auto 或 IANA 时区名。只做形态校验、不查库——名字确实不存在时
+        # webserver/site_time.py 会在运行时回退到站点语言默认并打 warning（精简镜像缺
+        # tzdata 时合法名字也查不到，在这里拦会把对的也拒了）；这里挡的是空格、引号、
+        # 超长这类脏值。
+        if "site_timezone" in args:
+            tz = str(args["site_timezone"] or "").strip()
+            if tz and not utils.is_timezone_name(tz):
+                return {
+                    "err": "params.site_timezone.invalid",
+                    "msg": _("系统时区无效，需填写 auto 或 IANA 时区名（如 Asia/Shanghai）"),
+                }
+            args["site_timezone"] = tz
         # Check the douban_apikey if only number, letters, _ or -, and length <=48
         if "douban_apikey" in args:
             apikey = args["douban_apikey"]
@@ -749,9 +775,13 @@ class AdminSSL(BaseHandler):
 
 
 class AdminBookList(BaseHandler):
+    def _search_book_ids(self, search, sort, ascending):
+        self.calibre_db.sort(field=sort, ascending=ascending)
+        return list(self.calibre_db_cache.search(search))
+
     @js
     @is_admin
-    def get(self):
+    async def get(self):
         if not self.admin_user:
             return {"err": "permission.not_admin", "msg": _("当前用户非管理员")}
 
@@ -772,10 +802,11 @@ class AdminBookList(BaseHandler):
             else:
                 search = book_type_query
             logging.debug("Adjusted search query: %s" % search)
-        self.calibre_db.sort(field=sort, ascending=(not desc))
         start = page * num
         end = start + num
-        all_ids = list(self.calibre_db_cache.search(search))
+        all_ids = await self.run_calibre_async(
+            self._search_book_ids, search, sort, not desc
+        )
         total = len(all_ids)
 
         # sort by id
@@ -785,9 +816,12 @@ class AdminBookList(BaseHandler):
         books = []
         page_ids = all_ids[start:end]
         if page_ids:
+            book_rows = await self.get_books_for_list_async(ids=page_ids)
+            book_by_id = {book["id"]: book for book in book_rows}
             books = [
-                SimpleBookFormatter(b, self.cdn_url).format()
-                for b in self.get_books(ids=page_ids)
+                SimpleBookFormatter(book_by_id[book_id], self.cdn_url).format()
+                for book_id in page_ids
+                if book_id in book_by_id
             ]
 
         return {"err": "ok", "items": books, "total": total}

@@ -3,6 +3,7 @@
 import datetime
 import unittest
 
+from webserver import loader, site_time
 from webserver.models import Reading
 from webserver.services.reading_stats_service import (
     HEARTBEAT_MAX_GAP,
@@ -38,7 +39,7 @@ class TestReadingWriteBuffer(unittest.TestCase):
         self.assertEqual(session.duration_delta, 0)
         self.assertTrue(session.dirty)
         self.assertEqual(session.session_start, self.t0)
-        self.assertEqual(session.current_date, self.t0.date())
+        self.assertEqual(session.current_date, site_time.site_date(self.t0))
         self.assertEqual(self.buf._reader_seconds_delta, {})
 
     def test_heartbeat_within_gap_accumulates_duration(self):
@@ -70,7 +71,7 @@ class TestReadingWriteBuffer(unittest.TestCase):
         session = self.buf._sessions[(1, 100)]
         # crossing into a new date always opens a fresh bucket, even though the
         # real-time gap here is small — see document/Reading_Stats_Design.md §11.4
-        self.assertEqual(session.current_date, next_day.date())
+        self.assertEqual(session.current_date, site_time.site_date(next_day))
         self.assertEqual(session.duration_delta, 0)
         self.assertTrue(session.dirty)
         self.assertFalse(session.visit_counted)
@@ -171,6 +172,46 @@ class TestBookFormatStatsBufferExplicit(unittest.TestCase):
         self.assertEqual(state.duration_delta, 5400)
         self.assertEqual(state.progress, (10, 100))
         self.assertTrue(state.touched)
+
+
+class TestHeartbeatDayBucketFollowsSiteTimezone(unittest.TestCase):
+    """分桶日期按站点时区切天（见 webserver/site_time.py）：UTC+8 的读者在本地凌晨的
+    阅读属于新的一天，而这一刻的 UTC 日期还停在前一天。"""
+
+    def setUp(self):
+        self.buf = ReadingWriteBuffer()
+        self.conf = loader.get_settings()
+        self._had_key = "site_timezone" in self.conf
+        self._saved = self.conf.get("site_timezone")
+        self.addCleanup(self._restore)
+
+    def _restore(self):
+        if self._had_key:
+            self.conf["site_timezone"] = self._saved
+        else:
+            self.conf.pop("site_timezone", None)
+
+    def test_utc_plus_8_reader_opens_a_new_bucket_at_local_midnight(self):
+        self.conf["site_timezone"] = "Asia/Shanghai"
+        t0 = datetime.datetime(2026, 1, 1, 15, 59, 58)  # 北京时间 1 月 1 日 23:59:58
+        self.buf.on_heartbeat(1, 100, Reading.PROTOCOL_APP, t0)
+        self.assertEqual(self.buf._sessions[(1, 100)].current_date, datetime.date(2026, 1, 1))
+
+        # 5 秒后本地已跨天，UTC 日期仍是 1 月 1 日 —— 跨天以站点时区为准
+        self.buf.on_heartbeat(1, 100, Reading.PROTOCOL_APP, t0 + datetime.timedelta(seconds=5))
+        session = self.buf._sessions[(1, 100)]
+        self.assertEqual(session.current_date, datetime.date(2026, 1, 2))
+        self.assertTrue(session.dirty)
+        self.assertNotIn(1, self.buf._reader_seconds_delta)  # 跨天丢弃这次增量
+
+    def test_utc_setting_keeps_the_utc_day(self):
+        self.conf["site_timezone"] = "UTC"
+        t0 = datetime.datetime(2026, 1, 1, 15, 59, 58)
+        self.buf.on_heartbeat(1, 100, Reading.PROTOCOL_APP, t0)
+        self.buf.on_heartbeat(1, 100, Reading.PROTOCOL_APP, t0 + datetime.timedelta(seconds=5))
+        session = self.buf._sessions[(1, 100)]
+        self.assertEqual(session.current_date, datetime.date(2026, 1, 1))
+        self.assertEqual(session.duration_delta, 5)
 
 
 if __name__ == "__main__":

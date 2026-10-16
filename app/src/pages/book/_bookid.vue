@@ -2,6 +2,58 @@
   <div>
     <v-row align="start">
         <v-col cols="12">
+            <AppDialog
+                v-model="mynexusChatOpen"
+                type="action"
+                :title="$t('book.mynexusCompanion')"
+                icon="mdi-forum-outline"
+                color="primary"
+                :dismiss-label="$t('common.close')"
+                width="760"
+                max-width="95vw"
+                hide-footer-button
+            >
+                <div class="mynexus-chat-messages">
+                    <div
+                        v-for="(message, index) in mynexusMessages"
+                        :key="'mynexus-message-' + index"
+                        class="mynexus-chat-message"
+                        :class="message.role === 'user' ? 'mynexus-chat-user' : 'mynexus-chat-assistant'"
+                    >
+                        <div class="text-caption font-weight-bold mb-1">{{ message.role === 'user' ? $t('book.mynexusYou') : 'MyNexus' }}</div>
+                        <MyNexusMarkdown
+                            v-if="message.role !== 'user'"
+                            class="mynexus-chat-content"
+                            :content="message.content"
+                        />
+                        <div v-else class="mynexus-chat-content">{{ message.content }}</div>
+                        <details v-for="(citation, citationIndex) in (message.citations || [])" :key="'mynexus-citation-' + index + '-' + citationIndex" class="mt-2">
+                            <summary>{{ $t('book.mynexusCitation') }} {{ citationIndex + 1 }}</summary>
+                            <div class="mynexus-chat-content mt-1">{{ citation.content }}</div>
+                        </details>
+                    </div>
+                    <div v-if="mynexusChatError" class="error--text">{{ mynexusChatError }}</div>
+                    <div v-if="mynexusMessages.length === 0 && !mynexusChatLoading" class="grey--text text-center py-8">
+                        {{ $t('book.mynexusChatEmpty') }}
+                    </div>
+                </div>
+                <v-textarea
+                    v-model="mynexusQuestion"
+                    :label="$t('book.mynexusChatPlaceholder')"
+                    rows="2"
+                    auto-grow
+                    hide-details
+                    class="mt-3"
+                    @keydown.ctrl.enter="sendMyNexusMessage"
+                ></v-textarea>
+                <template v-slot:actions>
+                    <div class="d-flex justify-center flex-grow-1">
+                        <v-btn color="primary" :loading="mynexusChatLoading" :disabled="!mynexusQuestion.trim()" @click="sendMyNexusMessage">
+                            {{ $t('common.send') }}
+                        </v-btn>
+                    </div>
+                </template>
+            </AppDialog>
             <v-dialog v-model="dialog_converting" persistent width="460">
                 <v-card class="dialog-border">
                     <div style="height: 16px;"></div>
@@ -558,8 +610,8 @@
                                 </p>
                                 <br />
                                 <div class="authors-container">
-                                    <template v-for="(author, index) in book.authors.slice(0, 5)" :key="'author-' + index">
-                                        <div class="author-item">
+                                    <template v-for="(author, index) in book.authors.slice(0, 5)">
+                                        <div class="author-item" :key="'author-' + index">
                                             <nuxt-link v-if="showUserInfo" :to="{ path: '/author', query: { name: author } }" style="text-decoration: none;">
                                                 <v-img :src="authorAvatarUrl(author)" alt="author-avatar"
                                                         class="author-avatar"></v-img>
@@ -575,8 +627,8 @@
                                             </v-tooltip>
                                         </div>
                                     </template>
-                                    <template v-for="(translator, index) in book.translators.slice(0, 2)" :key="'translator-' + index">
-                                        <div class="author-item">
+                                    <template v-for="(translator, index) in book.translators.slice(0, 2)">
+                                        <div class="author-item" :key="'translator-' + index">
                                             <nuxt-link v-if="showUserInfo" :to="{ path: '/author', query: { name: translator } }" style="text-decoration: none;">
                                                 <v-img :src="authorAvatarUrl(translator)" alt="author-avatar"
                                                         class="author-avatar"></v-img>
@@ -618,8 +670,9 @@
                                         @blur="cancelEditLocation"
                                     ></v-text-field>
                                 </span>
-                                <template v-for="(file, index) in book.files.slice(0, 3)" :key="'file-size-' + index">
+                                <template v-for="(file, index) in book.files.slice(0, 3)">
                                     <span
+                                        :key="'file-size-' + index"
                                         color="grey--text"
                                         style="font-weight: bold"
                                     >{{ '&nbsp;&nbsp;' }}[{{ file.format }} - {{ file.size >= 1048576 ? parseInt(file.size / 1048576) + 'MB' : parseInt(file.size / 1024) + 'KB' }}]</span>
@@ -654,6 +707,31 @@
                                         @click="aiFillBook" :loading="ai_filling">
                                     <v-icon left>mdi-robot</v-icon>
                                     {{ $t('book.aiUpdate') }}
+                                </v-chip>
+                                <v-chip
+                                    v-if="isAdmin && !book.ai_companion_available"
+                                    rounded
+                                    small
+                                    color="deep-purple"
+                                    class="white--text"
+                                    :disabled="!mynexusHasSupportedFormat || mynexusRequesting || ['pending', 'processing', 'submitting'].includes(mynexusStatus) || (mynexusStatus === 'failed' && !(book.mynexus_analysis && book.mynexus_analysis.can_retry))"
+                                    :title="mynexusHasSupportedFormat ? '' : $t('book.mynexusUnsupportedFormat')"
+                                    @click="startMyNexusAnalysis"
+                                >
+                                    <v-progress-circular v-if="mynexusRequesting" indeterminate size="16" width="2" class="mr-1"></v-progress-circular>
+                                    <v-icon v-else left>mdi-book-search</v-icon>
+                                    {{ $t('book.mynexusAnalyze') }}
+                                </v-chip>
+                                <v-chip
+                                    v-if="book.ai_companion_available"
+                                    rounded
+                                    small
+                                    color="teal"
+                                    class="white--text"
+                                    @click="openMyNexusChat"
+                                >
+                                    <v-icon left>mdi-forum-outline</v-icon>
+                                    {{ $t('book.mynexusCompanion') }}
                                 </v-chip>
                                 <v-menu offset-y :close-on-content-click="false" v-model="categoryMenu" content-class="mt-category-menu">
                                     <template v-slot:activator="{ on, attrs }">
@@ -751,9 +829,49 @@
                                 </template>
                             </div>
                         </v-card-text>
+                        <v-card-text v-if="isAdmin && book.mynexus_error" class="pt-0 error--text">
+                            {{ book.mynexus_error }}
+                        </v-card-text>
+                        <v-card-text v-if="isAdmin && (mynexusIsActive || mynexusStatus === 'failed')" class="pt-0">
+                            <div class="d-flex align-center mb-2">
+                                <v-icon small class="mr-2" :color="mynexusStatus === 'failed' ? 'error' : 'primary'">mdi-book-search</v-icon>
+                                <span>{{ mynexusStatusLabel }}</span>
+                            </div>
+                            <v-progress-linear
+                                v-if="mynexusIsActive"
+                                :value="book.mynexus_analysis && book.mynexus_analysis.progress || 0"
+                                color="primary"
+                                height="6"
+                            ></v-progress-linear>
+                            <div v-if="mynexusStatus === 'failed' && book.mynexus_analysis && book.mynexus_analysis.error_msg" class="error--text mt-2">
+                                {{ book.mynexus_analysis.error_msg }}
+                            </div>
+                        </v-card-text>
                         <v-card-text>
-                            <p v-if="book.comments" v-html="book.comments"></p>
-                            <p v-else>{{ $t('book.clickToViewDetails') }}</p>
+                            <div v-if="book.ai_reading_guide" class="mynexus-section-tabs">
+                                <button
+                                    type="button"
+                                    :class="{ active: mynexusDescriptionTab === 'description' }"
+                                    @click="mynexusDescriptionTab = 'description'"
+                                >{{ $t('book.mynexusDescriptionTab') }}</button>
+                                <button
+                                    type="button"
+                                    :class="{ active: mynexusDescriptionTab === 'guide' }"
+                                    @click="mynexusDescriptionTab = 'guide'"
+                                >{{ $t('book.mynexusGuideTab') }}</button>
+                            </div>
+                            <template v-if="mynexusDescriptionTab === 'guide' && book.ai_reading_guide">
+                                <client-only>
+                                <MyNexusMarkdown
+                                    class="mynexus-reading-guide"
+                                    :content="book.ai_reading_guide"
+                                />
+                                </client-only>
+                            </template>
+                            <template v-else>
+                                <p v-if="book.comments" v-html="book.comments"></p>
+                                <p v-else>{{ $t('book.clickToViewDetails') }}</p>
+                            </template>
                         </v-card-text>
                         <v-card-text v-if="book.catalog" class="pt-0">
                             <div class="catalog-toggle" @click="catalogExpanded = !catalogExpanded">
@@ -1395,6 +1513,7 @@
 
 <script>
 import BookCards from "~/components/BookCards.vue";
+import MyNexusMarkdown from "~/components/MyNexusMarkdown.vue";
 import BookSocialInfo from "~/components/BookSocialInfo.vue";
 import BookReviewList from "~/components/BookReviewList.vue";
 import BookReviewDialog from "~/components/BookReviewDialog.vue";
@@ -1402,10 +1521,12 @@ import BookListQuickAddMenu from "~/components/BookListQuickAddMenu.vue";
 import { downloadImage, renderBookShareCard, shareCardFileName } from "~/utils/bookShareCard";
 import { languageOptions } from "~/utils/languageCodes";
 import { toStars } from "~/utils/rating";
+import { siteBaseUrl } from "~/utils/siteUrl";
 
 export default {
     components: {
         BookCards,
+        MyNexusMarkdown,
         BookSocialInfo,
         BookReviewList,
         BookReviewDialog,
@@ -1440,6 +1561,25 @@ export default {
         },
         isAdmin: function () {
             return this.$store.state.user?.is_admin === true;
+        },
+        mynexusStatus: function () {
+            return this.book.mynexus_analysis?.status || "not_started";
+        },
+        mynexusIsActive: function () {
+            return ["pending", "processing", "submitting"].includes(this.mynexusStatus);
+        },
+        mynexusStatusLabel: function () {
+            const keys = {
+                pending: "book.mynexusAnalysisPending",
+                processing: "book.mynexusAnalysisProcessing",
+                submitting: "book.mynexusAnalysisPending",
+                failed: "book.mynexusAnalysisFailed",
+                completed: "book.mynexusAnalysisCompleted",
+            };
+            return this.$t(keys[this.mynexusStatus] || "book.mynexusAnalysisPending");
+        },
+        mynexusHasSupportedFormat: function () {
+            return (this.book.files || []).some((file) => ["epub", "txt"].includes(file.format.toLowerCase()));
         },
         canReview: function () {
             // 评价功能总开关（管理员在"浏览与阅读"里关闭时，整个评论区都不展示）
@@ -1664,13 +1804,15 @@ export default {
             return ['epub', 'azw3', 'mobi', 'azw', 'docx'].some(format => formats.includes(format));
         },
 
-        // 可供在线阅读的格式列表，按优先级排列：TXT > EPUB > PDF > DJVU > CBZ > FB2（CBZ/FB2 仅 MyReader 支持）
+        // 可供在线阅读的格式列表，按优先级排列：EPUB > TXT > PDF > DJVU > CBZ > FB2（CBZ/FB2 仅 MyReader 支持）
+        // 同时有 EPUB 与 TXT 时默认打开 EPUB，原生 TXT 阅读器放到「更多格式」菜单里
         readFormats() {
             if (!this.book) return [];
             const formats = [];
-            if (this.is_txt) formats.push({ key: 'txt', label: 'TXT', href: '/book/' + this.book.id + '/readtxt' });
-            // TXT 默认同时支持转换为 EPUB 阅读
-            if (this.hasEpubFormat || this.is_txt) formats.push({ key: 'epub', label: this.$t('book.epubReader'), href: '/read/' + this.book.id + '?format=epub' });
+            if (this.hasEpubFormat) formats.push({ key: 'epub', label: this.$t('book.epubReader'), href: '/read/' + this.book.id + '?format=epub' });
+            if (this.is_txt) formats.push({ key: 'txt', label: this.$t('book.txtReader'), href: '/book/' + this.book.id + '/readtxt' });
+            // 纯 TXT 书仍额外提供转换为 EPUB 的阅读入口
+            if (!this.hasEpubFormat && this.is_txt) formats.push({ key: 'epub', label: this.$t('book.epubReader'), href: '/read/' + this.book.id + '?format=epub' });
             if (this.hasPDF) formats.push({ key: 'pdf', label: this.$t('book.pdfReader'), href: '/read/' + this.book.id + '?format=pdf' });
             if (this.hasDjvu) formats.push({ key: 'djvu', label: this.$t('book.djvuReader'), href: '/read/' + this.book.id + '?format=djvu' });
             if (this.hasCbz && this.isMyReader) formats.push({ key: 'cbz', label: this.$t('book.cbzReader'), href: '/read/' + this.book.id + '?format=cbz' });
@@ -1874,6 +2016,14 @@ export default {
         },
         debug: false,
         loaded: false,
+        mynexusPollTimer: null,
+        mynexusRequesting: false,
+        mynexusChatOpen: false,
+        mynexusChatLoading: false,
+        mynexusChatError: "",
+        mynexusQuestion: "",
+        mynexusMessages: [],
+        mynexusDescriptionTab: "description",
         ai_filling: false,
         catalog_extracting: false,
         catalogExpanded: false,
@@ -2034,6 +2184,8 @@ export default {
         await this.getSettings();
         // 从localStorage加载上次使用的设备选项（在devices加载完成后）
         this.loadDevicePreferences();
+        if (this.isAdmin) this.loadMyNexusAnalysis();
+        else this.loadMyNexusAvailability();
     },
     watch: {
         // 监听audios数据变化，当数据加载完成后检查是否需要启动进度轮询
@@ -2112,7 +2264,12 @@ export default {
         }
     },
     beforeRouteUpdate(to, from, next) {
-        this.init(to, next);
+    clearInterval(this.mynexusPollTimer);
+    this.mynexusDescriptionTab = "description";
+    this.init(to, next);
+    this.$nextTick(() => {
+        if (this.isAdmin) this.loadMyNexusAnalysis();
+    });
     },
     beforeDestroy() {
         // 清理音频资源
@@ -2120,9 +2277,138 @@ export default {
         this.stopAudioFilePlayback();
         this.stopAudioProgressPolling();
         this.stopConvertingPolling();
+        clearInterval(this.mynexusPollTimer);
     },
     methods: {
         toStars,
+        async loadMyNexusAnalysis() {
+            if (!this.isAdmin || !this.book.id || !this.book.mynexus_configured) return;
+            try {
+                const response = await this.$backend(`/book/${this.book.id}/mynexus/analysis`);
+                if (response.err !== "ok") {
+                    this.$set(this.book, "mynexus_error", response.msg || this.$t("book.mynexusAnalysisFailed"));
+                    return;
+                }
+                this.$set(this.book, "mynexus_error", "");
+                this.$set(this.book, "mynexus_analysis", response.analysis);
+                if (response.analysis.status === "completed") {
+                    this.$set(this.book, "ai_companion_available", true);
+                    this.$set(this.book, "ai_reading_guide", response.analysis.reading_guide || "");
+                }
+                if (["pending", "processing", "submitting"].includes(response.analysis.status)) {
+                    if (!this.mynexusPollTimer) {
+                        this.mynexusPollTimer = setInterval(this.loadMyNexusAnalysis, 5000);
+                    }
+                } else {
+                    clearInterval(this.mynexusPollTimer);
+                    this.mynexusPollTimer = null;
+                }
+            } catch (error) {
+                this.$set(this.book, "mynexus_error", error.message || this.$t("book.mynexusChatFailed"));
+            }
+        },
+        async loadMyNexusAvailability() {
+            if (this.isAdmin || this.$store.state.user?.is_login !== true || !this.book.id || this.book.ai_companion_available) return;
+            try {
+                const response = await this.$backend(`/book/${this.book.id}/mynexus/availability`);
+                if (response.err === "ok" && response.available) {
+                    this.$set(this.book, "ai_companion_available", true);
+                    this.$set(this.book, "ai_reading_guide", response.reading_guide || "");
+                }
+            } catch (error) {
+                console.error("Failed to refresh MyNexus availability:", error);
+            }
+        },
+        async startMyNexusAnalysis() {
+            if (!this.book.mynexus_configured) {
+                this.$alert("warning", this.$t("book.mynexusNotConfigured"));
+                return;
+            }
+            this.mynexusRequesting = true;
+            try {
+                const response = await this.$backend(`/book/${this.book.id}/mynexus/analysis`, { method: "POST" });
+                if (response.err !== "ok") {
+                    this.$alert("error", response.msg || this.$t("book.mynexusAnalysisFailed"));
+                    this.loadMyNexusAnalysis();
+                } else {
+                    this.$set(this.book, "mynexus_analysis", response.analysis);
+                    if (["pending", "processing", "submitting"].includes(response.analysis.status)) {
+                        if (!this.mynexusPollTimer) {
+                            this.mynexusPollTimer = setInterval(this.loadMyNexusAnalysis, 5000);
+                        }
+                    } else if (response.analysis.status === "completed") {
+                        this.$set(this.book, "ai_companion_available", true);
+                        this.$set(this.book, "ai_reading_guide", response.analysis.reading_guide || "");
+                    }
+                }
+            } catch (error) {
+                this.$alert("error", error.message || this.$t("book.mynexusAnalysisFailed"));
+            } finally {
+                this.mynexusRequesting = false;
+            }
+        },
+        async openMyNexusChat() {
+            this.mynexusChatError = "";
+            try {
+                const response = await this.$backend(`/book/${this.book.id}/mynexus/session`);
+                if (response.err !== "ok") throw new Error(response.msg || this.$t("book.mynexusChatFailed"));
+                this.mynexusMessages = response.messages || [];
+                this.mynexusChatOpen = true;
+            } catch (error) {
+                this.$alert("error", error.message || this.$t("book.mynexusChatFailed"));
+            }
+        },
+        async sendMyNexusMessage() {
+            const question = this.mynexusQuestion.trim();
+            if (!question || this.mynexusChatLoading) return;
+            this.mynexusQuestion = "";
+            this.mynexusChatError = "";
+            this.mynexusMessages.push({ role: "user", content: question });
+            this.mynexusMessages.push({ role: "assistant", content: "", citations: [] });
+            const assistant = this.mynexusMessages[this.mynexusMessages.length - 1];
+            this.mynexusChatLoading = true;
+            try {
+                const response = await fetch(`/api/book/${this.book.id}/mynexus/chat`, {
+                    method: "POST",
+                    credentials: "same-origin",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ messages: this.mynexusMessages.slice(0, -1) }),
+                });
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.msg || this.$t("book.mynexusChatFailed"));
+                }
+                if (!response.body) throw new Error(this.$t("book.mynexusChatFailed"));
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+                let buffer = "";
+                let done = false;
+                while (!done) {
+                    const chunk = await reader.read();
+                    done = chunk.done;
+                    buffer += decoder.decode(chunk.value || new Uint8Array(), { stream: !done });
+                    buffer = buffer.replace(/\r\n/g, "\n");
+                    let boundary = buffer.indexOf("\n\n");
+                    while (boundary >= 0) {
+                        const frame = buffer.slice(0, boundary);
+                        buffer = buffer.slice(boundary + 2);
+                        const payload = frame.split("\n").filter((line) => line.startsWith("data:")).map((line) => line.slice(5).trim()).join("\n");
+                        if (payload && payload !== "[DONE]") {
+                            const event = JSON.parse(payload);
+                            if (event.error) throw new Error(event.error);
+                            assistant.content += event.choices?.[0]?.delta?.content || "";
+                            if (event.citations) assistant.citations = event.citations;
+                        }
+                        boundary = buffer.indexOf("\n\n");
+                    }
+                }
+            } catch (error) {
+                this.mynexusMessages.splice(-2, 2);
+                this.mynexusChatError = error.message || this.$t("book.mynexusChatFailed");
+            } finally {
+                this.mynexusChatLoading = false;
+            }
+        },
         authorAvatarUrl(author) {
             const ts = Math.floor(Date.now() / 10000) * 10000;
             return `/get/author/avatar/${author}?t=${ts}`;
@@ -2984,6 +3270,22 @@ export default {
         // 阅读按钮点击：epub/txt格式需要先检查解析/转换状态，其它格式直接打开
         async onReadClick(event, fmt) {
             event.preventDefault();
+            if (fmt.key === 'txt') {
+                // 只做一次只读状态查询（test=1）：校验登录/权限，但不在这里入队解析。
+                // 解析交给阅读器自己——它先渲染开头正文、再启动目录扫描；若在点开的
+                // 瞬间就入队，整本扫描会和首屏请求并发，把「加载中」拉长数秒。
+                const txtRsp = await this.pollReadConversion(fmt.key);
+                if (txtRsp && txtRsp.err === "user.need_login") {
+                    this.$router.push("/login");
+                    return;
+                }
+                if (!txtRsp || txtRsp.err !== "ok") {
+                    this.$alert("error", (txtRsp && txtRsp.msg) || '');
+                    return;
+                }
+                window.open(fmt.href, '_blank');
+                return;
+            }
             const rsp = await this.startReadConversion(fmt.key);
             if (rsp.err === "user.need_login") {
                 this.$router.push("/login");
@@ -3605,7 +3907,7 @@ export default {
                     title: this.book.title,
                     comments: this.book.comments,
                     coverUrl: this.book.img,
-                    qrUrl: `${window.location.origin}/read/${this.book.id}`,
+                    qrUrl: `${siteBaseUrl(this.$store)}/read/${this.book.id}`,
                     siteTitle: localStorage.getItem('sys_title') || 'MyBooks',
                 });
             } catch (err) {
@@ -3935,5 +4237,72 @@ h1.book-detail-title {
     line-height: 1.7;
     max-height: 360px;
     overflow-y: auto;
+}
+.mynexus-section-tabs {
+    display: flex;
+    width: fit-content;
+    max-width: 100%;
+    padding: 4px;
+    margin: 0 auto 16px;
+    border-radius: 12px;
+    background: rgba(128, 128, 128, 0.14);
+}
+.mynexus-section-tabs button {
+    min-width: 120px;
+    padding: 8px 16px;
+    border: 0;
+    border-radius: 9px;
+    color: inherit;
+    background: transparent;
+    cursor: pointer;
+    transition: background-color 0.2s ease, box-shadow 0.2s ease;
+}
+.mynexus-section-tabs button.active {
+    background: var(--v-primary-base);
+    color: #fff;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.16);
+}
+.mynexus-reading-guide {
+    overflow-wrap: anywhere;
+    line-height: 1.75;
+}
+.mynexus-chat-messages {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    max-height: 48vh;
+    min-height: 180px;
+    overflow-y: auto;
+}
+.mynexus-chat-message {
+    max-width: 92%;
+    padding: 10px 14px;
+    border-radius: 12px;
+    overflow-wrap: anywhere;
+}
+.mynexus-chat-user {
+    align-self: flex-end;
+    background: rgba(25, 118, 210, 0.12);
+}
+.mynexus-chat-assistant {
+    align-self: flex-start;
+    background: rgba(128, 128, 128, 0.12);
+}
+.mynexus-chat-content {
+    line-height: 1.6;
+    overflow-wrap: anywhere;
+}
+@media (max-width: 600px) {
+    .mynexus-section-tabs {
+        width: 100%;
+    }
+    .mynexus-section-tabs button {
+        flex: 1;
+        min-width: 0;
+        padding: 8px 6px;
+    }
+    .mynexus-chat-message {
+        max-width: 100%;
+    }
 }
 </style>

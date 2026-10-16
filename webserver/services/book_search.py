@@ -36,7 +36,7 @@ class BookSearch:
         if cls._search_executor is None:
             cls._search_executor = ThreadPoolExecutor(
                 max_workers=max(1, len(_PLUGIN_CLASSES)),
-                thread_name_prefix="meta-search",
+                thread_name_prefix="mybooks-meta-search",
             )
         return cls._search_executor
 
@@ -44,6 +44,30 @@ class BookSearch:
     def _enabled_plugins(sources):
         plugins = (klass() for klass in _PLUGIN_CLASSES)
         return [p for p in plugins if p.is_enabled(sources)]
+
+    @staticmethod
+    def throttle_wait_seconds():
+        """已启用插件中限流源的最大等待秒数；无超限源返回 None。
+
+        供批量元数据抓取方（如 autofill）在请求前主动让路：与其让限流插件
+        静默跳过（书拿不到元数据且无感知），不如暂停等预算窗口重置后继续。
+        只统计 is_enabled 的插件——源没启用就不会被请求，谈不上超限。
+        """
+        waits = []
+        for klass in _PLUGIN_CLASSES:
+            waiter = getattr(klass, "throttle_wait_seconds", None)
+            if not callable(waiter):
+                continue
+            try:
+                if not klass().is_enabled():
+                    continue
+                wait = waiter()
+            except Exception as err:
+                logging.warning("[BookSearch]throttle check failed for %s: %s", klass.__name__, err)
+                continue
+            if wait:
+                waits.append(int(wait))
+        return max(waits) if waits else None
 
     @staticmethod
     def all_sources():

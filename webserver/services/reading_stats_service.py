@@ -18,7 +18,7 @@ from typing import Dict, List, Optional, Tuple
 import tornado.ioloop
 from sqlalchemy import func, text, update
 
-from webserver import loader, perf
+from webserver import loader, perf, site_time
 from webserver.models import BookReadingStats, Item, ManualReadingLog, Reader, Reading
 from webserver.services import reading_dashboard_service
 from webserver.services.reader_cache import ReaderStatsCache
@@ -117,7 +117,8 @@ class ReadingWriteBuffer:
         with self._lock:
             key = (reader_id, book_id)
             session = self._sessions.get(key)
-            today = now_utc.date()
+            # 分桶日期是站点时区下的一天，不是 UTC 日（见 webserver/site_time.py）
+            today = site_time.site_date(now_utc)
             logging.debug(f"[Heartbeat] {reader_id} on {book_id}")
             # 三种情况都视为"开启一行新的天级记录"：从未见过这本书的心跳、日期跨天了、
             # 或者心跳间隔超过阈值（新的一次阅读会话）。跨天时丢弃这次心跳的 delta（最多
@@ -631,8 +632,9 @@ class ReadingStatsService:
             return
         now_utc = datetime.datetime.utcnow()
         # 客户端上报前已按 §上报前转为 UTC 处理，这里再兜底一次，防止时钟偏差/坏数据
-        # 把时长记到未来的日期上。
-        date = min(date, now_utc.date())
+        # 把时长记到未来的日期上。封顶到站点时区的今天（而不是 UTC 日）：东八区的读者
+        # 在本地凌晨上报当天阅读时，UTC 日还停在前一天，按 UTC 封顶会把它拉错一天。
+        date = min(date, site_time.site_today())
         cls._buffer.on_explicit(reader_id, book_id, protocol, date, duration_seconds, now_utc)
         if fmt:
             cls._format_buffer.on_explicit(reader_id, book_id, fmt.lower(), duration_seconds, progress, now_utc)

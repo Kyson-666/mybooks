@@ -20,8 +20,10 @@ beautifulsoup4==4.12.3
 EbookLib==0.19
 mutagen==1.47.0
 openai
+langchain>=1.0.0,<2.0.0
+langchain-openai>=1.0.0,<2.0.0
+langgraph>=1.0.0,<2.0.0
 requests==2.33.0
-edge-tts==7.2.8
 pydub==0.25.1
 wyoming==1.6.0
 sentencex==0.6.1

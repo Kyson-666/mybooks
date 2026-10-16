@@ -123,10 +123,16 @@
             <template v-slot:append v-if="user.is_login">
                 <div @click.stop>
                     <v-divider></v-divider>
-                    <v-list-item dense to="/logout">
-                        <v-list-item-action dense>
+                    <v-list-item dense to="/logout" :class="{ 'v-list-item--icon-only': miniVariant }">
+                        <v-list-item-action v-if="!miniVariant" class="mt-1 mb-1 mr-2" dense>
                             <v-icon>mdi-logout</v-icon>
                         </v-list-item-action>
+                        <v-tooltip v-else bottom>
+                            <template v-slot:activator="{ on, attrs }">
+                                <v-icon v-bind="attrs" v-on="on" size="24">mdi-logout</v-icon>
+                            </template>
+                            {{ $t('appHeader.logout') }}
+                        </v-tooltip>
                         <v-list-item-content v-if="!miniVariant">
                             <v-list-item-title>{{ $t('appHeader.logout') }}</v-list-item-title>
                         </v-list-item-content>
@@ -154,7 +160,7 @@
                             v-model="search"
                             :label="$t('appHeader.search')"
                             :loading="ai_thinking"
-                            :disabled="ai_thinking"
+                            :disabled="ai_thinking || $store.state.searchLoading"
                             class="mobile-search-field"
                         >
                             <template #prepend-inner>
@@ -168,6 +174,7 @@
                                         <v-btn
                                             v-bind="attrs"
                                             v-on="on"
+                                            :disabled="$store.state.searchLoading"
                                             class="category-selector"
                                             :class="isMobileFocused ? 'black--text' : 'white--text'"
                                             color="transparent"
@@ -189,7 +196,13 @@
                                 </v-menu>
                             </template>
                             <template #append>
-                                <v-btn dark rounded @click="doSearch" color="primary" :disabled="ai_thinking" small>{{ $t('appHeader.search') }}</v-btn>
+                                <v-progress-circular
+                                    v-if="$store.state.searchLoading"
+                                    indeterminate
+                                    color="primary"
+                                    width="3"
+                                ></v-progress-circular>
+                                <v-btn v-else dark rounded @click="doSearch" color="primary" :disabled="ai_thinking" small>{{ $t('appHeader.search') }}</v-btn>
                             </template>
                         </v-text-field>
                     </v-form>
@@ -226,7 +239,7 @@
                     name="name"
                     :label="$t('appHeader.search')"
                     :loading="ai_thinking"
-                    :disabled="ai_thinking"
+                    :disabled="ai_thinking || $store.state.searchLoading"
                     class="d-none d-sm-flex ml-8 desktop-search-field"
                 >
                     <template #prepend-inner>
@@ -240,6 +253,7 @@
                                 <v-btn
                                     v-bind="attrs"
                                     v-on="on"
+                                    :disabled="$store.state.searchLoading"
                                     rounded
                                     color="transparent"
                                     class="category-selector"
@@ -262,6 +276,13 @@
                         </v-menu>
                     </template>
                     <template #append>
+                        <v-progress-circular
+                            v-if="$store.state.searchLoading"
+                            indeterminate
+                            color="primary"
+                            width="3"
+                            class="mr-2"
+                        ></v-progress-circular>
                         <v-btn v-if="isAiFeatureEnabled" :color="isFocused ? (ai_enabled ? 'orange' : 'grey') : 'transparent'" class="black--text" rounded @click="toggleAi">AI</v-btn>
                     </template>
                 </v-text-field>
@@ -295,11 +316,15 @@
                                     <v-list-item-subtitle class="mt-2">
                                         <v-progress-linear
                                             :value="getTaskProgress(task)"
-                                            color="primary"
+                                            :color="isTaskPaused(task) ? 'orange' : 'primary'"
                                             height="6"
                                             rounded
                                         ></v-progress-linear>
                                         <span class="caption mt-1">{{ getTaskProgress(task) }}%</span>
+                                    </v-list-item-subtitle>
+                                    <v-list-item-subtitle v-if="isTaskPaused(task)" class="caption mt-1 orange--text">
+                                        <v-icon x-small color="orange">mdi-pause-circle</v-icon>
+                                        {{ $t('appHeader.taskPausedThrottle', { time: pausedResumeTime(task) }) }}
                                     </v-list-item-subtitle>
                                 </v-list-item-content>
                             </v-list-item>
@@ -541,7 +566,6 @@ export default {
         search: "",
         searchCategory: 'all',
         searchCategories: [
-            { value: 'all', label: 'appHeader.searchAll' },
             { value: 'title', label: 'appHeader.searchTitle' },
             { value: 'title_sort', label: 'appHeader.searchTitleSort' },
             { value: 'author', label: 'appHeader.searchAuthor' },
@@ -549,6 +573,7 @@ export default {
             { value: 'comments', label: 'appHeader.searchComments' },
             { value: 'tags', label: 'appHeader.searchTags' },
             { value: 'series', label: 'appHeader.searchSeries' },
+            { value: 'all', label: 'appHeader.searchAll' },
         ],
         categoryMenu: false,
         mobileCategoryMenu: false,
@@ -781,6 +806,11 @@ export default {
             localStorage.setItem('sys_title', rsp.sys.title);
             if (rsp.sys.language !== '') {
                 this.$i18n.locale = rsp.sys.language;
+            }
+            // 分享链接/二维码的站点基地址（管理员可在设置里指定对外域名），
+            // 缓存一份供首屏请求未返回时的分享动作兜底，见 utils/siteUrl.js
+            if (process.client && typeof rsp.sys.siteUrl === 'string') {
+                localStorage.setItem('sys_site_url', rsp.sys.siteUrl);
             }
             if (process.client && rsp.sys.maxUploadSize !== '') {
                 localStorage.setItem('max_upload_size', rsp.sys.maxUploadSize);
@@ -1021,6 +1051,8 @@ export default {
             }
         },
         doSearch() {
+            if (this.$store.state.searchLoading || this.ai_thinking) return;
+
             if (this.search.trim() !== "") {
                 let searchText = this.search.trim();
 
@@ -1030,12 +1062,20 @@ export default {
                     searchText = this.searchCategory + ':' + searchText;
                 }
 
+                if (this.$route.path === '/search' && this.$route.query.name === searchText && !this.$route.query.start) {
+                    return;
+                }
+
                 // Save the selected category to localStorage
                 if (process.client) {
                     localStorage.setItem('searchCategory', this.searchCategory);
                 }
 
-                this.$router.push("/search?name=" + searchText);
+                this.$store.commit('search_loading', true);
+                this.$router.push("/search?name=" + searchText).catch((error) => {
+                    this.$store.commit('search_loading', false);
+                    console.error("Search navigation failed:", error);
+                });
             } else {
                 const ref = this.$refs.mobile_search || this.$refs.search;
                 if (ref) {
@@ -1158,6 +1198,19 @@ export default {
         },
         getTaskProgress(task) {
             return Math.round(task.progress);
+        },
+        isTaskPaused(task) {
+            const data = task && task.progress_data;
+            return !!data && data.stage === "paused";
+        },
+        pausedResumeTime(task) {
+            const resumeAt = task && task.progress_data && task.progress_data.resume_at;
+            if (!resumeAt) {
+                return "";
+            }
+            const date = new Date(resumeAt * 1000);
+            const pad = n => String(n).padStart(2, "0");
+            return `${pad(date.getHours())}:${pad(date.getMinutes())}`;
         },
         isGroupExpanded(idx, item) {
             if (this.expandedGroups[idx] !== undefined) {

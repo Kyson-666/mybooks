@@ -16,11 +16,12 @@ from collections import defaultdict
 from urllib.parse import urlparse
 from jinja2 import Environment, FileSystemLoader
 from sqlalchemy import func as sql_func
+from sqlalchemy import inspect as sa_inspect
 from tornado import web
 from tornado.escape import utf8
 
 from webserver.i18n import _, choose_language, set_language
-from webserver import loader, perf, utils
+from webserver import loader, perf, site_time, utils
 from webserver.base import calibre_fast
 from webserver.base.book_data_cascade import cascade_delete_book_data
 from webserver.base.formatter import BookFormatter
@@ -576,10 +577,18 @@ class BaseHandler(web.RequestHandler):
         self.sqlite_session.commit()
         return messages
 
+    def _attached_user(self):
+        user = self.current_user
+        if user is not None and sa_inspect(user).detached:
+            user = self.sqlite_session.merge(user)
+            self.current_user = user
+        return user
+
     def user_history(self, action, book):
         if not self.user_id():
             return
-        extra = self.current_user.extra
+        user = self._attached_user()
+        extra = user.extra
         history = extra.get(action, [])
         for val in history[:12]:
             if val["id"] == book["id"]:
@@ -594,7 +603,6 @@ class BaseHandler(web.RequestHandler):
         # we have five type of history, so make a average limit of max history
         ITEM_COUNT_LIMIT = 60  # = 32KB/100B/5
         extra[action] = history[:ITEM_COUNT_LIMIT]
-        user = self.current_user
         user.extra.update(extra)
         try:
             user.save()
@@ -607,10 +615,10 @@ class BaseHandler(web.RequestHandler):
             return
         if not key.endswith("_count"):
             key = key + "_count"
-        extra = self.current_user.extra
+        user = self._attached_user()
+        extra = user.extra
         count = extra.get(key, 0) + 1
         extra[key] = count
-        user = self.current_user
         user.extra.update(extra)
         try:
             user.save()
@@ -793,6 +801,13 @@ class BaseHandler(web.RequestHandler):
         请求上下文（contextvars，含 i18n 请求语言）经 bind_threadpool_call 显式带入。
         """
         return await self._run_calibre(func, args, kwargs, locked=True)
+
+    async def run_calibre_sql(self, sql, params=None):
+        """在 Calibre 专用线程池中执行原生 SQL，避免在 ioloop 等待 db_lock。"""
+        conn = self.calibre_db_cache.backend.conn
+        if params is None:
+            return await self.run_calibre_async(conn.get, sql)
+        return await self.run_calibre_async(conn.get, sql, params)
 
     async def run_sqlite_async(self, func, *args, **kwargs):
         """在工作线程执行 func(session, *args, **kwargs)：重查询不占 ioloop。
@@ -1165,6 +1180,18 @@ class BaseHandler(web.RequestHandler):
             BaseHandler._catalog_cache.put("all_tags_with_count", version, tags)
         return dict(tags)
 
+    async def query_all_tags_with_count_async(self):
+        """全库标签计数的非阻塞版本。"""
+        version = self.library_version()
+        tags = BaseHandler._catalog_cache.get("all_tags_with_count", version)
+        if tags is None:
+            sql = """SELECT tags.name, count(distinct book) as count
+            FROM tags left join books_tags_link on tags.id = books_tags_link.tag
+            group by tags.id order by count desc"""
+            tags = dict((row[0], row[1]) for row in await self.run_calibre_sql(sql))
+            BaseHandler._catalog_cache.put("all_tags_with_count", version, tags)
+        return dict(tags)
+
     def filter_tags_by_read_range(self, tags):
         if CONF.get(constants.ALLOW_READ_RANGE_SETTING, False):
             return self._filter_tags(tags)
@@ -1184,6 +1211,20 @@ class BaseHandler(web.RequestHandler):
                 )
 
         # 过滤掉不在当前用户阅读范围的标签
+        return self.filter_tags_by_read_range(tags)
+
+    async def all_tags_with_count_async(self):
+        cache_key = "all_tags_with_count"
+        try:
+            tags = await self.query_all_tags_with_count_async()
+            BaseHandler._query_fallback_cache[cache_key] = tags
+        except Exception as e:
+            tags = BaseHandler._query_fallback_cache.get(cache_key, {})
+            logging.error("all_tags_with_count query failed: %s", str(e))
+            if tags:
+                logging.warning(
+                    "all_tags_with_count fallback to cache, count=%d", len(tags)
+                )
         return self.filter_tags_by_read_range(tags)
 
     def get_category_with_count(self, field):
@@ -1220,6 +1261,10 @@ class BaseHandler(web.RequestHandler):
                     len(cached),
                 )
             return cached
+
+    async def get_category_with_count_async(self, field):
+        """Non-blocking counterpart to get_category_with_count()."""
+        return await self.run_calibre_async(self.get_category_with_count, field)
 
     def get_folder_count(self):
         """Return the number of distinct top-level folders in #folder."""
@@ -1549,7 +1594,15 @@ class BaseHandler(web.RequestHandler):
                 "upgrable": CONF.get(UPGRABLE_REVISION, ""),
                 "title": CONF["site_title"] if "site_title" in CONF else "MyBooks",
                 "language": CONF["site_language"] if "site_language" in CONF else "",
+                # 站点时区的**解析结果**（不是设置项原文）：前端要把「今天」按同一时区算，
+                # 否则浏览器与服务端时区不同（如站点设为 UTC）时热力图/日历会高亮错一格。
+                # timezone 是 IANA 名给 Intl 用，timezoneLabel 是给界面显示的现成串。
+                "timezone": site_time.resolve_timezone_name(),
+                "timezoneLabel": site_time.timezone_label(),
                 "theme": CONF["site_theme"] if "site_theme" in CONF else "light",
+                # 管理员配置的「网站默认访问链接」（反代/内网访问时让分享链接指向对外域名）：
+                # 非空时前端生成分享链接与二维码用它，留空则回退到当前访问地址
+                "siteUrl": utils.normalize_site_url(CONF.get("SITE_URL", "")),
                 "maxUploadSize": (
                     CONF["MAX_UPLOAD_SIZE"] if "MAX_UPLOAD_SIZE" in CONF else "100MB"
                 ),
@@ -1736,6 +1789,7 @@ class ListHandler(BaseHandler):
         else:
             count = len(all_books)
             books = all_books[start : start + delta]
+
         return {
             "err": "ok",
             "title": title,

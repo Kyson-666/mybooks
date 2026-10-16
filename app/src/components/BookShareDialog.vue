@@ -85,6 +85,7 @@
 
 <script>
 import { downloadImage, renderBookShareCard, shareCardFileName } from '~/utils/bookShareCard';
+import { siteBaseUrl } from '~/utils/siteUrl';
 
 const DEFAULT_EXPIRE_DAYS = 7;
 
@@ -116,13 +117,13 @@ export default {
             return this.book.id;
         },
         cardQrUrl() {
-            return this.shareUrl || `${window.location.origin}/read/${this.bookId}`;
+            return this.shareUrl || `${siteBaseUrl(this.$store)}/read/${this.bookId}`;
         },
         isActive() {
             return !!this.share && this.share.status === 1;
         },
         shareUrl() {
-            return this.share && typeof window !== 'undefined' ? window.location.origin + this.share.path : '';
+            return this.share && typeof window !== 'undefined' ? siteBaseUrl(this.$store) + this.share.path : '';
         },
         expireItems() {
             const items = [

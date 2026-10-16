@@ -32,7 +32,15 @@ settings = {
     "user_database" : 'sqlite:////data/books/calibre-webserver.db',
     "site_title"    : "书屋",
     "site_language" : "auto",
+    # 系统时区：阅读统计等按「天」分桶的时间基准。"auto" = 跟随站点语言（简繁中文 UTC+8、
+    # 英文 UTC），也可填任意 IANA 时区名（如 Asia/Shanghai）。见 webserver/site_time.py。
+    "site_timezone" : "auto",
     "site_theme"    : "dark",
+    # 管理员配置的「网站默认访问链接」。留空时分享链接/二维码使用当前访问地址；
+    # 反代或内网访问下想让对外域名出现在分享链接里时填写（不含结尾斜杠）。
+    # 注意与每请求被 set_hosts() 覆盖的小写 "site_url" 是两套概念：那个仍供邮件、OPDS
+    # 说明页、头像、磁盘扫描等用请求派生的地址，本键只喂分享链接与二维码。
+    "SITE_URL"      : "",
     "ssl_crt_file"  : "/data/books/ssl/ssl.crt",
     "ssl_key_file"  : "/data/books/ssl/ssl.key",
 
@@ -80,6 +88,8 @@ settings = {
     "AI_DEEPSEEK_API_KEY": "",
     "AI_API_URL": "https://api.deepseek.com",
     "AI_ALLOW_SET_CATEGORY": True,
+    "MYNEXUS_URL": "",
+    "MYNEXUS_TOKEN": "",
     "MAIN_PAGE_RANDOM_COUNT": 12,
     "MAIN_PAGE_RECENT_COUNT": 12,
     "RECOMMEND_ENABLE": True,                 # 首页推荐引擎总开关，关闭即回到旧的随机逻辑
@@ -245,8 +255,11 @@ settings = {
     'douban_apikey'     : "0df993c66c0c636e29ecbb5344252a4a",
     'douban_baseurl'    : "http://douban-rs-api:80/",
     'douban_max_count'  : 2,
+    'douban_v2_max_per_hour': 180,
     'ujxsw_max_count'   : 2,
     'auto_fill_meta'    : False,
+    'auto_fill_qpm'     : 60,
+    'auto_fill_pause_on_throttle': True,
 
     'avatar_service'    : "https://cravatar.cn",
 
