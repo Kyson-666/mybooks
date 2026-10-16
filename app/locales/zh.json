@@ -595,6 +595,7 @@
     "djvuReader": "阅读DjVu文件",
     "cbzReader": "阅读CBZ漫画",
     "fb2Reader": "阅读FB2文件",
+    "txtReader": "阅读TXT文件",
     "manage": "管理",
     "process": "文件处理",
     "syncBookInfo": "从互联网同步书籍信息",
@@ -787,7 +788,8 @@
     "parsing": "首次阅读，正在解析目录，请稍候... {wait}",
     "timeoutMessage": "超时未完成，可继续等待稍后刷新尝试",
     "timeout": "解析超时",
-    "contentError": "获取正文失败！{msg}"
+    "contentError": "获取正文失败！{msg}",
+    "tocParsing": "正在解析目录，可先阅读正文，目录稍后自动出现"
   },
   "common": {
     "cancel": "取消",

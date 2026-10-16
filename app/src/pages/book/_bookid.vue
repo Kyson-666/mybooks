@@ -1804,13 +1804,15 @@ export default {
             return ['epub', 'azw3', 'mobi', 'azw', 'docx'].some(format => formats.includes(format));
         },
 
-        // 可供在线阅读的格式列表，按优先级排列：TXT > EPUB > PDF > DJVU > CBZ > FB2（CBZ/FB2 仅 MyReader 支持）
+        // 可供在线阅读的格式列表，按优先级排列：EPUB > TXT > PDF > DJVU > CBZ > FB2（CBZ/FB2 仅 MyReader 支持）
+        // 同时有 EPUB 与 TXT 时默认打开 EPUB，原生 TXT 阅读器放到「更多格式」菜单里
         readFormats() {
             if (!this.book) return [];
             const formats = [];
-            if (this.is_txt) formats.push({ key: 'txt', label: 'TXT', href: '/book/' + this.book.id + '/readtxt' });
-            // TXT 默认同时支持转换为 EPUB 阅读
-            if (this.hasEpubFormat || this.is_txt) formats.push({ key: 'epub', label: this.$t('book.epubReader'), href: '/read/' + this.book.id + '?format=epub' });
+            if (this.hasEpubFormat) formats.push({ key: 'epub', label: this.$t('book.epubReader'), href: '/read/' + this.book.id + '?format=epub' });
+            if (this.is_txt) formats.push({ key: 'txt', label: this.$t('book.txtReader'), href: '/book/' + this.book.id + '/readtxt' });
+            // 纯 TXT 书仍额外提供转换为 EPUB 的阅读入口
+            if (!this.hasEpubFormat && this.is_txt) formats.push({ key: 'epub', label: this.$t('book.epubReader'), href: '/read/' + this.book.id + '?format=epub' });
             if (this.hasPDF) formats.push({ key: 'pdf', label: this.$t('book.pdfReader'), href: '/read/' + this.book.id + '?format=pdf' });
             if (this.hasDjvu) formats.push({ key: 'djvu', label: this.$t('book.djvuReader'), href: '/read/' + this.book.id + '?format=djvu' });
             if (this.hasCbz && this.isMyReader) formats.push({ key: 'cbz', label: this.$t('book.cbzReader'), href: '/read/' + this.book.id + '?format=cbz' });
@@ -3268,6 +3270,12 @@ export default {
         // 阅读按钮点击：epub/txt格式需要先检查解析/转换状态，其它格式直接打开
         async onReadClick(event, fmt) {
             event.preventDefault();
+            if (fmt.key === 'txt') {
+                // TXT 阅读器可先读正文、目录后台解析，打开不再等待解析完成
+                this.startReadConversion(fmt.key);
+                window.open(fmt.href, '_blank');
+                return;
+            }
             const rsp = await this.startReadConversion(fmt.key);
             if (rsp.err === "user.need_login") {
                 this.$router.push("/login");

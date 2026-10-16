@@ -36,26 +36,30 @@
     <div>
       <v-container>
         <v-card outlined v-if="!inited" width="300" style="margin: 0 auto">
-          <v-card-title ref="tipTitle">{{ $t('reader.tip.title') }}</v-card-title>
-          <v-card-text ref="tip">
-            {{ $t('reader.tip.content') }}
+          <v-card-title ref="tipTitle">{{ tip.title }}</v-card-title>
+          <v-card-text ref="tip" class="text-center">
+            <v-progress-circular v-if="!tip.content" color="primary" indeterminate size="28"/>
+            <span v-else>{{ tip.content }}</span>
           </v-card-text>
         </v-card>
         <div v-else>
+          <div class="text-center caption grey--text" style="margin-bottom: 10px" v-if="!tocReady">
+            {{ tocHint }}
+          </div>
           <div class="d-flex justify-center align-content-center" style="margin-bottom: 20px" v-if="loading">
             <v-progress-circular color="primary" indeterminate size="28" style="margin-right: 10px"/>
             {{ $t('reader.loading') }}
           </div>
           <div style="word-wrap: break-word" v-html="novelContent" v-show="!loading"/>
           <div class="d-flex justify-space-between" v-show="novelContent && !loading">
-            <v-btn color="info" elevation="0" :disabled="selected===0"
+            <v-btn color="info" elevation="0" :disabled="!tocReady || selected<=0"
                    @click="getNovelContent(selected-1)">
               {{ $t('reader.previous') }}
             </v-btn>
-            <v-btn outlined elevation="0" @click="sidebar=true" v-show="!sidebar">
+            <v-btn outlined elevation="0" @click="sidebar=true" v-show="tocReady && !sidebar">
               {{ $t('reader.directory') }}
             </v-btn>
-            <v-btn color="primary" elevation="0" :disabled="selected===content.length-1"
+            <v-btn color="primary" elevation="0" :disabled="!tocReady || selected>=content.length-1"
                    @click="getNovelContent(selected+1)">
               {{ $t('reader.next') }}
             </v-btn>
@@ -70,6 +74,9 @@
 <script>
 import AppFooter from "~/components/AppFooter.vue"
 
+// 打开时先直接渲染 txt 开头这么多字节，无需等待目录解析完成。
+const PREVIEW_BYTES = 20000;
+
 export default {
   name: "TxtReader",
   components: {AppFooter},
@@ -77,10 +84,11 @@ export default {
     return {
       sidebar: null,
       bookid: null,
-      items: ["1", "2", "3"],
       content: [],
       inited: false,
-      wait: 0,
+      tocReady: false,
+      pollTimer: null,
+      hintText: '',
       name: null,
       novelContent: '',
       selected: -1,
@@ -91,69 +99,106 @@ export default {
       }
     }
   },
+  computed: {
+    // 目录就绪前显示的非阻塞提示（队列/超时/错误优先，否则为“解析中”）
+    tocHint() {
+      return this.hintText || this.$t('reader.tocParsing');
+    }
+  },
   created() {
     this.bookid = this.$route.params.bid;
     this.$store.commit("navbar", false);
-    this.tip.title = this.$t('reader.tip.title');
-    this.tip.content = this.$t('reader.tip.content');
-    this.init()
+    this.tip.title = this.$t('reader.loading');
+    this.tip.content = '';
+    this.loadPreview();
+    this.loadToc();
+  },
+  beforeDestroy() {
+    this.stopPolling();
   },
   methods: {
-    init() {
-      this.loading = true
+    // 立即渲染开头，不被目录解析阻塞
+    loadPreview() {
+      this.loading = true;
+      this.$backend(`/read/txt/${this.bookid}?start=0&end=${PREVIEW_BYTES}`)
+        .then(res => {
+          if (res.err === "ok" && res.content) {
+            this.novelContent = res.content;
+            this.inited = true;
+          } else if (!this.inited) {
+            this.tip.title = this.$t('reader.error');
+            this.tip.content = (res && res.msg) || '';
+          }
+        }).finally(() => {
+        this.loading = false;
+      });
+    },
+    loadToc() {
       this.$backend(`/book/txt/parser?id=${this.bookid}&test=0`)
         .then(rsp => {
           if (rsp.err !== "ok") {
-            this.tip.title = this.$t('reader.error');
-            this.tip.content = rsp.msg;
+            this.hintText = rsp.msg;
+            if (!this.inited) {
+              this.tip.title = this.$t('reader.error');
+              this.tip.content = rsp.msg;
+            }
             return;
           }
           if (rsp.msg === "parsed") {
-            this.inited = true;
-            this.content = rsp.data.content;
-            this.name = rsp.data.name;
-            this.getNovelContent(0);
-          } else {
-            this.wait = parseInt(rsp.data.wait);
-            let queLen = parseInt(rsp.data.que);
-            this.name = rsp.data.name;
-            if (queLen > 0) {
-              this.tip.title = this.$t('reader.queue');
-              this.tip.content = this.$t('reader.queueMessage', { queLen });
-              return;
-            }
-            let intvl = setInterval(() => {
-              this.wait--;
-              this.tip.content = this.$t('reader.parsing', { wait: this.wait });
-              if (this.wait <= 0) {
-                clearInterval(intvl);
-                this.tip.content = this.$t('reader.timeoutMessage');
-                this.tip.title = this.$t('reader.timeout');
-                return;
-              }
-              if (this.wait % 5 !== 0) return;
-              this.$backend(`/book/txt/parser?id=${this.bookid}&test=1`,)
-                .then(res => {
-                  if (res.err === "ok" && res.msg === "parsed") {
-                    this.inited = true;
-                    this.content = res.data.content;
-                    this.name = res.data.name;
-                    this.getNovelContent(0);
-                    clearInterval(intvl);
-                  }
-                })
-            }, 1000)
+            this.applyToc(rsp.data);
+            return;
           }
-        }).finally(() => {
-        this.loading = false
-      });
+          this.name = rsp.data.name;
+          const queLen = parseInt(rsp.data.que);
+          if (queLen > 0) {
+            this.hintText = this.$t('reader.queueMessage', { queLen });
+          }
+          this.startPolling(parseInt(rsp.data.wait));
+        });
+    },
+    applyToc(data) {
+      this.content = data.content;
+      this.name = data.name;
+      this.inited = true;
+      this.tocReady = true;
+      this.hintText = '';
+      if (this.selected !== 0) {
+        this.getNovelContent(0);
+      }
+    },
+    startPolling(wait) {
+      this.stopPolling();
+      // 1 秒一跳；小文件 wait 值很小，用 30s 兜底，避免还没轮询就超时
+      const budget = Math.max(parseInt(wait) || 0, 30);
+      let elapsed = 0;
+      this.pollTimer = setInterval(() => {
+        elapsed++;
+        if (elapsed > budget) {
+          this.hintText = this.$t('reader.timeoutMessage');
+          this.stopPolling();
+          return;
+        }
+        if (elapsed % 3 !== 0) return;
+        this.$backend(`/book/txt/parser?id=${this.bookid}&test=1`)
+          .then(res => {
+            if (res.err === "ok" && res.msg === "parsed") {
+              this.applyToc(res.data);
+              this.stopPolling();
+            }
+          })
+      }, 1000)
+    },
+    stopPolling() {
+      if (this.pollTimer) {
+        clearInterval(this.pollTimer);
+        this.pollTimer = null;
+      }
     },
     getNovelContent(i) {
       if (this.selected === i) return;
       this.selected = i;
       const {title, start, end} = {...this.content[i]};
       this.loading = true;
-      console.log(title, start, end);
       this.$backend(`/read/txt/${this.bookid}?start=${start}&end=${end}`)
         .then(res => {
           if (res.err !== "ok") {
@@ -161,6 +206,7 @@ export default {
             return;
           }
           this.novelContent = title + "<br>" + res.content;
+          this.inited = true;
         }).finally(() => {
         this.loading = false;
         document.getElementsByTagName('html')[0].style.scrollBehavior = 'smooth';
