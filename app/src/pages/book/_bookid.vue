@@ -3271,9 +3271,10 @@ export default {
         async onReadClick(event, fmt) {
             event.preventDefault();
             if (fmt.key === 'txt') {
-                // 仍先请求一次：触发后台解析并入队，同时校验登录/权限；
-                // 但不等待解析完成即打开阅读器（正文可先读、目录后台补）
-                const txtRsp = await this.startReadConversion(fmt.key);
+                // 只做一次只读状态查询（test=1）：校验登录/权限，但不在这里入队解析。
+                // 解析交给阅读器自己——它先渲染开头正文、再启动目录扫描；若在点开的
+                // 瞬间就入队，整本扫描会和首屏请求并发，把「加载中」拉长数秒。
+                const txtRsp = await this.pollReadConversion(fmt.key);
                 if (txtRsp && txtRsp.err === "user.need_login") {
                     this.$router.push("/login");
                     return;

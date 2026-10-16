@@ -110,8 +110,11 @@ export default {
     this.$store.commit("navbar", false);
     this.tip.title = this.$t('reader.loading');
     this.tip.content = '';
-    this.loadPreview();
-    this.loadToc();
+    // 先把开头正文渲染出来，再请求目录：目录解析是整本扫描，与首屏并发会把
+    // 服务端的预览响应一起拖慢（表现为长时间停在「加载中」）
+    this.loadPreview().finally(() => {
+      if (this.inited) this.loadToc();
+    });
   },
   beforeDestroy() {
     this.stopPolling();
@@ -120,7 +123,7 @@ export default {
     // 立即渲染开头，不被目录解析阻塞
     loadPreview() {
       this.loading = true;
-      this.$backend(`/read/txt/${this.bookid}?start=0&end=${PREVIEW_BYTES}`)
+      return this.$backend(`/read/txt/${this.bookid}?start=0&end=${PREVIEW_BYTES}`)
         .then(res => {
           if (res.err === "ok" && res.content) {
             this.novelContent = res.content;
