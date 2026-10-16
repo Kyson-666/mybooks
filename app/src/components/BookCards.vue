@@ -36,8 +36,9 @@
                                 <v-chip rounded x-small color="dark" class="white--text ma-1" v-if="book.location">
                                     {{ book.location }}
                                 </v-chip>
-                                <template v-for="(file, index) in book.files?.slice(0, 3)" :key="'format-' + index">
+                                <template v-for="(file, index) in book.files?.slice(0, 3)">
                                     <v-chip rounded x-small class="ma-1"
+                                        :key="'format-' + index"
                                         color="cyan"
                                         text-color="white"
                                         style="padding: 0px 2px; font-weight: bold; margin: 1px !important;"

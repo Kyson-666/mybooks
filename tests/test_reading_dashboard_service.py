@@ -10,7 +10,7 @@ import unittest
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import scoped_session, sessionmaker
 
-from webserver import loader, models
+from webserver import loader, models, site_time
 from webserver.models import BookReadingStats, Reader, Reading, ReadingState
 from webserver.services import reading_dashboard_service as svc
 
@@ -86,7 +86,7 @@ class TestReadingDashboardService(unittest.TestCase):
         self.assertEqual(stats["totals"], {"total_reading_seconds": 100, "download_count": 3, "push_count": 2})
 
     def test_missing_cache_file_recomputes_from_db(self):
-        today = datetime.datetime.utcnow().date()
+        today = site_time.site_today()
         yesterday = today - datetime.timedelta(days=1)
         self._add_reading(yesterday, duration=600)
         self._add_reading(today, duration=120)
@@ -111,7 +111,7 @@ class TestReadingDashboardService(unittest.TestCase):
         with open(svc._user_cache_path(1), "w") as f:
             f.write("{not valid json")
 
-        today = datetime.datetime.utcnow().date()
+        today = site_time.site_today()
         yesterday = today - datetime.timedelta(days=1)
         self._add_reading(yesterday, duration=42)
 
@@ -119,7 +119,7 @@ class TestReadingDashboardService(unittest.TestCase):
         self.assertEqual(sum(w["reading_seconds"] for w in stats["weekly"]), 42)
 
     def test_second_call_same_day_does_not_rewrite_cache(self):
-        today = datetime.datetime.utcnow().date()
+        today = site_time.site_today()
         yesterday = today - datetime.timedelta(days=1)
         self._add_reading(yesterday, duration=10)
         svc.get_stats(self.session, self.reader)
@@ -151,14 +151,14 @@ class TestReadingDashboardService(unittest.TestCase):
         stats = svc.get_stats(self.session, self.reader)
         weekly = stats["weekly"]
         self.assertEqual(len(weekly), 8)
-        today = datetime.datetime.utcnow().date()
+        today = site_time.site_today()
         self.assertEqual(weekly[-1]["week_start"], svc._date_str(svc._week_start(today)))
         for w in weekly:
             d = datetime.datetime.strptime(w["week_start"], "%Y-%m-%d").date()
             self.assertEqual(d.weekday(), 0)  # Monday
 
     def test_heatmap_covers_13_weeks_starting_on_monday_through_today(self):
-        today = datetime.datetime.utcnow().date()
+        today = site_time.site_today()
         yesterday = today - datetime.timedelta(days=1)
         self._add_reading(yesterday, duration=1800)
 
@@ -178,7 +178,7 @@ class TestReadingDashboardService(unittest.TestCase):
         self.assertEqual(by_date[svc._date_str(today)], 0)
 
     def test_heatmap_uses_live_today_value_not_stale_cache(self):
-        today = datetime.datetime.utcnow().date()
+        today = site_time.site_today()
         self._add_reading(today, duration=300)
         stats = svc.get_stats(self.session, self.reader)
         days = stats["heatmap"]["days"]
@@ -205,7 +205,7 @@ class TestReadingDashboardService(unittest.TestCase):
         )
 
     def test_lifetime_fields_and_current_streak(self):
-        today = datetime.datetime.utcnow().date()
+        today = site_time.site_today()
         # 昨天、前天连续 + 9 天前孤立一天（当天读了两本书）；3 天前只有 0 秒空桶不算阅读日
         for offset in (1, 2, 9):
             self._add_reading(today - datetime.timedelta(days=offset), duration=60)
@@ -220,7 +220,7 @@ class TestReadingDashboardService(unittest.TestCase):
         self.assertEqual(stats["streak"], {"current": 2, "best": 2})
 
     def test_streak_current_resets_and_best_kept(self):
-        today = datetime.datetime.utcnow().date()
+        today = site_time.site_today()
         for offset in (5, 4, 1):
             self._add_reading(today - datetime.timedelta(days=offset), duration=60)
 
@@ -228,7 +228,7 @@ class TestReadingDashboardService(unittest.TestCase):
         self.assertEqual(stats["streak"], {"current": 1, "best": 2})
 
     def test_streak_counts_today_when_read(self):
-        today = datetime.datetime.utcnow().date()
+        today = site_time.site_today()
         for offset in (0, 1, 2):
             self._add_reading(today - datetime.timedelta(days=offset), duration=60)
 
@@ -236,7 +236,7 @@ class TestReadingDashboardService(unittest.TestCase):
         self.assertEqual(stats["streak"]["current"], 3)
 
     def test_period_sums_windows(self):
-        today = datetime.datetime.utcnow().date()
+        today = site_time.site_today()
         for offset, seconds in {0: 100, 3: 200, 10: 300, 20: 400, 40: 500}.items():
             self._add_reading(today - datetime.timedelta(days=offset), duration=seconds)
 
@@ -247,7 +247,7 @@ class TestReadingDashboardService(unittest.TestCase):
 
     def test_week_to_date_period_and_leaderboard_share_week_window(self):
         """本周时长卡的 week_to_date == 排行榜本周同一读者同一窗口（口径一致回归钉）"""
-        today = datetime.datetime.utcnow().date()
+        today = site_time.site_today()
         week_start = svc._week_start(today)
         # 本周内两天：周一 + 今天（今天若就是周一则用不同 book 叠加，避免同日覆盖）
         self._add_reading(week_start, 40, book_id=101)
@@ -321,7 +321,7 @@ class TestReadingDashboardService(unittest.TestCase):
 
     def test_lifetime_block_persisted_and_reused_after_db_wipe(self):
         """评审 P3-2：lifetime 聚合写进 reading.json，同日第二次请求不再扫全历史"""
-        today = datetime.datetime.utcnow().date()
+        today = site_time.site_today()
         yesterday = today - datetime.timedelta(days=1)
         self._add_reading(yesterday, duration=60, book_id=100)
         self._add_reading(today, duration=30, book_id=200)
@@ -353,7 +353,7 @@ class TestReadingDashboardService(unittest.TestCase):
 
     def test_first_read_new_book_today_counts_immediately(self):
         """今天第一次读书：至今口径立即生效（lifetime 块里没有也照常显示）"""
-        today = datetime.datetime.utcnow().date()
+        today = site_time.site_today()
         self._add_reading(today, duration=60, book_id=300)
 
         stats = svc.get_stats(self.session, self.reader)
@@ -369,7 +369,7 @@ class TestReadingDashboardService(unittest.TestCase):
 
     def test_new_book_today_not_double_counted_when_seen_before(self):
         """今天读的书如果以前读过，不重复计入 total_books"""
-        today = datetime.datetime.utcnow().date()
+        today = site_time.site_today()
         long_ago = today - datetime.timedelta(days=30)
         self._add_reading(long_ago, duration=60, book_id=400)
         svc.get_stats(self.session, self.reader)  # 先落一份 lifetime 缓存
@@ -380,7 +380,7 @@ class TestReadingDashboardService(unittest.TestCase):
 
     def test_backfill_invalidates_lifetime_block(self):
         """补录改历史日后 lifetime 块作废并即时重算（reading_stats_service 补录同改 DB 行）"""
-        today = datetime.datetime.utcnow().date()
+        today = site_time.site_today()
         old_day = today - datetime.timedelta(days=5)
         self._add_reading(old_day, duration=0)
 
@@ -403,7 +403,7 @@ class TestReadingDashboardService(unittest.TestCase):
 
     def test_streak_span_broken_then_restarted_across_days(self):
         """连击链条跨天语义：昨天=前天=连续段尾，今天没读维持；今天读了 +1"""
-        today = datetime.datetime.utcnow().date()
+        today = site_time.site_today()
         for offset in (1, 2, 3, 10):
             self._add_reading(today - datetime.timedelta(days=offset), duration=60)
 
@@ -416,7 +416,7 @@ class TestReadingDashboardService(unittest.TestCase):
     # ---- 逐日区间查询（/api/user/reading_range）----
 
     def test_get_range_days_buckets(self):
-        today = datetime.datetime.utcnow().date()
+        today = site_time.site_today()
         start = today - datetime.timedelta(days=6)
         self._add_reading(today - datetime.timedelta(days=5), duration=120)
         self._add_reading(today, duration=30)
@@ -504,7 +504,7 @@ class TestReadingLeaderboard(unittest.TestCase):
         self.session.commit()
 
     def test_week_ranking_sums_orders_and_falls_back_to_username(self):
-        today = datetime.datetime.utcnow().date()
+        today = site_time.site_today()
         # user1 今天跨两本书累加：60+40；user3 昨天读 200
         self._add(1, today, 60)
         self._add(1, today, 40, book_id=101)
@@ -521,7 +521,7 @@ class TestReadingLeaderboard(unittest.TestCase):
         self.assertEqual(board["week"][0]["name"], "user3")
 
     def test_opted_out_reader_excluded_from_all_boards(self):
-        today = datetime.datetime.utcnow().date()
+        today = site_time.site_today()
         self._add(3, today, 200)
         self._add(1, today, 60)
         self.readers[3].allow_statistic = False
@@ -543,7 +543,7 @@ class TestReadingLeaderboard(unittest.TestCase):
         self.assertNotIn(2, [e["reader_id"] for e in board["all_time"]])
 
     def test_limit_caps_at_leaderboard_limit(self):
-        today = datetime.datetime.utcnow().date()
+        today = site_time.site_today()
         for i in range(1, 7):
             self._add(i, today, i * 10)
         board = svc.get_leaderboard(self.session)

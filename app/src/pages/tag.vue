@@ -106,8 +106,8 @@
 
       <!-- Tag Groups -->
       <v-row>
-        <template v-for="nav in visibleNavs" :key="nav.legend">
-          <v-col cols="12">
+        <template v-for="nav in visibleNavs">
+          <v-col cols="12" :key="nav.legend">
             <h2>{{ nav.legend }}</h2>
             <v-chip
               class="ma-1"

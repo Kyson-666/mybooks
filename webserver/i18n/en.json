@@ -392,6 +392,8 @@
   "调用 bookbarn_tags 接口查询 %s, %s, %s": "Calling bookbarn_tags API query: %s, %s, %s",
   "豆瓣API密钥无效, 只能包含数字、字母、下划线或短横线，且长度不能超过48个字符": "The Douban API key is invalid, can only contain numbers, letters, underscores or dashes, and cannot be longer than 48 characters",
   "豆瓣接口查询失败": "Douban interface query failed",
+  "网站默认访问链接无效，需以 http:// 或 https:// 开头，且不能包含空格": "The default site URL is invalid: it must start with http:// or https:// and must not contain spaces",
+  "系统时区无效，需填写 auto 或 IANA 时区名（如 Asia/Shanghai）": "Invalid system timezone: use \"auto\" or an IANA timezone name (e.g. Asia/Shanghai)",
   "购买失败，请稍后重试": "Failed, try again later.",
   "购买失败，配额扣减出错": "Purchase failed, quota deduction error",
   "购买成功": "Purchase succeeded",

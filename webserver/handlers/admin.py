@@ -540,6 +540,31 @@ class AdminSettings(BaseHandler):
                     shutil.copy(new_icon_path, static_icon_path)
                 except Exception as e:
                     logging.info("Error: %s", str(e))
+        # 网站默认访问链接：留空表示按当前访问地址生成分享链接/二维码；
+        # 填了就必须是合法的 http/https 地址，否则前端会拼出坏链接且肉眼难发现
+        if "SITE_URL" in args:
+            site_url_raw = str(args["SITE_URL"] or "").strip()
+            site_url = utils.normalize_site_url(site_url_raw)
+            if site_url_raw and not site_url:
+                return {
+                    "err": "params.site_url.invalid",
+                    "msg": _(
+                        "网站默认访问链接无效，需以 http:// 或 https:// 开头，且不能包含空格"
+                    ),
+                }
+            args["SITE_URL"] = site_url
+        # 系统时区：auto 或 IANA 时区名。只做形态校验、不查库——名字确实不存在时
+        # webserver/site_time.py 会在运行时回退到站点语言默认并打 warning（精简镜像缺
+        # tzdata 时合法名字也查不到，在这里拦会把对的也拒了）；这里挡的是空格、引号、
+        # 超长这类脏值。
+        if "site_timezone" in args:
+            tz = str(args["site_timezone"] or "").strip()
+            if tz and not utils.is_timezone_name(tz):
+                return {
+                    "err": "params.site_timezone.invalid",
+                    "msg": _("系统时区无效，需填写 auto 或 IANA 时区名（如 Asia/Shanghai）"),
+                }
+            args["site_timezone"] = tz
         # Check the douban_apikey if only number, letters, _ or -, and length <=48
         if "douban_apikey" in args:
             apikey = args["douban_apikey"]

@@ -217,6 +217,7 @@ import QRCode from 'qrcode';
 import BookListAddBooksDialog from '~/components/BookListAddBooksDialog.vue';
 import BookListEditDialog from '~/components/BookListEditDialog.vue';
 import { BOOKLIST_COLORS } from '~/utils/booklistColors';
+import { siteBaseUrl } from '~/utils/siteUrl';
 
 export default {
     components: { BookListAddBooksDialog, BookListEditDialog },
@@ -725,7 +726,7 @@ export default {
                 roundedRectPath(ctx, qrX - qrBgPad, qrY - qrBgPad, QR_SIZE + qrBgPad * 2, QR_SIZE + qrBgPad * 2, 8);
                 ctx.fill();
 
-                const viewUrl = `${window.location.origin}/booklist/${this.booklist.id}`;
+                const viewUrl = `${siteBaseUrl(this.$store)}/booklist/${this.booklist.id}`;
                 const qrCanvas = document.createElement('canvas');
                 await QRCode.toCanvas(qrCanvas, viewUrl, {
                     width: QR_SIZE,

@@ -7,6 +7,7 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.orm import scoped_session, sessionmaker
 
 from webserver import models
+from webserver import site_time
 from webserver.models import BookReadingStats, Item, Reader, Reading
 from webserver.services.reading_stats_service import MANUAL_READING_MAX_SECONDS, ReadingStatsService, ReadingWriteBuffer
 from webserver.services.reader_cache import ReaderStatsCache
@@ -65,7 +66,7 @@ class TestReadingWriteBufferFlush(unittest.TestCase):
 
         rows = self.session.query(Reading).filter_by(reader_id=1, book_id=100, action=Reading.ACTION_READ).all()
         self.assertEqual(len(rows), 1)
-        self.assertEqual(rows[0].date, t0.date())
+        self.assertEqual(rows[0].date, site_time.site_date(t0))
         self.assertEqual(rows[0].duration, 5)
         item = self.session.query(Item).filter_by(book_id=100).one()
         self.assertEqual(item.count_visit, 1)
@@ -78,9 +79,9 @@ class TestReadingWriteBufferFlush(unittest.TestCase):
 
         rows = self.session.query(Reading).filter_by(reader_id=1, book_id=100, action=Reading.ACTION_READ).order_by(Reading.date).all()
         self.assertEqual(len(rows), 2)
-        self.assertEqual(rows[0].date, t0.date())
+        self.assertEqual(rows[0].date, site_time.site_date(t0))
         self.assertEqual(rows[0].duration, 5)  # untouched by the next day's activity
-        self.assertEqual(rows[1].date, t1.date())
+        self.assertEqual(rows[1].date, site_time.site_date(t1))
         self.assertEqual(rows[1].duration, 8)
         item = self.session.query(Item).filter_by(book_id=100).one()
         self.assertEqual(item.count_visit, 2)  # opened on two distinct days -> counted twice
@@ -144,9 +145,10 @@ class TestReadingWriteBufferFlush(unittest.TestCase):
         """同一本书：今天的在线心跳会话仍在内存里打开着，同时又收到昨天的离线补报——
         两者各自落到各自的天，互不覆盖（对应 sync_service.push() 里两条路径分走不同书/
         不同天，但缓冲区自身不假设这一点，也要保证不串)。"""
-        today = datetime.date(2026, 1, 1)
-        yesterday = today - datetime.timedelta(days=1)
         t0 = datetime.datetime(2026, 1, 1, 12, 0, 0)
+        # 分桶键按站点时区切天（这里是心跳会话所在的那一天）
+        today = site_time.site_date(t0)
+        yesterday = today - datetime.timedelta(days=1)
         self.buf.on_heartbeat(1, 100, Reading.PROTOCOL_APP, t0)
         self.buf.on_heartbeat(1, 100, Reading.PROTOCOL_APP, t0 + datetime.timedelta(seconds=5))
         self.buf.on_explicit(1, 100, Reading.PROTOCOL_APP, yesterday, 1200, t0)
@@ -223,15 +225,16 @@ class TestReadingStatsServiceReportDuration(unittest.TestCase):
         row = self.session.query(Reading).filter_by(reader_id=1, book_id=100, action=Reading.ACTION_READ).one()
         self.assertEqual(row.duration, MANUAL_READING_MAX_SECONDS)
 
-    def test_future_dates_are_pulled_back_to_today(self):
+    def test_future_dates_are_pulled_back_to_the_site_today(self):
         """客户端已按方案在上报前把日期转成 UTC，这里是服务端兜底：无法信任的未来日期
-        会被拉回服务端的"今天"，而不是原样落库。"""
+        会被拉回站点时区的「今天」（与分桶同一口径，见 webserver/site_time.py），
+        而不是原样落库、也不是拉回 UTC 日。"""
         far_future = datetime.date(2099, 1, 1)
         ReadingStatsService.report_duration(1, 100, Reading.PROTOCOL_APP, far_future, 120, fmt="epub")
         ReadingStatsService.flush_now()
 
         row = self.session.query(Reading).filter_by(reader_id=1, book_id=100, action=Reading.ACTION_READ).one()
-        self.assertLess(row.date, far_future)
+        self.assertEqual(row.date, site_time.site_today())
 
     def test_skipped_entirely_when_reader_opted_out_of_statistics(self):
         ReaderStatsCache().set_allow_statistic(1, False)

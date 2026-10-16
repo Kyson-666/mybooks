@@ -31,7 +31,7 @@ import tornado.escape
 from tornado import web
 from sqlalchemy import func
 
-from webserver import loader, perf, utils
+from webserver import loader, perf, site_time, utils
 from webserver.base import accel
 from webserver.base.formatter import BookFormatter, ReadingStateFormatter
 from webserver.base.image_generator import ImageGenerator
@@ -1901,7 +1901,9 @@ class BookReadingTimeCorrection(BaseHandler):
         date = self._parse_date(data.get("date"))
         if date is None:
             return {"err": "params.invalid", "msg": _("日期格式错误")}
-        if date > datetime.datetime.utcnow().date():
+        # 与分桶同一口径：按站点时区判「未来」，否则 UTC+8 的读者在本地凌晨补录当天
+        # 会被 UTC 日判成明天而拒收
+        if date > site_time.site_today():
             return {"err": "params.invalid", "msg": _("不能补录未来的阅读时间")}
 
         try:

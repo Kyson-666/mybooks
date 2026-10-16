@@ -230,6 +230,32 @@ def super_strip(s):
     return ''.join(c for c in s.strip() if c.isprintable())
 
 
+# 「网站默认访问链接」（SITE_URL）：只接受带主机名的 http/https 绝对地址
+_SITE_URL_RE = re.compile(r"^https?://[^\s/?#]+(?:/\S*)?$")
+
+
+def normalize_site_url(value):
+    """规范化管理员配置的「网站默认访问链接」。
+
+    去首尾空白与结尾斜杠（多个一并剥掉），否则会拼出 ``https://host//s/token``
+    这类重复斜杠。既不是合法地址也不是空串时一律返回 ""（视为未配置），调用方
+    据此决定是报错还是当作清空。
+    """
+    text = str(value or "").strip()
+    if not text or not _SITE_URL_RE.match(text):
+        return ""
+    return text.rstrip("/")
+
+
+def is_timezone_name(value) -> bool:
+    """形态校验 IANA 时区名（``auto`` 也走这条，它本身是合法形态）。
+
+    只挡空格、引号、超长这类脏值，不查库：名字是否真的存在留给 webserver/site_time.py
+    在运行时解析——精简镜像缺 tzdata 时合法名字也查不到，在这里拦会把对的也拒了。
+    """
+    return bool(re.match(r"^[A-Za-z][A-Za-z0-9_+\-./]{0,63}$", str(value or "").strip()))
+
+
 # 为保持向后兼容，从新位置重新导出
 from webserver.base.formatter import SimpleBookFormatter, MCPBookFormatter, BookFormatter, ReadingStateFormatter
 
