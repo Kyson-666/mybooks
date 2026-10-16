@@ -216,8 +216,11 @@ export default {
             return !!(this.$store.state.user.is_admin && this.$store.state.sys.allow.server_import);
         },
         showUploadButtons() {
-            // 在音频播放器页面隐藏上传按钮
-            return !this.$route.path.startsWith('/audio/');
+            const p = this.$route.path;
+            if (p.startsWith('/audio/')) return false;
+            if (p.startsWith('/admin/settings')) return false;
+            if (p.startsWith('/user/usersettings')) return false;
+            return true;
         },
         manualIsbnRules() {
             return [v => !v || /^([0-9]{9}[0-9Xx]|[0-9]{13})$/.test(v.replace(/[-\s]/g, '')) || this.$t('upload.invalidIsbn')];

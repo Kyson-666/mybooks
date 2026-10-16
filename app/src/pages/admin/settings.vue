@@ -1050,13 +1050,12 @@
       <v-spacer></v-spacer>
       <v-btn
         color="primary"
-        class="ml-3"
         :disabled="dirtyCount === 0"
         @click="saveSettings"
       >
         <v-icon left>mdi-content-save</v-icon>{{ $t("settings.save") }}
       </v-btn>
-      <v-btn color="orange" dark @click="restartConfirmDialog = true">
+      <v-btn color="orange" dark @click="restartConfirmDialog = true" class="ml-3">
         <v-icon left>mdi-restart</v-icon>{{ $t("settings.restart_server") }}
       </v-btn>
     </div>
