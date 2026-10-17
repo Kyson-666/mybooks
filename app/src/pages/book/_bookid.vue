@@ -2,58 +2,7 @@
   <div>
     <v-row align="start">
         <v-col cols="12">
-            <AppDialog
-                v-model="mynexusChatOpen"
-                type="action"
-                :title="$t('book.mynexusCompanion')"
-                icon="mdi-forum-outline"
-                color="primary"
-                :dismiss-label="$t('common.close')"
-                width="760"
-                max-width="95vw"
-                hide-footer-button
-            >
-                <div class="mynexus-chat-messages">
-                    <div
-                        v-for="(message, index) in mynexusMessages"
-                        :key="'mynexus-message-' + index"
-                        class="mynexus-chat-message"
-                        :class="message.role === 'user' ? 'mynexus-chat-user' : 'mynexus-chat-assistant'"
-                    >
-                        <div class="text-caption font-weight-bold mb-1">{{ message.role === 'user' ? $t('book.mynexusYou') : 'MyNexus' }}</div>
-                        <MyNexusMarkdown
-                            v-if="message.role !== 'user'"
-                            class="mynexus-chat-content"
-                            :content="message.content"
-                        />
-                        <div v-else class="mynexus-chat-content">{{ message.content }}</div>
-                        <details v-for="(citation, citationIndex) in (message.citations || [])" :key="'mynexus-citation-' + index + '-' + citationIndex" class="mt-2">
-                            <summary>{{ $t('book.mynexusCitation') }} {{ citationIndex + 1 }}</summary>
-                            <div class="mynexus-chat-content mt-1">{{ citation.content }}</div>
-                        </details>
-                    </div>
-                    <div v-if="mynexusChatError" class="error--text">{{ mynexusChatError }}</div>
-                    <div v-if="mynexusMessages.length === 0 && !mynexusChatLoading" class="grey--text text-center py-8">
-                        {{ $t('book.mynexusChatEmpty') }}
-                    </div>
-                </div>
-                <v-textarea
-                    v-model="mynexusQuestion"
-                    :label="$t('book.mynexusChatPlaceholder')"
-                    rows="2"
-                    auto-grow
-                    hide-details
-                    class="mt-3"
-                    @keydown.ctrl.enter="sendMyNexusMessage"
-                ></v-textarea>
-                <template v-slot:actions>
-                    <div class="d-flex justify-center flex-grow-1">
-                        <v-btn color="primary" :loading="mynexusChatLoading" :disabled="!mynexusQuestion.trim()" @click="sendMyNexusMessage">
-                            {{ $t('common.send') }}
-                        </v-btn>
-                    </div>
-                </template>
-            </AppDialog>
+            <MyNexusChatDialog :open.sync="mynexusChatOpen" :book="book" />
             <v-dialog v-model="dialog_converting" persistent width="460">
                 <v-card class="dialog-border">
                     <div style="height: 16px;"></div>
@@ -112,77 +61,14 @@
                 </v-select>
             </AppDialog>
 
-            <v-dialog v-model="dialog_audiolist" persistent width="480">
-                <v-card class="dialog-border">
-                    <v-toolbar flat dense dark color="#003153" class="dialog-toolbar">
-                        {{ $t('book.audioList') }}
-                        <span v-if="audios.status === AUDIO_STATUS.PROCESSING && audios.progress && audios.progress.converted_chapters !== undefined"
-                              class="ml-2 text-caption">
-                            ({{ audios.progress.converted_chapters }}/{{ audios.progress.total_chapters }})
-                        </span>
-                        <v-spacer></v-spacer>
-                        <v-btn color="" text @click="dialog_audiolist = false">{{ $t('common.close') }}</v-btn>
-                    </v-toolbar>
-                    <div style="height: 16px;"></div>
-                    <v-card-text v-if="audios.status === AUDIO_STATUS.PROCESSING">
-                        <p style="color: orange; font-weight: bold;">{{ $t('book.conversionInProgress') }}</p>
-                        <v-progress-linear
-                            v-if="audios.progress && audios.progress.total_chapters > 0"
-                            :value="(audios.progress.converted_chapters / audios.progress.total_chapters) * 100"
-                            color="primary"
-                            height="6"
-                        ></v-progress-linear>
-                    </v-card-text>
-                    <v-card-text v-if="audios.status === AUDIO_STATUS.FAILED">
-                        <p style="color: red; font-weight: bold;">{{ $t('book.conversionFailed') }}</p>
-                        <p style="color: red; font-weight: bold;">
-                            {{ audios.progress && audios.progress.error_message ? audios.progress.error_message : $t('book.defaultFailedReason') }}
-                        </p>
-                    </v-card-text>
-                    <v-card-text>
-                        <p>{{ $t('book.convertToAudioNote') }}</p>
-                        <div class="audio-scroll-container" style="max-height: 200px; overflow-y: auto; overflow-x: hidden; padding: 12px 12px 0 12px;">
-                            <v-row v-for="(audio_item, idx) in this.audios.audios" :key="'audio-' + idx" class="mb-2">
-                                <v-col class='py-0'>
-                                    <v-btn
-                                        icon
-                                        small
-                                        @click="playAudioFile(audio_item, idx)"
-                                        :loading="playing_audio_index === idx && audio_loading"
-                                        :color="playing_audio_index === idx ? 'primary' : 'default'"
-                                    >
-                                        <v-icon>{{ playing_audio_index === idx && !audio_paused ? 'mdi-pause' : 'mdi-play' }}</v-icon>
-                                    </v-btn>
-                                    <span class="ml-2">{{ audio_item.filename }}</span>
-                                </v-col>
-                            </v-row>
-                        </div>
-                    </v-card-text>
-                    <v-card-actions class="justify-center">
-                        <v-btn
-                            v-if="audios.status === AUDIO_STATUS.PROCESSING"
-                            color="warning"
-                            @click="clearConversion"
-                        >
-                            {{ $t('book.cancelConversion') }}
-                        </v-btn>
-                        <v-btn
-                            v-else-if="audios.status === AUDIO_STATUS.CONVERTED"
-                            color="error"
-                            @click="clearConversion"
-                        >
-                            {{ $t('common.clear') }}
-                        </v-btn>
-                        <v-btn
-                            v-if="audios.status === AUDIO_STATUS.CONVERTED"
-                            color="primary"
-                            @click="generateAudio"
-                        >
-                            {{ $t('common.restore') }}
-                        </v-btn>
-                    </v-card-actions>
-                </v-card>
-            </v-dialog>
+            <AudioListDialog
+                :open.sync="dialog_audiolist"
+                :audios="audios"
+                :audio-status="AUDIO_STATUS"
+                @stop-sample-audio="stopCurrentAudio"
+                @clear-conversion="clearConversion"
+                @generate-audio="generateAudio"
+            />
 
             <AppDialog
                 v-model="dialog_download"
@@ -736,7 +622,7 @@
                                     rounded
                                     color="teal"
                                     class="white--text"
-                                    @click="openMyNexusChat"
+                                    @click="mynexusChatOpen = true"
                                 >
                                     <v-icon left>mdi-forum-outline</v-icon>
                                     {{ $t('book.mynexusCompanion') }}
@@ -1276,129 +1162,14 @@
         </v-alert>
     </AppDialog>
 
-    <!-- 发送到设备对话框 -->
-    <AppDialog
-        v-model="dialog_send_to_device"
-        type="action"
-        :title="$t('book.sendToDevice')"
-        icon="mdi-devices"
-        max-width="600"
-        :confirm-text="$t('common.send')"
-        :confirm-loading="sending_to_device"
-        :confirm-disabled="!canSendToDevice"
-        @dismiss="closeDeviceDialog"
+    <SendToDeviceDialog
+        :open.sync="dialog_send_to_device"
+        :devices="devices"
+        :selected-format="selectedFormat"
+        :sending="sending_to_device"
         @confirm="sendToDevice"
-    >
-                <p class="mb-4">
-                    {{ $t('book.selectDevice') }}:
-                    <span class="caption grey--text">
-                        ({{ $t('message.willSendFormat', { format: selectedFormat }) }})
-                    </span>
-                </p>
-                <v-radio-group v-model="selectedDeviceOption">
-                    <v-radio
-                        v-for="(device, idx) in devices"
-                        :key="'device-' + idx"
-                        :value="'saved-' + idx"
-                    >
-                        <template v-slot:label>
-                            <span v-if="device.type === 'kindle'">
-                                {{ device.name }} ({{ getDeviceTypeText(device.type) }}) - {{ device.mailbox }}
-                            </span>
-                            <span v-else-if="device.type === 'ftp'">
-                                {{ device.name }} ({{ getDeviceTypeText(device.type) }}) - {{ device.ip }}:{{ device.port }} {{ device.ftp_path }}
-                            </span>
-                            <span v-else>
-                                {{ device.name }} ({{ getDeviceTypeText(device.type) }}) - {{ device.ip }}:{{ device.port }}
-                            </span>
-                        </template>
-                    </v-radio>
-                    <v-radio
-                        value="temporary"
-                        :label="$t('book.temporaryDevice')"
-                    ></v-radio>
-                </v-radio-group>
-
-                <!-- 临时设备输入框 -->
-                <div v-if="selectedDeviceOption === 'temporary'" class="mt-4 pl-8">
-                    <v-select
-                        v-model="tempDevice.type"
-                        :items="deviceTypes"
-                        :label="$t('book.deviceType') + ' *'"
-                        outlined
-                        dense
-                        :rules="[v => !!v || $t('book.deviceTypeRequired')]"
-                    ></v-select>
-
-                    <!-- Kindle：只显示邮箱 -->
-                    <template v-if="tempDevice.type === 'kindle'">
-                        <v-text-field
-                            v-model="tempDevice.mailbox"
-                            :label="$t('book.kindleMailbox') + ' *'"
-                            outlined
-                            dense
-                            type="email"
-                            :rules="[v => !!v || $t('book.kindleMailboxRequired')]"
-                            placeholder="user@kindle.com"
-                        ></v-text-field>
-                    </template>
-
-                    <!-- 普通设备或 FTP：显示 IP + 端口 -->
-                    <template v-if="tempDevice.type !== 'kindle'">
-                        <v-text-field
-                            v-model="tempDevice.ip"
-                            :label="$t('book.deviceIP') + ' *'"
-                            outlined
-                            dense
-                            :rules="[v => !!v || $t('book.deviceIPRequired')]"
-                            placeholder="192.168.1.100"
-                        ></v-text-field>
-                        <v-text-field
-                            v-model="tempDevice.port"
-                            :label="$t('book.devicePort') + ' *'"
-                            outlined
-                            dense
-                            type="number"
-                            :rules="[v => !!v || $t('book.devicePortRequired')]"
-                            placeholder="21"
-                        ></v-text-field>
-                    </template>
-
-                    <!-- FTP 扩展字段 -->
-                    <template v-if="tempDevice.type === 'ftp'">
-                        <v-text-field
-                            v-model="tempDevice.ftp_username"
-                            :label="$t('book.ftpUsername')"
-                            outlined
-                            dense
-                            :placeholder="$t('book.ftpAnonymousHint')"
-                        ></v-text-field>
-                        <v-text-field
-                            v-model="tempDevice.ftp_password"
-                            :label="$t('book.ftpPassword')"
-                            outlined
-                            dense
-                            type="password"
-                        ></v-text-field>
-                        <v-text-field
-                            v-model="tempDevice.ftp_path"
-                            :label="$t('book.ftpPath') + ' *'"
-                            outlined
-                            dense
-                            :rules="[v => !!v || $t('book.ftpPathRequired')]"
-                            placeholder="/books"
-                        ></v-text-field>
-                    </template>
-                </div>
-
-                <div v-if="devices.length === 0 && selectedDeviceOption !== 'temporary'" class="text-center py-4">
-                    <v-icon size="48" color="grey">mdi-help-rhombus-outline</v-icon>
-                    <p class="mt-2 grey--text">
-                        {{ $t('book.noDevices') }}<br>
-                        {{ $t('book.configDeviceDesc') }}
-                    </p>
-                </div>
-    </AppDialog>
+        @dismiss="dialog_send_to_device = false"
+    />
 
     <!-- 读书分享卡片对话框 -->
     <AppDialog
@@ -1448,77 +1219,24 @@
         </v-row>
     </AppDialog>
 
-    <!-- 发送到邮箱对话框 -->
-    <AppDialog
-        v-model="dialog_send_to_email"
-        type="action"
-        :title="$t('book.shareToEmail')"
-        icon="mdi-email-send"
-        max-width="500"
-        :confirm-text="$t('common.send')"
-        :confirm-loading="sending_to_email"
-        :confirm-disabled="!canSendToEmail"
-        @dismiss="closeEmailDialog"
+    <SendToEmailDialog
+        ref="sendToEmailDialog"
+        :open.sync="dialog_send_to_email"
+        :compatible-files="compatibleEmailFormatFiles"
+        :sending="sending_to_email"
+        :last-share-email="$store.state.user?.last_share_email || ''"
         @confirm="sendToEmail"
-    >
-        <p class="mb-4">
-            <span v-if="!hasMultipleEmailFormats" class="caption grey--text">
-                ({{ $t('book.willSendFormat', { format: selected_email_format.toUpperCase() }) }})
-            </span>
-        </p>
-        <template v-if="hasMultipleEmailFormats">
-            <p class="mb-2">{{ $t('book.selectFormatToSend') }}</p>
-            <v-radio-group v-model="selected_email_format" class="mt-0">
-                <v-radio
-                    v-for="file in compatibleEmailFormatFiles"
-                    :key="'email-' + file.format"
-                    :value="file.format.toLowerCase()"
-                    :label="`${file.format} - ${formatFileSize(file.size)}`"
-                ></v-radio>
-            </v-radio-group>
-        </template>
-        <p class="mb-4">{{ $t('book.shareToEmailDesc') }}</p>
-        <!-- 选择邮箱来源：默认手动输入；有分享记录时可一键填入上次邮箱 -->
-        <p v-if="lastShareEmail" class="mb-2 body-2">{{ $t('book.emailSourceLabel') }}</p>
-        <v-radio-group
-            v-if="lastShareEmail"
-            v-model="emailSource"
-            class="mt-0"
-            dense
-            hide-details
-            @change="fillEmailFromLast"
-        >
-            <v-radio value="manual" :label="$t('book.emailManualEntry')"></v-radio>
-            <v-radio
-                value="last"
-                :label="$t('book.emailSendToLast') + ' (' + lastShareEmail + ')'"
-            ></v-radio>
-        </v-radio-group>
-        <v-text-field
-            v-model="email_address"
-            :label="$t('book.emailAddress') + ' *'"
-            outlined
-            dense
-            type="email"
-            :rules="emailRules"
-            :error-messages="email_error"
-            placeholder="example@email.com"
-            @input="email_error = ''"
-        >
-            <template v-slot:prepend-inner>
-                <v-icon>mdi-email</v-icon>
-            </template>
-        </v-text-field>
-        <v-alert v-if="email_size_warning" type="warning" dense outlined class="mt-2">
-            {{ email_size_warning }}
-        </v-alert>
-    </AppDialog>
+    />
   </div>
 </template>
 
 <script>
 import BookCards from "~/components/BookCards.vue";
 import MyNexusMarkdown from "~/components/MyNexusMarkdown.vue";
+import MyNexusChatDialog from "~/components/MyNexusChatDialog.vue";
+import AudioListDialog from "~/components/AudioListDialog.vue";
+import SendToDeviceDialog from "~/components/SendToDeviceDialog.vue";
+import SendToEmailDialog from "~/components/SendToEmailDialog.vue";
 import BookSocialInfo from "~/components/BookSocialInfo.vue";
 import BookReviewList from "~/components/BookReviewList.vue";
 import BookReviewDialog from "~/components/BookReviewDialog.vue";
@@ -1532,6 +1250,10 @@ export default {
     components: {
         BookCards,
         MyNexusMarkdown,
+        MyNexusChatDialog,
+        AudioListDialog,
+        SendToDeviceDialog,
+        SendToEmailDialog,
         BookSocialInfo,
         BookReviewList,
         BookReviewDialog,
@@ -1701,21 +1423,6 @@ export default {
             ];
         },
 
-        // 检查是否可以发送到设备
-        canSendToDevice() {
-            if (!this.selectedDeviceOption) return false;
-
-            if (this.selectedDeviceOption === 'temporary') {
-                const type = this.tempDevice.type;
-                if (!type) return false;
-                if (type === 'kindle') return !!this.tempDevice.mailbox;
-                if (type === 'ftp') return !!(this.tempDevice.ip && this.tempDevice.port && this.tempDevice.ftp_path);
-                return !!(this.tempDevice.ip && this.tempDevice.port);
-            }
-            // 已保存设备
-            return true;
-        },
-
         hasEpubAzw3() {
             if (!this.book || !this.book.files) return false;
             return this.book.files.some(file => {
@@ -1859,42 +1566,6 @@ export default {
             return this.compatibleEmailFormatFiles.length > 0;
         },
 
-        // 书籍是否有多个可发送邮箱的格式，此时需要让用户选择发送哪个
-        hasMultipleEmailFormats: function() {
-            return this.compatibleEmailFormatFiles.length > 1;
-        },
-
-        // 默认要发送的邮件格式（优先级：EPUB > AZW3 > PDF > MOBI > TXT），用于打开对话框时的初始选中项
-        defaultEmailFormat: function() {
-            const file = this.compatibleEmailFormatFiles[0];
-            return file ? file.format.toLowerCase() : '';
-        },
-
-        // 检查是否可以发送到邮箱
-        canSendToEmail() {
-            return !!(this.email_address && this.isValidEmail(this.email_address) && !this.email_error && this.selected_email_format);
-        },
-
-        // 邮箱验证规则
-        emailRules() {
-            return [
-                v => !!v || this.$t('book.emailRequired'),
-                v => this.isValidEmail(v) || this.$t('book.emailInvalid')
-            ]
-        },
-        deviceTypes() {
-            return [
-                { text: this.$t('device.duokan'), value: 'duokan' },
-                { text: this.$t('device.ireader'), value: 'ireader' },
-                { text: this.$t('device.hanwang'), value: 'hanwang' },
-                { text: this.$t('device.boox'), value: 'boox' },
-                { text: this.$t('device.dangdang'), value: 'dangdang' },
-                { text: 'Kindle', value: 'kindle' },
-                { text: 'PureLibro', value: 'purelibro' },
-                { text: this.$t('device.ftp'), value: 'ftp' },
-                { text: this.$t('device.koreader'), value: 'koreader' },
-            ];
-        },
         voice_options() {
             return [
                 {
@@ -2024,10 +1695,6 @@ export default {
         mynexusPollTimer: null,
         mynexusRequesting: false,
         mynexusChatOpen: false,
-        mynexusChatLoading: false,
-        mynexusChatError: "",
-        mynexusQuestion: "",
-        mynexusMessages: [],
         mynexusDescriptionTab: "description",
         ai_filling: false,
         catalog_extracting: false,
@@ -2074,17 +1741,6 @@ export default {
         dialog_send_to_device: false,
         sending_to_device: false,
         devices: [],
-        selectedDevice: null,
-        selectedDeviceOption: null,
-        tempDevice: {
-            type: '',
-            ip: '',
-            port: '',
-            mailbox: '',
-            ftp_username: '',
-            ftp_password: '',
-            ftp_path: '',
-        },
 
         // 读书分享卡片
         dialog_share_card: false,
@@ -2094,13 +1750,6 @@ export default {
         // 发送到邮箱对话框
         dialog_send_to_email: false,
         sending_to_email: false,
-        email_address: '',
-        email_error: '',
-        email_size_warning: '',
-        selected_email_format: '',
-        // 邮箱来源：manual 手动输入（默认）/ last 上次分享的邮箱
-        emailSource: 'manual',
-        lastShareEmail: '',
         // 图章位置选择对话框
         dialog_stamp_position: false,
         stamp_selected_position: '',
@@ -2133,11 +1782,6 @@ export default {
         voice_name: "", // 语音名称，将从localStorage加载
         playing_sample: null,
         currentAudio: null,
-        // Audio file playback state
-        playing_audio_index: null,
-        audio_loading: false,
-        audio_paused: false,
-        currentAudioFile: null,
         // Progress polling timer
         progressTimer: null,
         languageOptions,
@@ -2187,8 +1831,6 @@ export default {
         this.loadMyReview();
         // 先加载设备列表，等待完成后再加载设备偏好
         await this.getSettings();
-        // 从localStorage加载上次使用的设备选项（在devices加载完成后）
-        this.loadDevicePreferences();
         if (this.isAdmin) this.loadMyNexusAnalysis();
         else this.loadMyNexusAvailability();
     },
@@ -2216,57 +1858,6 @@ export default {
                 }
             }
         },
-        // 监听发送到设备对话框的打开状态，自动选择默认设备
-        dialog_send_to_device: {
-            handler(isOpen) {
-                if (!isOpen || !process.client) return;
-
-                // 只有当没有选择任何设备选项时才自动选择
-                if (this.selectedDeviceOption) return;
-
-                // 如果有可用设备，默认选择第一个
-                if (this.devices && this.devices.length > 0) {
-                    this.selectedDeviceOption = 'saved-0';
-                } else {
-                    // 如果没有可用设备，默认选择临时设备
-                    this.selectedDeviceOption = 'temporary';
-                }
-            }
-        },
-        // 监听临时设备信息变化，实时保存到localStorage
-        tempDevice: {
-            handler(newVal) {
-                if (process.client) {
-                    localStorage.setItem('temp_device_info', JSON.stringify(newVal));
-                }
-            },
-            deep: true
-        },
-        'tempDevice.type': function(newType) {
-            const portMap = {
-                duokan: '12121',
-                boox: '8085',
-                hanwang: '9310',
-                ireader: '10123',
-                dangdang: '11111',
-                ftp: '21',
-                koreader: '80',
-            };
-            if (portMap[newType]) {
-                this.tempDevice.port = portMap[newType];
-            }
-        },
-        // 监听设备选项变化，实时保存到localStorage
-        selectedDeviceOption: {
-            handler(newValue) {
-                if (!process.client || !newValue) return;
-                try {
-                    localStorage.setItem('last_selected_device_option', newValue);
-                } catch (error) {
-                    console.error('保存设备选项失败:', error);
-                }
-            }
-        }
     },
     beforeRouteUpdate(to, from, next) {
     clearInterval(this.mynexusPollTimer);
@@ -2279,7 +1870,6 @@ export default {
     beforeDestroy() {
         // 清理音频资源
         this.stopCurrentAudio();
-        this.stopAudioFilePlayback();
         this.stopAudioProgressPolling();
         this.stopConvertingPolling();
         clearInterval(this.mynexusPollTimer);
@@ -2350,68 +1940,6 @@ export default {
                 this.$alert("error", error.message || this.$t("book.mynexusAnalysisFailed"));
             } finally {
                 this.mynexusRequesting = false;
-            }
-        },
-        async openMyNexusChat() {
-            this.mynexusChatError = "";
-            try {
-                const response = await this.$backend(`/book/${this.book.id}/mynexus/session`);
-                if (response.err !== "ok") throw new Error(response.msg || this.$t("book.mynexusChatFailed"));
-                this.mynexusMessages = response.messages || [];
-                this.mynexusChatOpen = true;
-            } catch (error) {
-                this.$alert("error", error.message || this.$t("book.mynexusChatFailed"));
-            }
-        },
-        async sendMyNexusMessage() {
-            const question = this.mynexusQuestion.trim();
-            if (!question || this.mynexusChatLoading) return;
-            this.mynexusQuestion = "";
-            this.mynexusChatError = "";
-            this.mynexusMessages.push({ role: "user", content: question });
-            this.mynexusMessages.push({ role: "assistant", content: "", citations: [] });
-            const assistant = this.mynexusMessages[this.mynexusMessages.length - 1];
-            this.mynexusChatLoading = true;
-            try {
-                const response = await fetch(`/api/book/${this.book.id}/mynexus/chat`, {
-                    method: "POST",
-                    credentials: "same-origin",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ messages: this.mynexusMessages.slice(0, -1) }),
-                });
-                if (!response.ok) {
-                    const error = await response.json();
-                    throw new Error(error.msg || this.$t("book.mynexusChatFailed"));
-                }
-                if (!response.body) throw new Error(this.$t("book.mynexusChatFailed"));
-                const reader = response.body.getReader();
-                const decoder = new TextDecoder();
-                let buffer = "";
-                let done = false;
-                while (!done) {
-                    const chunk = await reader.read();
-                    done = chunk.done;
-                    buffer += decoder.decode(chunk.value || new Uint8Array(), { stream: !done });
-                    buffer = buffer.replace(/\r\n/g, "\n");
-                    let boundary = buffer.indexOf("\n\n");
-                    while (boundary >= 0) {
-                        const frame = buffer.slice(0, boundary);
-                        buffer = buffer.slice(boundary + 2);
-                        const payload = frame.split("\n").filter((line) => line.startsWith("data:")).map((line) => line.slice(5).trim()).join("\n");
-                        if (payload && payload !== "[DONE]") {
-                            const event = JSON.parse(payload);
-                            if (event.error) throw new Error(event.error);
-                            assistant.content += event.choices?.[0]?.delta?.content || "";
-                            if (event.citations) assistant.citations = event.citations;
-                        }
-                        boundary = buffer.indexOf("\n\n");
-                    }
-                }
-            } catch (error) {
-                this.mynexusMessages.splice(-2, 2);
-                this.mynexusChatError = error.message || this.$t("book.mynexusChatFailed");
-            } finally {
-                this.mynexusChatLoading = false;
             }
         },
         authorAvatarUrl(author) {
@@ -3163,69 +2691,6 @@ export default {
             }
             this.playing_sample = null;
         },
-        playAudioFile(audioItem, index) {
-            // If clicking on the same audio that's currently playing
-            if (this.playing_audio_index === index && this.currentAudioFile) {
-                if (this.audio_paused) {
-                    // Resume playback
-                    this.currentAudioFile.play();
-                    this.audio_paused = false;
-                } else {
-                    // Pause playback
-                    this.currentAudioFile.pause();
-                    this.audio_paused = true;
-                }
-                return;
-            }
-
-            // Stop any currently playing audio
-            this.stopAudioFilePlayback();
-
-            // Stop sample voice if playing
-            this.stopCurrentAudio();
-
-            // Set loading state
-            this.audio_loading = true;
-            this.playing_audio_index = index;
-
-            // Create new audio object
-            this.currentAudioFile = new Audio(audioItem.url);
-
-            this.currentAudioFile.addEventListener('loadstart', () => {
-                this.audio_loading = true;
-            });
-
-            this.currentAudioFile.addEventListener('canplay', () => {
-                this.audio_loading = false;
-            });
-
-            this.currentAudioFile.addEventListener('ended', () => {
-                this.stopAudioFilePlayback();
-            });
-
-            this.currentAudioFile.addEventListener('error', () => {
-                this.stopAudioFilePlayback();
-                this.$alert("error", this.$t('message.audioLoadFailed'));
-            });
-
-            // Start playback
-            this.currentAudioFile.play().then(() => {
-                this.audio_loading = false;
-                this.audio_paused = false;
-            }).catch(() => {
-                this.stopAudioFilePlayback();
-                this.$alert("error", this.$t('message.audioPlayFailed'));
-            });
-        },
-        stopAudioFilePlayback() {
-            if (this.currentAudioFile) {
-                this.currentAudioFile.pause();
-                this.currentAudioFile = null;
-            }
-            this.playing_audio_index = null;
-            this.audio_loading = false;
-            this.audio_paused = false;
-        },
         startAudioProgressPolling() {
             this.stopAudioProgressPolling(); // Clear any existing timer
             this.progressTimer = setInterval(() => {
@@ -3744,115 +3209,10 @@ export default {
             return found ? found.name : code;
         },
 
-        // 从localStorage加载设备偏好设置
-        loadDevicePreferences() {
-            if (!process.client) return;
-
-            try {
-                const savedOption = localStorage.getItem('last_selected_device_option');
-                const savedTempDevice = localStorage.getItem('temp_device_info');
-
-                if (savedOption) {
-                    // 验证保存的选项是否仍然有效
-                    if (savedOption === 'temporary') {
-                        this.selectedDeviceOption = savedOption;
-                    } else if (savedOption.startsWith('saved-')) {
-                        const deviceIndex = parseInt(savedOption.replace('saved-', ''));
-                        // 确保设备仍然存在
-                        if (this.devices && this.devices.length > deviceIndex) {
-                            this.selectedDeviceOption = savedOption;
-                        } else {
-                            // 如果保存的设备不存在，重置为默认选项
-                            this.selectedDeviceOption = this.devices && this.devices.length > 0 ? 'saved-0' : 'temporary';
-                        }
-                    }
-                } else {
-                    // 如果没有保存的选项，根据设备列表设置默认值
-                    if (this.devices && this.devices.length > 0) {
-                        this.selectedDeviceOption = 'saved-0';
-                    } else {
-                        this.selectedDeviceOption = 'temporary';
-                    }
-                }
-
-                if (savedTempDevice) {
-                    const tempDeviceData = JSON.parse(savedTempDevice);
-                    this.tempDevice = {
-                        type: tempDeviceData.type || '',
-                        ip: tempDeviceData.ip || '',
-                        port: tempDeviceData.port || '',
-                        mailbox: tempDeviceData.mailbox || '',
-                        ftp_username: tempDeviceData.ftp_username || '',
-                        ftp_password: tempDeviceData.ftp_password || '',
-                        ftp_path: tempDeviceData.ftp_path || '',
-                    };
-                }
-            } catch (error) {
-                console.error('加载设备偏好设置失败:', error);
-                // 出错时设置默认值
-                this.selectedDeviceOption = this.devices && this.devices.length > 0 ? 'saved-0' : 'temporary';
-            }
-        },
-
-        // 保存设备偏好设置到localStorage（注：现在通过watcher实时保存，这个方法保留以便兼容）
-        saveDevicePreferences() {
-            // 已通过watcher实时保存，此方法现在为空，保留以便兼容现有代码
-            // 如果需要，可以在这里添加额外的保存逻辑
-        },
-
-        // 关闭设备对话框
-        closeDeviceDialog() {
-            this.dialog_send_to_device = false;
-        },
-
-        // 获取设备类型文本
-        getDeviceTypeText(type) {
-            const typeMap = {
-                'duokan':   '多看阅读器',
-                'ireader':  '掌阅',
-                'hanwang':  '汉王',
-                'boox':     '文石Boox',
-                'dangdang': '当当阅读器',
-                'kindle':   'Kindle',
-                'purelibro': 'PureLibro',
-                'ftp':      'FTP',
-                'koreader': 'KoReader',
-            };
-            return typeMap[type] || type;
-        },
-
         // 发送到设备
-        async sendToDevice() {
-            if (!this.canSendToDevice) {
-                this.$alert('error', this.$t('message.fillDeviceInfo'));
-                return;
-            }
-
+        async sendToDevice({ deviceInfo, deviceName }) {
             this.sending_to_device = true;
             try {
-                let deviceInfo;
-                let deviceName;
-
-                if (this.selectedDeviceOption === 'temporary') {
-                    // 临时设备：直接使用 tempDevice 字段
-                    deviceInfo = {
-                        type: this.tempDevice.type,
-                        ip: this.tempDevice.ip,
-                        port: this.tempDevice.port,
-                        schema: 'http',
-                        mailbox: this.tempDevice.mailbox,
-                        ftp_username: this.tempDevice.ftp_username,
-                        ftp_password: this.tempDevice.ftp_password,
-                        ftp_path: this.tempDevice.ftp_path,
-                    };
-                    deviceName = this.$t('book.temporaryDevice');
-                } else {
-                    // 已保存的设备
-                    const deviceIndex = parseInt(this.selectedDeviceOption.replace('saved-', ''));
-                    deviceInfo = this.devices[deviceIndex];
-                    deviceName = deviceInfo.name;
-                }
-
                 let requestBody;
                 if (deviceInfo.type === 'kindle') {
                     requestBody = {
@@ -3884,7 +3244,6 @@ export default {
                 if (response.err === 'ok') {
                     this.$alert('success', this.$t('message.sendDeviceSuccess', { name: deviceName }));
                     this.dialog_send_to_device = false;
-                    this.saveDevicePreferences();
                 } else {
                     this.$alert('error', response.msg || this.$t('message.sendDeviceFailed'));
                 }
@@ -3932,74 +3291,27 @@ export default {
 
         // 打开邮箱对话框
         openEmailDialog() {
-            this.selected_email_format = this.defaultEmailFormat;
-            // 上次分享的邮箱（发送成功时后端写入 Reader.extra，前端发送后本地同步）
-            this.lastShareEmail = this.$store.state.user?.last_share_email || '';
-            this.emailSource = 'manual';
-            this.email_address = '';
             this.dialog_send_to_email = true;
         },
 
-        // 切换邮箱来源：上次邮箱一键填入（明文）；切回手动时若输入框仍是
-        // 上次邮箱则清空重填，用户已自输的内容不覆盖
-        fillEmailFromLast() {
-            if (this.emailSource === 'last' && this.lastShareEmail) {
-                this.email_address = this.lastShareEmail;
-                this.email_error = '';
-            } else if (this.emailSource === 'manual'
-                       && this.email_address === this.lastShareEmail) {
-                this.email_address = '';
-            }
-        },
-
-        // 关闭邮箱对话框
-        closeEmailDialog() {
-            this.dialog_send_to_email = false;
-            this.email_address = '';
-            this.email_error = '';
-            this.email_size_warning = '';
-            this.selected_email_format = '';
-        },
-
         // 发送到邮箱
-        async sendToEmail() {
-            if (!this.canSendToEmail) {
-                this.$alert('error', this.$t('book.emailRequired'));
-                return;
-            }
-
-            // 再次验证邮箱格式
-            if (!this.isValidEmail(this.email_address)) {
-                this.email_error = this.$t('book.emailInvalid');
-                return;
-            }
-
+        async sendToEmail({ email, format }) {
             this.sending_to_email = true;
             try {
-                const requestBody = {
-                    email: this.email_address.trim(),
-                    format: this.selected_email_format,
-                };
-
                 const response = await this.$backend(`/book/${this.book.id}/mailto`, {
                     method: 'POST',
-                    body: JSON.stringify(requestBody)
+                    body: JSON.stringify({ email, format })
                 });
 
                 if (response.err === 'ok') {
-                    // 后端已写入 Reader.extra；同步写回 store——AppHeader 仅
-                    // mounted 拉一次 /user/info，不写回的话本会话内再开弹窗
-                    // 会被 store 旧值打回（参照 AppHeader 直接改 state 的先例）
                     if (this.$store.state.user) {
-                        this.$store.state.user.last_share_email = this.email_address.trim();
+                        this.$store.state.user.last_share_email = email;
                     }
-                    this.lastShareEmail = this.email_address.trim();
-                    this.$alert('success', this.$t('book.sendToEmailSuccess', { email: this.email_address }));
-                    this.closeEmailDialog();
+                    this.$alert('success', this.$t('book.sendToEmailSuccess', { email }));
+                    this.dialog_send_to_email = false;
                 } else {
-                    // 处理特定错误类型
                     if (response.err === 'file.too_large') {
-                        this.email_size_warning = response.msg;
+                        this.$refs.sendToEmailDialog?.setWarning(response.msg);
                     } else {
                         this.$alert('error', response.msg || this.$t('book.sendToEmailFailed'));
                     }
@@ -4245,16 +3557,15 @@ h1.book-detail-title {
 }
 .mynexus-section-tabs {
     display: flex;
-    width: fit-content;
     max-width: 100%;
     padding: 4px;
-    margin: 0 auto 16px;
+    margin: 0 auto 2px;
     border-radius: 12px;
-    background: rgba(128, 128, 128, 0.14);
+    background: rgba(128, 128, 128, 0.3);
 }
 .mynexus-section-tabs button {
     min-width: 120px;
-    padding: 8px 16px;
+    padding: 1px 16px;
     border: 0;
     border-radius: 9px;
     color: inherit;
@@ -4264,38 +3575,12 @@ h1.book-detail-title {
 }
 .mynexus-section-tabs button.active {
     background: var(--v-primary-base);
-    color: #fff;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.16);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
 }
+
 .mynexus-reading-guide {
     overflow-wrap: anywhere;
     line-height: 1.75;
-}
-.mynexus-chat-messages {
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
-    max-height: 48vh;
-    min-height: 180px;
-    overflow-y: auto;
-}
-.mynexus-chat-message {
-    max-width: 92%;
-    padding: 10px 14px;
-    border-radius: 12px;
-    overflow-wrap: anywhere;
-}
-.mynexus-chat-user {
-    align-self: flex-end;
-    background: rgba(25, 118, 210, 0.12);
-}
-.mynexus-chat-assistant {
-    align-self: flex-start;
-    background: rgba(128, 128, 128, 0.12);
-}
-.mynexus-chat-content {
-    line-height: 1.6;
-    overflow-wrap: anywhere;
 }
 @media (max-width: 600px) {
     .mynexus-section-tabs {
@@ -4305,9 +3590,6 @@ h1.book-detail-title {
         flex: 1;
         min-width: 0;
         padding: 8px 6px;
-    }
-    .mynexus-chat-message {
-        max-width: 100%;
     }
 }
 </style>
