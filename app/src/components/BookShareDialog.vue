@@ -236,6 +236,7 @@ export default {
                     this.applyShare(rsp.share);
                     this.$emit('changed', true);
                     this.$alert('success', rsp.msg || this.$t('message.operationSuccess'));
+                    this.internalValue = false;
                 } else {
                     this.$alert('error', rsp.msg || this.$t('message.operationFailed'));
                 }

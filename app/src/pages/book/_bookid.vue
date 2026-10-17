@@ -525,7 +525,12 @@
                             <div>
                                 <p class='title mb-0'>
                                     {{ book.title }}
-                                    <v-icon v-if="isAdmin && book.shared" small color="teal" class="ml-1" :title="$t('share.sharedBadge')">mdi-cloud-outline</v-icon>
+                                    <v-icon v-if="isAdmin && book.shared" color="teal"
+                                        @click="dialog_book_share = true"
+                                        class="ml-1"
+                                        :title="$t('share.sharedBadge')">
+                                        mdi-cloud
+                                    </v-icon>
                                     <v-tooltip bottom>
                                         <template v-slot:activator="{ on, attrs }">
                                             <v-btn
@@ -708,10 +713,14 @@
                                     <v-icon left>mdi-robot</v-icon>
                                     {{ $t('book.aiUpdate') }}
                                 </v-chip>
+                                <v-chip v-if="isAdmin && book.shared" rounded smallF color="#006400" class="white--text"
+                                        @click="dialog_book_share = true">
+                                    <v-icon left>mdi-cloud-outline</v-icon>
+                                    {{ $t('share.manageShare') }}
+                                </v-chip>
                                 <v-chip
                                     v-if="isAdmin && !book.ai_companion_available"
                                     rounded
-                                    small
                                     color="deep-purple"
                                     class="white--text"
                                     :disabled="!mynexusHasSupportedFormat || mynexusRequesting || ['pending', 'processing', 'submitting'].includes(mynexusStatus) || (mynexusStatus === 'failed' && !(book.mynexus_analysis && book.mynexus_analysis.can_retry))"
@@ -725,7 +734,6 @@
                                 <v-chip
                                     v-if="book.ai_companion_available"
                                     rounded
-                                    small
                                     color="teal"
                                     class="white--text"
                                     @click="openMyNexusChat"
@@ -775,7 +783,7 @@
                                     </v-card>
                                 </v-menu><v-menu offset-y>
                                     <template v-slot:activator="{ on, attrs }">
-                                        <v-chip rounded smallF color="#003153" class="white--text" v-bind="attrs" v-on="on" :disabled="categories.length === 0">
+                                        <v-chip rounded smallF color="#006400" class="white--text" v-bind="attrs" v-on="on" :disabled="categories.length === 0">
                                             <v-icon>mdi-web</v-icon>
                                             {{ $t('book.languages') }} : {{ languageName(book.languages)}}
                                             <v-icon color="white" class="ml-1">mdi-pencil</v-icon>
@@ -787,8 +795,6 @@
                                         </v-list-item>
                                     </v-list>
                                 </v-menu>
-                            </div>
-                            <div class="tag-chips">
                                 <v-chip v-if="book.ext_link" dark color="indigo" :href="book.ext_link" target="_blank" rel="noopener noreferrer">
                                     <v-icon left>mdi-link-variant</v-icon>
                                     {{ $t('book.ext_link')}}
@@ -800,7 +806,6 @@
                                 </v-chip>
                                 <v-chip
                                     rounded
-                                    small
                                     dark
                                     color="indigo"
                                     v-if="book.series"
@@ -809,7 +814,7 @@
                                     <v-icon>mdi-compass</v-icon>
                                     {{ $t('book.series') }}: {{ book.series }} {{ book.series_index ? '(#' + book.series_index + ')' : '' }}
                                 </v-chip>
-                                <v-chip rounded small dark color="grey" v-if="book.isbn">
+                                <v-chip rounded dark color="grey" v-if="book.isbn">
                                     <v-icon>mdi-compass</v-icon>
                                     ISBN：{{ book.isbn }}
                                 </v-chip>
