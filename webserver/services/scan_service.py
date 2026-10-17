@@ -50,6 +50,7 @@ import traceback
 import weakref
 from collections import deque
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass
 
 from sqlalchemy import or_, inspect
 from sqlalchemy.exc import IntegrityError
@@ -97,6 +98,44 @@ TITLE_INDEX_MIN_BOOKS = 50
 # stat 失败/悬空符号链接这类「既无法落行、又不该被剪枝」的条目（见
 # _classify_scan_entry）：它们的目标将来就位不会改动本目录 mtime。
 SNAPSHOT_NO_PRUNE = -1
+
+
+@dataclass
+class ImportOptions:
+    """导入选项"""
+    # 0=全量扫描(默认走目录快照增量)；3=按目录导入(显式目录，不剪枝)；
+    # 4=全量扫描(无视快照、全量 walk 但保留去重)；1/2 为已删除的旧选项，按 0 处理并告警
+    skip_last_dirs: int = 0
+    # TRUE 时不检查重复的图书直接导入（附带无视目录快照、全量重算）
+    force: bool = False
+    # 调用方预先生成的批次id(如批量上传)，用于发起后立即轮询逐文件结果；0=自动生成
+    import_id: int = 0
+    # 导入完成/取消后需清理的暂存目录(如批量上传暂存)；仅 KEEP_UPLOAD_SOURCE_FILE=False 时删除；
+    # Phase1 持久化失败时保留（快照未提交，留给下轮重扫补导）
+    cleanup_dir: str = None
+    # 服务端选择器 ("ready"|"filter", value)，非空时忽略 paths，由 do_import 在后台服务线程解析
+    # 文件清单——绝不能在 handler 里做（百万行 .all()+stat 会冻住 ioloop，handler 只做 COUNT 预检）
+    selector: tuple = None
+    # 新建书籍全部设为私藏(Item.sole，仅收藏人可见)；只作用于新建 Item，命中已存在记录不受影响
+    sole: bool = False
+
+
+@dataclass
+class ImportInternalOptions:
+    """导入操作的调用链（do_import_internal/_importing_worker/_import_one_file）共享的只读上下文。
+    scan_upload_path/batch_size 由 do_import_internal 在启动 worker 前一次性回填，之后全链只读。"""
+    user_id: int = 1
+    # 后台任务id（进度上报用）；None=未建任务
+    task_id: int = None
+    # 批次id；0=按时间戳自动生成
+    imported_id: int = 0
+    # TRUE 时不检查重复的图书直接导入（附带无视目录快照、全量重算）
+    force: bool = False
+    # 直接以私有书籍导入
+    sole: bool = False
+    scan_upload_path: str = None
+    # Phase2 攒批提交窗口（行/链接每 N 本一次短写事务）
+    batch_size: int = 20
 
 
 class _TitleDedupIndex:
@@ -1096,25 +1135,13 @@ class ScanService(AsyncService):
         return filelist
 
     @AsyncService.register_service
-    def do_import(self, paths, user_id, skip_last_dirs=0, force=False, import_id=0, cleanup_dir=None, selector=None, sole=False):
+    def do_import(self, paths, user_id, options=None):
         """
-            force: 为TRUE时不检查重复的图书，直接导入（附带无视目录快照、全量重算）
-            skip_last_dirs: 0 = 全量扫描（默认走目录快照增量）；
-                3 = 按分类导入（显式目录，不剪枝）；4 = 全量扫描（不忽略所有目录，
-                无视快照、全量 walk 但保留去重）；1/2 为已删除的旧排除选项，
-                发过来按 0 处理并告警（旧语义“按历史剪枝”在目录复用下会漏新书，
-                已由快照增量替代）。
-            import_id: 由调用方预先生成的批次id(如批量上传)，用于调用方在发起后立即拿到id去轮询逐文件结果；
-                        为0时按原逻辑自动生成
-            cleanup_dir: 本次导入完成/取消后需要清理的暂存目录(如批量上传的暂存文件)，
-                          仅当 KEEP_UPLOAD_SOURCE_FILE 配置为 False 时才会删除；
-                          Phase1 持久化失败时同样保留（快照未提交，留给下轮重扫补导）
-            selector: 服务端选择器 ("ready"|"filter", value)，非空时忽略 paths 参数，由本方法
-                      在后台服务线程解析出文件清单——全量 .all() + 逐行 stat 在百万行表上会
-                      冻住 tornado ioloop，绝不能在 handler 里做（handler 只做 COUNT 预检）
-            sole: 本次导入新建的书籍全部设为私藏(Item.sole，仅收藏人可见)；只作用于新建 Item，
-                  命中同书加格式/已存在记录不受影响
+            paths: 目录/文件列表，或 "all"（配合 options.selector 时可为任意占位）
+            options: 导入选项，各字段含义见 ImportOptions 定义
         """
+        if options is None:
+            options = ImportOptions()
         with ScanService.task_claim_lock:
             if ScanService.static_is_importing:
                 logging.error("Importing is running, please wait...")
@@ -1132,25 +1159,25 @@ class ScanService(AsyncService):
         ScanService.static_import_user_id = user_id
         start_time = time.time()
 
-        imported_id = import_id
-        skip_last_dirs = self._normalize_scope(skip_last_dirs)
+        imported_id = options.import_id
+        options.skip_last_dirs = self._normalize_scope(options.skip_last_dirs)
 
-        if selector is not None:
-            sel_kind, sel_value = selector
+        if options.selector is not None:
+            sel_kind, sel_value = options.selector
             if sel_kind == "ready":
                 paths = self.resolve_ready_paths(self.session)
             else:
                 paths = self.resolve_filter_paths(self.session, sel_value)
 
         # 快照剪枝只走全量作用域（细则见 _snapshot_active）。
-        use_snapshot = ScanService._snapshot_active(paths, force, skip_last_dirs)
+        use_snapshot = ScanService._snapshot_active(paths, options.force, options.skip_last_dirs)
         filelist, visited, file_dir = self._collect_files(paths, use_snapshot=use_snapshot)
-        logging.info("[IMPORT] Collected %d files in %.3f seconds (skip_last_dirs=%d)", len(filelist), time.time() - start_time, skip_last_dirs)
+        logging.info("[IMPORT] Collected %d files in %.3f seconds (skip_last_dirs=%d)", len(filelist), time.time() - start_time, options.skip_last_dirs)
         if not filelist:
             # 选择器模式下 paths 是全量解析结果（百万行时单条日志上百 MB），只记条数
             candidates = paths if isinstance(paths, str) else "%d paths" % len(paths or [])
             logging.warning("[IMPORT] No valid files found in: %s", candidates)
-            if selector is not None:
+            if options.selector is not None:
                 # 选择器空跑：记录在库但磁盘上已无对应文件（missed/invalid 等），明确告知而非静默结束
                 self.add_msg(
                     user_id=user_id,
@@ -1166,8 +1193,8 @@ class ScanService(AsyncService):
                 )
             ScanService.static_is_importing = False
             ScanService.static_import_user_id = 0
-            if cleanup_dir and not CONF.get("KEEP_UPLOAD_SOURCE_FILE", False):
-                shutil.rmtree(cleanup_dir, ignore_errors=True)
+            if options.cleanup_dir and not CONF.get("KEEP_UPLOAD_SOURCE_FILE", False):
+                shutil.rmtree(options.cleanup_dir, ignore_errors=True)
             return
 
         task_id = None
@@ -1185,7 +1212,8 @@ class ScanService(AsyncService):
 
         ScanService.static_import_files_cnt = len(filelist)
         try:
-            self.do_import_internal(filelist, user_id, task_id, imported_id, force, sole=sole, visited=visited, file_dir=file_dir)
+            internal_opts = ImportInternalOptions(user_id=user_id, task_id=task_id, imported_id=imported_id, force=options.force, sole=options.sole)
+            self.do_import_internal(filelist, visited=visited, file_dir=file_dir, opts=internal_opts)
             if task_id:
                 BackgroundService().complete_task(task_id=task_id)
 
@@ -1237,16 +1265,16 @@ class ScanService(AsyncService):
             logging.error(f"[IMPORT] Failed: {err}")
             logging.error(traceback.format_exc())
         finally:
-            if cleanup_dir and not CONF.get("KEEP_UPLOAD_SOURCE_FILE", False):
+            if options.cleanup_dir and not CONF.get("KEEP_UPLOAD_SOURCE_FILE", False):
                 if ScanService.static_phase1_persist_failed:
                     # 暂存目录在 scan_upload_path 下且本轮快照未提交：保留给下轮重扫补导，
                     # 删了就没源文件可自愈了（补导成功后由管理员按需清理）。
                     logging.warning(
-                        "[IMPORT] Phase1 persistence failures detected, keep staging dir: %s", cleanup_dir
+                        "[IMPORT] Phase1 persistence failures detected, keep staging dir: %s", options.cleanup_dir
                     )
                 else:
-                    logging.info("[IMPORT] Cleaning up staging dir: %s", cleanup_dir)
-                    shutil.rmtree(cleanup_dir, ignore_errors=True)
+                    logging.info("[IMPORT] Cleaning up staging dir: %s", options.cleanup_dir)
+                    shutil.rmtree(options.cleanup_dir, ignore_errors=True)
         ScanService.static_is_importing = False
         ScanService.static_abort_flag = False
         # static_phase1_persist_failed 有意不在此复位：失败轮结束后保持 True 直到下一轮
@@ -1278,7 +1306,7 @@ class ScanService(AsyncService):
             logging.error("[IMPORT] Error reading file %s: %s", fpath, e)
             return None, ScanFile.INVALID
 
-    def _import_one_file(self, row, user_id, scan_upload_path, session, force, sole=False, staged_ops=None):
+    def _import_one_file(self, row, session, staged_ops=None, opts=None):
         """
             Read metadata and import one READY ScanFile into calibre.
 
@@ -1291,6 +1319,8 @@ class ScanService(AsyncService):
                 事务内统一落库（2-3 次 fsync/本 → ≤1 次/批）。暂存路径下返回的
                 status 是乐观值，落库失败由调用方按 outcomes 对账回调。
         """
+        if opts is None:
+            opts = ImportInternalOptions()
         from calibre.ebooks.metadata.book.base import Metadata
 
         fpath = row.path
@@ -1375,7 +1405,7 @@ class ScanService(AsyncService):
 
         new_book_id = None
         try:
-            if force or CONF.get("UPLOAD_IGNORE_TITLE_CHECKING", False):
+            if opts.force or CONF.get("UPLOAD_IGNORE_TITLE_CHECKING", False):
                 ids = []
             else:
                 ids = self._title_dedup_ids(mi)
@@ -1455,8 +1485,8 @@ class ScanService(AsyncService):
 
                 item = Item()
                 item.book_id = row.book_id
-                item.collector_id = user_id
-                item.sole = bool(sole)
+                item.collector_id = opts.user_id
+                item.sole = bool(opts.sole)
                 item.src_path = fpath
                 if staged_ops is None:
                     try:
@@ -1469,7 +1499,7 @@ class ScanService(AsyncService):
                     new_book_id = row.book_id
 
                 if CONF.get("IMPORT_CATEGORY_WITH_FOLDER", False):
-                    rel = os.path.relpath(os.path.realpath(fpath), scan_upload_path)
+                    rel = os.path.relpath(os.path.realpath(fpath), opts.scan_upload_path)
                     first_dir = rel.split(os.sep, maxsplit=1)[0] if os.sep in rel else ""
                     if first_dir and first_dir != ".." and len(first_dir) < 10 and not any(c in first_dir for c in ',:;|/\\\'"\t '):
                         try:
@@ -1504,7 +1534,7 @@ class ScanService(AsyncService):
             logging.warning("[IMPORT] Slow import detected (%.3fs) for file: %s", time.time() - start_time, fpath)
         return new_book_id, status
 
-    def _importing_worker(self, work_queue, importing_imported, task_id, user_id, scan_upload_path, batch_size, force, sole=False):
+    def _importing_worker(self, work_queue, importing_imported, opts):
         """Worker thread for Phase 2: consumes row IDs from work_queue and imports each file.
 
         行/Item 链接写走 staged_ops 攒批（每 batch_size 本
@@ -1540,22 +1570,22 @@ class ScanService(AsyncService):
                         continue
 
                     importing_index += 1
-                    logging.info("[IMPORT] [TASK:%d] Processing [%d]: %s", task_id, importing_index, row.path)
-                    if task_id and importing_index % 10 == 0:
+                    logging.info("[IMPORT] [TASK:%d] Processing [%d]: %s", opts.task_id, importing_index, row.path)
+                    if opts.task_id and importing_index % 10 == 0:
                         status = ScanService.status_count()
                         all_values_sum = sum(status.values())
                         total_count = all_values_sum - status.get(ScanFile.IMPORTED, 0) - status.get(ScanFile.EXIST, 0)
                         processed = all_values_sum - status.get(ScanFile.READY, 0)
                         try:
                             BackgroundService().update_progress(
-                                task_id=task_id,
+                                task_id=opts.task_id,
                                 progress=min(99, int(processed * 100 / total_count)),
                                 progress_data={"stage": "importing", "total": total_count, "imported": processed}
                             )
                         except Exception as e:
                             logging.error("[IMPORT] Failed to update progress: %s", e)
 
-                    new_book_id, status = self._import_one_file(row, user_id, scan_upload_path, importing_session, force, sole, staged_ops)
+                    new_book_id, status = self._import_one_file(row, importing_session, staged_ops, opts)
                     if status:
                         if status in ScanService.static_status_cnt:
                             ScanService.static_status_cnt[status] += 1
@@ -1567,7 +1597,7 @@ class ScanService(AsyncService):
                     if new_book_id is not None:
                         importing_imported.append(new_book_id)
 
-                    if importing_index % batch_size == 0:
+                    if importing_index % opts.batch_size == 0:
                         # 行/链接在 _import_one_file 内已暂存，此处短写事务统一落库
                         # 并按 outcomes 对账（被丢行回调状态计数，净效果等价旧的
                         # save_or_rollback 失败 → (None, None) 不计数）。
@@ -1833,7 +1863,7 @@ class ScanService(AsyncService):
             if txt_path and os.path.isfile(txt_path):
                 ExtractService().parse_txt_content(bid, txt_path)
 
-    def do_import_internal(self, filelist, user_id, task_id=None, imported_id=0, force=False, sole=False, visited=None, file_dir=None):
+    def do_import_internal(self, filelist, visited=None, file_dir=None, opts=None):
         """
             并行执行:
             Phase Scanning: 负责遍历文件、计算哈希、去重，并将 READY 状态的 ScanFile 行 ID 放入队列；
@@ -1842,12 +1872,15 @@ class ScanService(AsyncService):
             visited / file_dir: 由调用方 do_import 从 _collect_files 透传的目录快照与
                 文件→目录映射（直接调用本方法时可为 None）。提供时在 Phase1 中按目录
                 增量提交快照，使崩溃/重启落在 Phase2 时下轮仍能剪枝。
+            opts: 导入上下文（ImportInternalOptions），字段含义见其定义
         """
-        import_id = int(time.time()) if imported_id == 0 else imported_id
+        if opts is None:
+            opts = ImportInternalOptions()
+        import_id = int(time.time()) if opts.imported_id == 0 else opts.imported_id
         ScanService.static_import_id = import_id
         ScanService.static_phase1_persist_failed = False
         ScanService.static_title_index = None
-        scan_upload_path = os.path.realpath(CONF.get("scan_upload_path", ""))
+        opts.scan_upload_path = os.path.realpath(CONF.get("scan_upload_path", ""))
         # 同一路径在 filelist 里出现两次时（库里同路径多行——force 重导会留下 IMPORTED+READY
         # 两行，而 resolve_ready_paths/resolve_filter_paths 都不去重，手动勾选的原样透传）：
         # 串行分支必跳过第二次（prepare+finalize 是同一次调用，processed_paths 在第二次
@@ -1861,7 +1894,7 @@ class ScanService(AsyncService):
             filelist = list(dict.fromkeys(filelist))
         total_count = len(filelist)
         ScanService.static_title_index_total = total_count
-        batch_size = 20
+        opts.batch_size = 20
 
         # 有界工作队列：Phase1 攒批提交后一次性入队可达数百 id，上界防止百万级导入
         # 常驻内存；队满时 Phase1 阻塞等待 worker 消费（天然背压，此时不持有写事务）。
@@ -1877,7 +1910,7 @@ class ScanService(AsyncService):
 
         importing_thread = threading.Thread(
             target=self._importing_worker,
-            args=(work_queue, importing_imported, task_id, user_id, scan_upload_path, batch_size, force, sole),
+            args=(work_queue, importing_imported, opts),
             name="ScanService.importing",
             daemon=True,
         )
@@ -1949,7 +1982,7 @@ class ScanService(AsyncService):
                 # 零丢行：把已走完 Phase1 的目录快照与本批行**同事务** upsert（省一次写
                 # 事务/写锁获取）。pending 里的目录其每个文件都已落库或正在本批落库，
                 # 与行同事务提交即原子；upsert 失败只放弃本批增量（行照常提交，下轮重走）。
-                if self._incremental_snapshot_allowed(scan_upload_path):
+                if self._incremental_snapshot_allowed(opts.scan_upload_path):
                     try:
                         n = self._upsert_dir_snapshots(session, pending_snapshots)
                         logging.info("[IMPORT] Snapshot incremental upsert: %d dirs (same txn)", n)
@@ -2020,7 +2053,7 @@ class ScanService(AsyncService):
                 if ScanService.static_abort_flag:
                     logging.info("[IMPORT] Aborting import during scanning phase at index %d/%d", index, total_count)
                     break
-                ctx, _state = self._scan_prepare(fpath, session, import_id, processed_paths, force, staged=staged)
+                ctx, _state = self._scan_prepare(fpath, session, import_id, processed_paths, opts.force, staged=staged)
                 if ctx is None:
                     # 终态（跳过或 PERMISSION 行已暂存），批提交水位照查
                     _note_dir_complete(fpath)
@@ -2065,7 +2098,7 @@ class ScanService(AsyncService):
                 try:
                     # 无尾批残留行：把尚未落盘的已完成目录快照同事务落库（正常为空，
                     # 因为每个完成目录都随其所在批次的提交一并落盘）。
-                    if pending_snapshots and self._incremental_snapshot_allowed(scan_upload_path):
+                    if pending_snapshots and self._incremental_snapshot_allowed(opts.scan_upload_path):
                         self._upsert_dir_snapshots(session, pending_snapshots)
                     pending_snapshots.clear()
                     session.commit()
@@ -2111,10 +2144,10 @@ class ScanService(AsyncService):
         logging.info("[IMPORT] Both phases done in %.3fs. Queued: %d, Imported: %d",
                      time.time() - start_time, queued_count, len(importing_imported))
 
-        if task_id:
+        if opts.task_id:
             try:
                 BackgroundService().update_progress(
-                    task_id=task_id,
+                    task_id=opts.task_id,
                     progress=100,
                     progress_data={"stage": "completed", "total": queued_count, "imported": len(importing_imported)}
                 )
@@ -2124,11 +2157,11 @@ class ScanService(AsyncService):
         if importing_imported:
             logging.info("[IMPORT] Starting auto-fill for %d imported books", len(importing_imported))
             AutoFillService().auto_fill_all(importing_imported)
-            CatalogExtractService().extract_batch(user_id, importing_imported)
+            CatalogExtractService().extract_batch(opts.user_id, importing_imported)
             self._prepare_txt_contents(importing_imported)
 
             # 私藏批次不发新书通知：邮件会发全站，等于把私藏书的存在与书名公开
-            if CONF.get("SEND_MAIL_FOR_NEW_BOOKS", False) and not sole:
+            if CONF.get("SEND_MAIL_FOR_NEW_BOOKS", False) and not opts.sole:
                 try:
                     book_names = []
                     index = 100

@@ -51,7 +51,7 @@ from webserver.services.mail import MailService
 from webserver.handlers.base import BaseHandler, ListHandler, auth, js, throttle
 from webserver.models import BookReadingStats as BookFormatReadingStatsModel, Item, MyNexusBookAnalysis, Reading, ReadingState, Reader, ScanFile
 from webserver.services.reading_stats_service import ManualReadingService, ReadingStatsService
-from webserver.services.scan_service import ScanService, SCAN_EXT
+from webserver.services.scan_service import ScanService, SCAN_EXT, ImportOptions
 from webserver.services.download_quota_service import DownloadQuotaService
 from webserver.services.book_review_service import BookReviewService
 from webserver.recommend import RecommendConfig, RecommendContext, home_seed, utc_now
@@ -3608,7 +3608,7 @@ class BookUploadBatch(BaseHandler):
             return {"err": "params.format.unsupported", "msg": _("未找到支持的书籍格式文件")}
 
         self._remember_owner(import_id, self.user_id())
-        ScanService().do_import(batch_dir, self.user_id(), import_id=import_id, cleanup_dir=batch_dir)
+        ScanService().do_import(batch_dir, self.user_id(), ImportOptions(import_id=import_id, cleanup_dir=batch_dir))
         return {"err": "ok", "msg": _("已开始导入"), "import_id": import_id, "file_count": saved}
 
 

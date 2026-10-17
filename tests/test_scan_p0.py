@@ -32,7 +32,7 @@ from sqlalchemy.pool import StaticPool
 from webserver import models
 from webserver.models import Item, ScanFile
 from webserver.services import scan_service
-from webserver.services.scan_service import ScanService
+from webserver.services.scan_service import ScanService, ImportOptions, ImportInternalOptions
 from webserver import constants
 
 try:
@@ -348,8 +348,7 @@ class TestPhase1Batching(ScanP0TestBase):
         files = [self._touch("w%d.txt" % i, b"w-%d" % i) for i in range(6)]
         txn_at_book_start = []
 
-        def fake_import_one_file(row, user_id, scan_upload_path, session, force, sole=False,
-                                 staged_ops=None):
+        def fake_import_one_file(row, session, staged_ops=None, opts=None):
             raw = session.connection().connection.driver_connection
             txn_at_book_start.append(getattr(raw, "in_transaction", None))
             row.status = ScanFile.IMPORTED
@@ -358,7 +357,7 @@ class TestPhase1Batching(ScanP0TestBase):
 
         self.svc._import_one_file = fake_import_one_file
         self.addCleanup(self._restore_import_one_file)
-        self.svc.do_import_internal(files, 9)
+        self.svc.do_import_internal(files, ImportInternalOptions(user_id=9))
         self.assertEqual(len(txn_at_book_start), 6)
         # 每本开工时都不该已经在写事务里（旧 autoflush=True 从第 2 本起恒为 True）
         self.assertEqual(txn_at_book_start, [False] * 6)
@@ -369,13 +368,13 @@ class TestPhase1Batching(ScanP0TestBase):
         files = [self._touch("m%d.txt" % i, b"mcontent-%d" % i) for i in range(5)]
         delivered = []
 
-        def fake_import_one_file(row, user_id, scan_upload_path, session, force, sole=False, *args, **kwargs):
+        def fake_import_one_file(row, session, *args, **kwargs):
             delivered.append(row.path)
             return None, None
 
         self.svc._import_one_file = fake_import_one_file
         self.addCleanup(self._restore_import_one_file)
-        self.svc.do_import_internal(files, 9)
+        self.svc.do_import_internal(files, ImportInternalOptions(user_id=9))
         self.assertEqual(sorted(delivered), sorted(files))
         self.assertEqual(self.session.query(ScanFile).filter(ScanFile.status == ScanFile.READY).count(), 5)
 
@@ -389,7 +388,7 @@ class TestPhase1Batching(ScanP0TestBase):
         files = [self._touch("k%d.txt" % i, b"kcontent-%d" % i) for i in range(5)]
         delivered = []
 
-        def fake_import_one_file(row, user_id, scan_upload_path, session, force, sole=False, *args, **kwargs):
+        def fake_import_one_file(row, session, *args, **kwargs):
             delivered.append(row.path)
             return None, None
 
@@ -406,7 +405,7 @@ class TestPhase1Batching(ScanP0TestBase):
 
         with mock.patch.object(scan_service, "PHASE1_BATCH_SIZE", 2):
             with mock.patch.object(ScanService, "_apply_phase1_batch", spying_apply):
-                self.svc.do_import_internal(files, 9)
+                self.svc.do_import_internal(files, ImportInternalOptions(user_id=9))
         self.assertEqual(batches, [2, 2, 1])
         self.assertEqual(sorted(delivered), sorted(files))
         self.assertEqual(self.session.query(ScanFile).filter(ScanFile.status == ScanFile.READY).count(), 5)
@@ -426,16 +425,14 @@ class TestPhase1Batching(ScanP0TestBase):
             fpath = self._touch("dupq.txt", b"dupq-content")
             calls = []
 
-            def counting(row, user_id, scan_upload_path, session, force, sole=False,
-                         staged_ops=None):
+            def counting(row, session, staged_ops=None, opts=None):
                 calls.append(row.path)
-                return orig(svc, row, user_id, scan_upload_path, session, force, sole,
-                            staged_ops)
+                return orig(svc, row, session, staged_ops, opts)
 
             svc._import_one_file = counting
             self.addCleanup(self._restore_import_one_file)
             with mock.patch.dict(scan_service.CONF, {"scan_hash_workers": workers}):
-                svc.do_import_internal([fpath, fpath], 9, force=force)
+                svc.do_import_internal([fpath, fpath], ImportInternalOptions(user_id=9, force=force))
             self.assertEqual(calls, [fpath], (workers, force))
             rows = self.session.query(ScanFile).all()
             self.assertEqual(len(rows), 1, (workers, force))
@@ -461,7 +458,7 @@ class TestHashParallel(ScanP0TestBase):
         self.session.commit()
         self.svc.db = FakeCalibreDB()
         with mock.patch.dict(scan_service.CONF, {"scan_hash_workers": workers}):
-            self.svc.do_import_internal(files, 9)
+            self.svc.do_import_internal(files, ImportInternalOptions(user_id=9))
         rows = self.session.query(ScanFile).order_by(ScanFile.path).all()
         return [(r.path, r.status, r.hash) for r in rows]
 
@@ -494,7 +491,7 @@ class TestHashParallel(ScanP0TestBase):
 
         with mock.patch.dict(scan_service.CONF, {"scan_hash_workers": 2}):
             with mock.patch.object(ScanService, "_compute_hash", slow_first):
-                self.svc.do_import_internal([p1, p2], 9)
+                self.svc.do_import_internal([p1, p2], ImportInternalOptions(user_id=9))
         status = {r.path: r.status for r in self.session.query(ScanFile).all()}
         self.assertEqual(status[p1], ScanFile.IMPORTED)
         self.assertEqual(status[p2], ScanFile.DROP)
@@ -518,7 +515,7 @@ class TestHashParallel(ScanP0TestBase):
             self.svc.db = FakeCalibreDB()
             with mock.patch.dict(scan_service.CONF, {"scan_hash_workers": workers}):
                 with mock.patch.object(ScanService, "_compute_hash", spying_hash):
-                    self.svc.do_import_internal(files, 9)
+                    self.svc.do_import_internal(files, ImportInternalOptions(user_id=9))
             self.assertEqual(len(seen_threads), 4)
             if expect_pool:
                 self.assertTrue(all(n.startswith("scan_hash") for n in seen_threads), seen_threads)
@@ -534,14 +531,14 @@ class TestHashParallel(ScanP0TestBase):
         files = [self._touch("s%d.txt" % i, b"s-%d" % i) for i in range(2)]
         delivered = []
 
-        def fake_import_one_file(row, user_id, scan_upload_path, session, force, sole=False, staged_ops=None):
+        def fake_import_one_file(row, session, staged_ops=None, opts=None):
             delivered.append(row.path)
             return None, None
 
         self.svc._import_one_file = fake_import_one_file
         self.addCleanup(self._restore_import_one_file)
         with mock.patch.dict(scan_service.CONF, {"scan_hash_workers": 1}):
-            self.svc.do_import_internal(files, 9)
+            self.svc.do_import_internal(files, ImportInternalOptions(user_id=9))
         self.assertEqual(sorted(delivered), sorted(files))
         self.assertEqual(self.session.query(ScanFile).filter(ScanFile.status == ScanFile.READY).count(), 2)
 
@@ -553,7 +550,7 @@ class TestHashParallel(ScanP0TestBase):
         files = [self._touch("a%d.txt" % i, b"a-%d" % i) for i in range(5)]
         delivered = []
 
-        def fake_import_one_file(row, user_id, scan_upload_path, session, force, sole=False, *args, **kwargs):
+        def fake_import_one_file(row, session, *args, **kwargs):
             delivered.append(row.path)
             return None, None
 
@@ -570,7 +567,7 @@ class TestHashParallel(ScanP0TestBase):
 
         with mock.patch.dict(scan_service.CONF, {"scan_hash_workers": 2}):
             with mock.patch.object(ScanService, "_scan_prepare", spying_prepare):
-                self.svc.do_import_internal(files, 9)
+                self.svc.do_import_internal(files, ImportInternalOptions(user_id=9))
         self.assertEqual(len(calls), 2)
         # abort 语义：worker 跳过队列所有行（保持 READY 下轮 union-pending 重导），
         # 但已提交进流水线的文件必须被收尾收割并落 READY 行（尾批照常提交）。
@@ -604,7 +601,7 @@ class TestPhase2Batching(ScanP0TestBase):
         row2 = self._make_ready_row("b2.txt")
         staged_ops = []
         for row in (row1, row2):
-            new_id, status = self.svc._import_one_file(row, 9, self.tmpdir, self.session, False, staged_ops=staged_ops)
+            new_id, status = self.svc._import_one_file(row, self.session, staged_ops=staged_ops, opts=ImportInternalOptions(user_id=9, scan_upload_path=self.tmpdir, force=False))
             self.assertEqual(status, ScanFile.IMPORTED)
             self.assertIsNotNone(new_id)
         self.assertEqual(len(staged_ops), 4)  # 2 save_row + 2 save_item
@@ -630,7 +627,7 @@ class TestPhase2Batching(ScanP0TestBase):
             batches.append(len(staged_ops))
             return orig_apply2(svc_self, session, staged_ops)
 
-        def fake_import_one_file(row, user_id, scan_upload_path, session, force, sole=False, staged_ops=None):
+        def fake_import_one_file(row, session, staged_ops=None, opts=None):
             row.status = ScanFile.IMPORTED
             staged_ops.append(("save_row", row))
             return None, ScanFile.IMPORTED
@@ -639,7 +636,7 @@ class TestPhase2Batching(ScanP0TestBase):
         self.addCleanup(self._restore_import_one_file)
         with mock.patch.object(ScanService, "_apply_phase2_batch", spying_apply2):
             with mock.patch.object(ScanService, "save_or_rollback") as mock_save:
-                self.svc.do_import_internal(files, 9)
+                self.svc.do_import_internal(files, ImportInternalOptions(user_id=9))
         self.assertEqual(batches, [20])
         mock_save.assert_not_called()
         self.assertEqual(self.session.query(ScanFile).filter(ScanFile.status == ScanFile.IMPORTED).count(), 20)
@@ -805,7 +802,7 @@ class TestTitleDedupDispatch(ScanP0TestBase):
 
         svc = self.svc
 
-        def fake_import_one_file(row, user_id, scan_upload_path, session, force, sole=False, staged_ops=None):
+        def fake_import_one_file(row, session, staged_ops=None, opts=None):
             # 仿真实流程：Phase2 每本书都走一次判重入口（索引在此首次构建）
             svc._title_dedup_ids(type("MI", (), {"title": row.path})())
             row.status = ScanFile.IMPORTED
@@ -824,7 +821,7 @@ class TestTitleDedupDispatch(ScanP0TestBase):
         self.svc._title_dedup_ids = fake_dedup
         self.addCleanup(self._restore_dedup_ids)
         ScanService.static_title_index_total = 60
-        self.svc.do_import_internal(files, 9)
+        self.svc.do_import_internal(files, ImportInternalOptions(user_id=9))
         mock_index.close.assert_called_once()
         self.assertIsNone(ScanService.static_title_index)
         self.assertEqual(ScanService.static_title_index_total, 0)  # 收尾连门限一起清：lingering worker 不再重建孤儿索引
@@ -848,7 +845,7 @@ class TestTitleIndexEndToEnd(ScanP0TestBase):
         import glob as _glob
         temp_files_before = set(_glob.glob(os.path.join(tempfile.gettempdir(), "scan_title_idx_*.sqlite")))
         with mock.patch.object(scan_service, "TITLE_INDEX_MIN_BOOKS", 1):
-            self.svc.do_import_internal([f1, f2], 9)
+            self.svc.do_import_internal([f1, f2], ImportInternalOptions(user_id=9))
         self.assertEqual(len(db.import_calls), 1)  # 第二本并入，不重复建书
         self.assertEqual(len(db.add_format_calls), 1)
         self.assertEqual(db.same_title_calls, [])  # 两次判重全部走索引，零全库扫描
@@ -871,7 +868,7 @@ class TestPersistFailureGate(ScanP0TestBase):
             del self.svc._import_one_file
 
     def _stub_import_one_file(self):
-        def fake_import_one_file(row, user_id, scan_upload_path, session, force, sole=False, *args, **kwargs):
+        def fake_import_one_file(row, session, *args, **kwargs):
             return None, None
 
         self.svc._import_one_file = fake_import_one_file
@@ -887,7 +884,7 @@ class TestPersistFailureGate(ScanP0TestBase):
         self.addCleanup(setattr, asc, "scoped_session", old_scoped)
         self.addCleanup(setattr, asc, "db", old_db)
         with mock.patch.object(scan_service.AsyncService, "async_mode", lambda self: False):
-            self.svc.do_import("all", 9, cleanup_dir=staged_dir)
+            self.svc.do_import("all", 9, ImportOptions(cleanup_dir=staged_dir))
 
     def test_apply_failure_skips_snapshot_and_keeps_staging(self):
         self._stub_import_one_file()
@@ -934,7 +931,7 @@ class TestPersistFailureGate(ScanP0TestBase):
 
         self.svc.session = CommitBoom(real_session)
         self._stub_import_one_file()
-        self.svc.do_import_internal([fpath], 9)
+        self.svc.do_import_internal([fpath], ImportInternalOptions(user_id=9))
         self.assertTrue(ScanService.static_phase1_persist_failed)
 
     def test_dropped_save_sets_flag(self):
@@ -952,7 +949,7 @@ class TestPersistFailureGate(ScanP0TestBase):
         fpath = self._touch("dupfile.txt", b"dup-content")
         self._stub_import_one_file()
         with mock.patch.object(ScanService, "_compute_hash", return_value=("sha256:dup", None)):
-            self.svc.do_import_internal([fpath], 9)
+            self.svc.do_import_internal([fpath], ImportInternalOptions(user_id=9))
         self.assertTrue(ScanService.static_phase1_persist_failed)
 
 
@@ -1014,7 +1011,7 @@ class TestSameTitleEndToEnd(ScanP0TestBase):
         self.svc.db = db
         f1 = self._touch(os.path.join("d1", "同名书.txt"), b"first-content-aaa")
         f2 = self._touch(os.path.join("d2", "同名书.txt"), b"second-content-bbb")
-        self.svc.do_import_internal([f1, f2], 9)
+        self.svc.do_import_internal([f1, f2], ImportInternalOptions(user_id=9))
         self.assertEqual(len(db.import_calls), 1)
         self.assertEqual(len(db.add_format_calls), 1)
         self.assertEqual(len(db.same_title_calls), 2)
@@ -1038,7 +1035,7 @@ class TestSetFieldPerBook(ScanP0TestBase):
         files = []
         for i in range(25):
             files.append(self._touch(os.path.join("c%d" % (i % 3), "book%02d.txt" % i), b"cat-content-%02d" % i))
-        self.svc.do_import_internal(files, 9)
+        self.svc.do_import_internal(files, ImportInternalOptions(user_id=9))
         cat_calls = [m for name, m in db.new_api.set_field_calls if name == constants.CALIBRE_COLUMN_CATEGORY]
         # 逐本写回：25 本 = 25 次调用，且每次只写一本（不是攒批的多键映射）
         self.assertEqual(len(cat_calls), 25)
@@ -1061,7 +1058,7 @@ class TestSetFieldPerBook(ScanP0TestBase):
         db = FakeCalibreDB()
         self.svc.db = db
         fpath = self._touch(os.path.join("cats", "plain.txt"), b"plain-content")
-        self.svc.do_import_internal([fpath], 9)
+        self.svc.do_import_internal([fpath], ImportInternalOptions(user_id=9))
         row = self.session.query(ScanFile).filter(ScanFile.path == fpath).one()
         self.assertEqual(row.status, ScanFile.IMPORTED)
         cat_calls = [m for name, m in db.new_api.set_field_calls if name == constants.CALIBRE_COLUMN_CATEGORY]
@@ -1080,7 +1077,7 @@ class TestSetFieldPerBook(ScanP0TestBase):
         db = FakeCalibreDB()
         self.svc.db = db
         fpath = self._touch(os.path.join("cats2", "plain.txt"), b"plain-content-2")
-        self.svc.do_import_internal([fpath], 9)
+        self.svc.do_import_internal([fpath], ImportInternalOptions(user_id=9))
         cat_calls = [m for name, m in db.new_api.set_field_calls if name == constants.CALIBRE_COLUMN_CATEGORY]
         self.assertEqual(cat_calls, [])
 
@@ -1093,7 +1090,7 @@ class TestIncrementalSnapshotCommit(ScanP0TestBase):
     """
 
     def _fake_import_one_file(self):
-        def fake(row, user_id, scan_upload_path, session, force, sole=False, staged_ops=None):
+        def fake(row, session, staged_ops=None, opts=None):
             row.status = ScanFile.IMPORTED
             staged_ops.append(("save_row", row))
             return None, ScanFile.IMPORTED
@@ -1114,7 +1111,7 @@ class TestIncrementalSnapshotCommit(ScanP0TestBase):
         filelist, visited, file_dir = self.svc._collect_files([self.tmpdir], use_snapshot=False)
         self.assertEqual(sorted(filelist), sorted([f1, f2, f3]))
         self._install_fake()
-        self.svc.do_import_internal(filelist, 9, visited=visited, file_dir=file_dir)
+        self.svc.do_import_internal(filelist, visited=visited, file_dir=file_dir, opts=ImportInternalOptions(user_id=9))
         # d1 两个文件、d2 一个文件都已走完 Phase1 → 两者快照已增量落库
         snap = self._snapshot_dirs()
         self.assertIn(os.path.realpath(os.path.dirname(f1)), snap)
@@ -1126,7 +1123,7 @@ class TestIncrementalSnapshotCommit(ScanP0TestBase):
         self._touch(os.path.join("d1", "a.txt"), b"a-content")
         filelist, _visited, _file_dir = self.svc._collect_files([self.tmpdir], use_snapshot=False)
         self._install_fake()
-        self.svc.do_import_internal(filelist, 9)  # 无 visited/file_dir → 无增量提交
+        self.svc.do_import_internal(filelist, ImportInternalOptions(user_id=9))  # 无 visited/file_dir → 无增量提交
         self.assertEqual(self._snapshot_dirs(), set())
 
     def test_dropped_phase1_row_suppresses_incremental_snapshot(self):
@@ -1144,7 +1141,7 @@ class TestIncrementalSnapshotCommit(ScanP0TestBase):
             return outcomes[:-1] if outcomes else []
 
         with mock.patch.object(ScanService, "_apply_phase1_batch", dropping_apply):
-            self.svc.do_import_internal(filelist, 9, visited=visited, file_dir=file_dir)
+            self.svc.do_import_internal(filelist, visited=visited, file_dir=file_dir, opts=ImportInternalOptions(user_id=9))
         self.assertEqual(self._snapshot_dirs(), set())
 
     def test_abort_suppresses_incremental_snapshot_in_flight(self):
@@ -1164,7 +1161,7 @@ class TestIncrementalSnapshotCommit(ScanP0TestBase):
 
         with mock.patch.dict(scan_service.CONF, {"scan_hash_workers": 1}):
             with mock.patch.object(ScanService, "_scan_finalize", aborting_finalize):
-                self.svc.do_import_internal(filelist, 9, visited=visited, file_dir=file_dir)
+                self.svc.do_import_internal(filelist, visited=visited, file_dir=file_dir, opts=ImportInternalOptions(user_id=9))
         self.assertGreaterEqual(self.session.query(ScanFile).count(), 1)
         self.assertEqual(self._snapshot_dirs(), set())
 
@@ -1187,7 +1184,7 @@ class TestIncrementalSnapshotCommit(ScanP0TestBase):
         with mock.patch.dict(scan_service.CONF, {"scan_hash_workers": 1}):
             with mock.patch.object(ScanService, "_scan_prepare", raising_prepare):
                 with self.assertRaises(RuntimeError):
-                    self.svc.do_import_internal(filelist, 9, visited=visited, file_dir=file_dir)
+                    self.svc.do_import_internal(filelist, visited=visited, file_dir=file_dir, opts=ImportInternalOptions(user_id=9))
         snap = self._snapshot_dirs()
         self.assertIn(os.path.realpath(os.path.dirname(f1)), snap)
         self.assertNotIn(os.path.realpath(os.path.dirname(f2)), snap)
@@ -1219,7 +1216,7 @@ class TestPhase1NoWriteHold(ScanP0TestBase):
             time.sleep(0.3)
             return orig_hash(svc_self, fpath)
 
-        def writing_stub(row, user_id, scan_upload_path, wsession, force, sole=False, *args, **kwargs):
+        def writing_stub(row, wsession, *args, **kwargs):
             delivered.append(row.path)
             row.status = ScanFile.IMPORTED
             ok = self.svc.save_or_rollback(row, wsession)
@@ -1229,7 +1226,7 @@ class TestPhase1NoWriteHold(ScanP0TestBase):
         self.addCleanup(self._restore_import_one_file)
         with mock.patch.object(ScanService, "_compute_hash", slow_hash):
             with mock.patch.object(scan_service, "PHASE1_BATCH_SIZE", 4):
-                self.svc.do_import_internal(files, 9)
+                self.svc.do_import_internal(files, ImportInternalOptions(user_id=9))
         self.assertEqual(len(delivered), 12)
         self.assertEqual(
             session.query(ScanFile).filter(ScanFile.status == ScanFile.IMPORTED).count(), 12
@@ -1251,7 +1248,7 @@ class TestRowSaveHonesty(ScanP0TestBase):
         row = ScanFile(fpath, "sha256:h", 1)
         row.status = ScanFile.READY
         with mock.patch.object(ScanService, "save_or_rollback", return_value=False):
-            new_id, status = self.svc._import_one_file(row, 9, self.tmpdir, self.session, False)
+            new_id, status = self.svc._import_one_file(row, self.session, opts=ImportInternalOptions(user_id=9, scan_upload_path=self.tmpdir, force=False))
         self.assertEqual((new_id, status), (None, None))
 
 
@@ -1264,13 +1261,13 @@ class TestNonReadyNotEnqueued(ScanP0TestBase):
         f2 = self._touch("dup2.txt", b"same-bytes")
         delivered = []
 
-        def fake_import_one_file(row, user_id, scan_upload_path, session, force, sole=False, *args, **kwargs):
+        def fake_import_one_file(row, session, *args, **kwargs):
             delivered.append(row.path)
             return None, None
 
         self.svc._import_one_file = fake_import_one_file
         self.addCleanup(self._restore_import_one_file)
-        self.svc.do_import_internal([f1, f2], 9)
+        self.svc.do_import_internal([f1, f2], ImportInternalOptions(user_id=9))
         self.assertEqual(delivered, [f1])
         statuses = sorted(r.status for r in self.session.query(ScanFile).all())
         self.assertEqual(statuses, [ScanFile.DROP, ScanFile.READY])

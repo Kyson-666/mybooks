@@ -14,7 +14,7 @@ import tornado
 from webserver import loader
 from webserver.handlers.base import BaseHandler, auth, js, is_admin
 from webserver.models import ScanFile
-from webserver.services.scan_service import ScanService, SCAN_EXT as SERVER_SCAN_EXT
+from webserver.services.scan_service import ScanService, SCAN_EXT as SERVER_SCAN_EXT, ImportOptions
 from webserver.services.audios_import import AudioBookImporter
 
 CONF = loader.get_settings()
@@ -312,7 +312,8 @@ class ImportRun(BaseHandler):
                 if not query.count():
                     return {"err": "empty", "msg": _("没有可导入的文件")}
 
-            ScanService().do_import(paths, self.user_id(), skip_last_dirs, force, selector=selector, sole=sole)
+            options = ImportOptions(skip_last_dirs=skip_last_dirs, force=force, selector=selector, sole=sole)
+            ScanService().do_import(paths, self.user_id(), options)
             return {"err": "ok", "msg": _("扫描成功")}
         except Exception as e:
             logging.error(f"ImportRun error: {e}")
@@ -515,7 +516,7 @@ class ImportDirs(BaseHandler):
     @js
     @is_admin
     def get(self):
-        """列出扫描导入目录下的一级子目录，供"按分类导入"选择。
+        """列出扫描导入目录下的一级子目录，供"按目录导入"选择。
 
         只返回目录名不统计文件数——在百万级文件树上递归计数本身就是一次全量遍历，
         正是本功能要避免的开销。注意本接口按"分类子目录"布局设计：扫描目录若被
@@ -704,7 +705,7 @@ class ServerFileImport(BaseHandler):
         from webserver.handlers.book import BookUploadBatch
         import_id = int(time.time() * 1000)
         BookUploadBatch._remember_owner(import_id, self.user_id())
-        ScanService().do_import(files, self.user_id(), import_id=import_id)
+        ScanService().do_import(files, self.user_id(), ImportOptions(import_id=import_id))
         return {"err": "ok", "msg": _("已开始导入"), "import_id": import_id, "file_count": len(files)}
 
 

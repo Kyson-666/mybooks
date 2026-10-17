@@ -366,7 +366,7 @@ export default {
             deep: true,
         },
         skip_last_dirs(val) {
-            // 「按分类导入」并入扫描范围：选中即弹目录选择框；对话框关闭后回退到原范围
+            // 「按目录导入」并入扫描范围：选中即弹目录选择框；对话框关闭后回退到原范围
             if (val === 3) {
                 this.openDirDialog();
             } else {

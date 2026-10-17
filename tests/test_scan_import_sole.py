@@ -25,7 +25,7 @@ from webserver import models
 from webserver.models import Reader, ScanFile
 from webserver.services import scan_service
 from webserver.services import mail as mail_module
-from webserver.services.scan_service import ScanService
+from webserver.services.scan_service import ScanService, ImportInternalOptions
 
 
 class ScanImportSoleTest(unittest.TestCase):
@@ -92,15 +92,15 @@ class ScanImportSoleTest(unittest.TestCase):
         fpath = self._touch_txt()
         captured = []
 
-        def fake_import_one_file(row, user_id, scan_upload_path, session, force, sole=False, *args, **kwargs):
-            captured.append(sole)
+        def fake_import_one_file(row, session, staged_ops=None, opts=None):
+            captured.append(opts.sole)
             return 501, None
 
         self.svc._import_one_file = fake_import_one_file
         if sole is None:
-            self.svc.do_import_internal([fpath], 9)
+            self.svc.do_import_internal([fpath], ImportInternalOptions(user_id=9))
         else:
-            self.svc.do_import_internal([fpath], 9, sole=sole)
+            self.svc.do_import_internal([fpath], ImportInternalOptions(user_id=9, sole=sole))
         return captured
 
     def test_sole_true_reaches_import_one_file(self):
@@ -121,8 +121,8 @@ class ScanImportSoleTest(unittest.TestCase):
 
         captured = []
 
-        def fake_import_one_file(row, user_id, scan_upload_path, session, force, sole=False, *args, **kwargs):
-            captured.append(sole)
+        def fake_import_one_file(row, session, staged_ops=None, opts=None):
+            captured.append(opts.sole)
             return None, None
 
         self.svc._import_one_file = fake_import_one_file
@@ -130,7 +130,7 @@ class ScanImportSoleTest(unittest.TestCase):
         work_queue.put(row.id)
         work_queue.put(None)  # sentinel: Phase 1 done
         imported = []
-        self.svc._importing_worker(work_queue, imported, None, 9, self.tmpdir, 20, False, True)
+        self.svc._importing_worker(work_queue, imported, ImportInternalOptions(task_id=None, user_id=9, scan_upload_path=self.tmpdir, batch_size=20, force=False, sole=True))
         self.assertEqual(captured, [True])
         self.assertEqual(imported, [])
 
