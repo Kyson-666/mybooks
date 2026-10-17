@@ -5,7 +5,7 @@
                 <v-toolbar dark color="primary">
                     <v-toolbar-title align-center>{{ $t('book.edit.title') }}</v-toolbar-title>
                     <v-spacer></v-spacer>
-                    <v-btn class='mr-2' color='red' :to="'/book/'+book.id">{{ $t('book.edit.cancel') }}</v-btn>
+                    <v-btn class='mr-2' color='red' @click="cancel_edit">{{ $t('book.edit.cancel') }}</v-btn>
                     <v-btn color='green' @click="save_book">{{ $t('book.edit.save') }}</v-btn>
                 </v-toolbar>
                 <v-card-text class="pa-0 pa-md-2">
@@ -241,6 +241,7 @@ export default {
         },
     },
     async mounted() {
+        this.cameFromBookDetail = sessionStorage.getItem('edit_cameFromDetail') === '1';
         this.publishers_loading = true;
         this.tags_loading = true;
         try {
@@ -273,20 +274,25 @@ export default {
             title: "编辑 " + this.book.title,
         }
     },
-    created() {
-        //this.$store.commit('navbar', true);
-        //this.init(this.$route);
-    },
-    beforeRouteEnter(to, from, next) {
+    beforeRouteEnter(to, _from, next) {
+        const fromDetail = _from.path === "/book/" + to.params.bid;
+        sessionStorage.setItem('edit_cameFromDetail', fromDetail ? '1' : '0');
         next(vm => {
-            vm.cameFromBookDetail = from.path === "/book/" + to.params.bid;
+            vm.cameFromBookDetail = fromDetail;
         });
     },
-    beforeRouteUpdate(to, from, next) {
+    beforeRouteUpdate(to, _from, next) {
         this.init(to, next);
     },
     methods: {
-        init(route, next) {
+        cancel_edit() {
+            if (this.cameFromBookDetail) {
+                this.$router.back();
+            } else {
+                this.$router.push("/book/" + this.book.id);
+            }
+        },
+        init(_route, next) {
             //this.$store.commit('navbar', true);
             this.bookid = this.$route.params.bid;
             this.$backend("/book/" + this.bookid)
