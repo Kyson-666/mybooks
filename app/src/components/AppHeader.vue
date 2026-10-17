@@ -1364,7 +1364,7 @@ html[data-appearance-dark="1"] .v-application .v-navigation-drawer.app-navigatio
 }
 
 .app-navigation-drawer .v-list {
-    padding: 12px 8px !important;
+    padding: 12px 8px 12px 0 !important;
 }
 
 .login-button {
@@ -1495,14 +1495,28 @@ html[data-appearance-dark="1"] .v-application .v-navigation-drawer.app-navigatio
     opacity: 1 !important;
 }
 
+.app-navigation-drawer .v-list-item:not(.v-list-item--icon-only):hover {
+    background: linear-gradient(90deg, rgba(102, 126, 234, 0.08) 0%, rgba(102, 126, 234, 0.02) 100%);
+    border-radius: 0 12px 12px 0;
+}
+
+.app-navigation-drawer .v-list-item:not(.v-list-item--icon-only).v-list-item--active {
+    background: linear-gradient(90deg, rgba(102, 126, 234, 0.15) 0%, rgba(102, 126, 234, 0.05) 100%);
+    border-radius: 0 12px 12px 0;
+}
+
 .app-navigation-drawer .v-list-group__items > .v-list-item--group-child:hover {
     background: linear-gradient(90deg, rgba(102, 126, 234, 0.08) 0%, rgba(102, 126, 234, 0.02) 100%);
-    border-radius: 0 8px 8px 0;
+    border-radius: 0 12px 12px 0;
 }
 
 .app-navigation-drawer .v-list-group__items > .v-list-item--active {
     background: linear-gradient(90deg, rgba(102, 126, 234, 0.15) 0%, rgba(102, 126, 234, 0.05) 100%);
-    border-radius: 0 8px 8px 0;
+    border-radius: 0 12px 12px 0;
+}
+
+.app-navigation-drawer .v-list-item::before {
+    border-radius: inherit;
 }
 
 .theme--light .app-navigation-drawer .v-list-group__items > .v-list-item--group-child.v-list-item--active {
