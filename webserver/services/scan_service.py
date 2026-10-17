@@ -1280,6 +1280,7 @@ class ScanService(AsyncService):
         # static_phase1_persist_failed 有意不在此复位：失败轮结束后保持 True 直到下一轮
         # do_import/do_import_internal 开头的复位点（读取点都在复位之后，无陈旧读）。
         ScanService.static_import_user_id = 0
+        logging.info("[IMPORT] Finished importing task, imported %d files, cost: %.3f seconds", ScanService.static_import_files_cnt, time.time() - start_time)
 
     def _compute_hash(self, fpath):
         start = time.time()
