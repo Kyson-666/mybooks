@@ -2778,7 +2778,16 @@ export default {
     this.loadStampImage();
     this.loadThanksTo();
     this.updateBarOffset();
-    this.$nextTick(() => this.positionSegIndicator());
+    this.$nextTick(() => {
+      this.positionSegIndicator();
+      if (process.client) {
+        const seg = this.$el && this.$el.querySelector(".settings-seg");
+        if (seg) {
+          this._segObserver = new ResizeObserver(() => this.positionSegIndicator());
+          this._segObserver.observe(seg);
+        }
+      }
+    });
     if (process.client) {
       window.addEventListener("resize", this.updateBarOffset);
       window.addEventListener("resize", this.positionSegIndicator);
@@ -2795,6 +2804,10 @@ export default {
       window.removeEventListener("beforeunload", this.handleBeforeUnload);
       // 清掉 documentElement 上的全局 CSS 变量，避免残留值影响其他页面
       document.documentElement.style.removeProperty("--settings-bar-top");
+      if (this._segObserver) {
+        this._segObserver.disconnect();
+        this._segObserver = null;
+      }
       if (this._barObserver) {
         this._barObserver.disconnect();
         this._barObserver = null;
