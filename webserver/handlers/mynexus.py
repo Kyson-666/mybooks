@@ -329,8 +329,10 @@ class MyNexusSessionHandler(BaseHandler):
                             if chunk:
                                 loop.call_soon_threadsafe(push_chunk, chunk)
             except requests.RequestException as exc:
-                loop.call_soon_threadsafe(set_headers, {"status": 502, "error": str(exc)})
-                loop.call_soon_threadsafe(push_chunk, {"error": str(exc)})
+                logging.error("MyNexus chat stream for book %s failed: %s", book_id, exc)
+                message = _("无法连接到 MyNexus 服务，请检查服务状态或网络设置")
+                loop.call_soon_threadsafe(set_headers, {"status": 502, "error": message})
+                loop.call_soon_threadsafe(push_chunk, {"error": message})
             finally:
                 loop.call_soon_threadsafe(push_chunk, None)
 
@@ -370,8 +372,8 @@ class MyNexusSessionHandler(BaseHandler):
             if chunk is None:
                 break
             if isinstance(chunk, dict):
-                logging.error("MyNexus chat stream for book %s failed: %s", book_id, chunk["error"])
-                self.write("data: %s\n\n" % json.dumps({"error": "MyNexus chat stream was interrupted"}))
+                logging.error("MyNexus chat stream for book %s interrupted: %s", book_id, chunk["error"])
+                self.write("data: %s\n\n" % json.dumps({"error": chunk["error"]}))
                 await self.flush()
                 continue
             self.write(chunk)

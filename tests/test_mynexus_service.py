@@ -20,6 +20,8 @@ def test_response_messages_have_translations(language):
         "JSON 请求格式无效",
         "MyNexus 会话失败",
         "MyNexus 未返回会话 ID",
+        "MyNexus 请求失败，请稍后重试",
+        "无法连接到 MyNexus 服务，请检查服务状态或网络设置",
         "请求内容无效",
         "消息必须包含用户或助手角色及文本内容",
         "未找到该图书或无权访问",

@@ -1,9 +1,11 @@
 import json
+import logging
 import os
 from urllib.parse import urlparse
 
 import requests
 
+from webserver.i18n import _
 from webserver.loader import get_settings
 
 CONF = get_settings()
@@ -14,6 +16,15 @@ class MyNexusError(Exception):
         super().__init__(message)
         self.status_code = status_code
         self.message = message
+
+
+def request_failure(operation, exc):
+    if isinstance(exc, (requests.ConnectionError, requests.Timeout)):
+        message = _("无法连接到 MyNexus 服务，请检查服务状态或网络设置")
+    else:
+        message = _("MyNexus 请求失败，请稍后重试")
+    logging.error("MyNexus %s failed: %s", operation, exc)
+    return MyNexusError(502, message)
 
 
 class MyNexusClient:
@@ -48,7 +59,7 @@ class MyNexusClient:
                 **kwargs,
             )
         except requests.RequestException as exc:
-            raise MyNexusError(502, "MyNexus request failed: %s" % exc) from exc
+            raise request_failure("request %s" % path, exc) from exc
         if not response.ok:
             raise MyNexusError(response.status_code, response.text[:2000] or response.reason)
         try:
@@ -71,7 +82,7 @@ class MyNexusClient:
                     timeout=(10, 300),
                 )
         except requests.RequestException as exc:
-            raise MyNexusError(502, "MyNexus upload failed: %s" % exc) from exc
+            raise request_failure("upload book %s" % book_id, exc) from exc
         if not response.ok:
             raise MyNexusError(response.status_code, response.text[:2000] or response.reason)
         try:
