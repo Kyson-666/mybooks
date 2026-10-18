@@ -39,11 +39,17 @@
 </template>
 
 <script>
+import { siteBaseUrl } from '~/utils/siteUrl'
+
 export default {
   data() {
     return {
-      opdsUrl: process.client ? window.location.origin + '/opds/' : '',
       copied: false
+    }
+  },
+  computed: {
+    opdsUrl() {
+      return process.client ? `${siteBaseUrl(this.$store)}/opds/` : ''
     }
   },
   methods: {

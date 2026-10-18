@@ -36,10 +36,11 @@ settings = {
     # 英文 UTC），也可填任意 IANA 时区名（如 Asia/Shanghai）。见 webserver/site_time.py。
     "site_timezone" : "auto",
     "site_theme"    : "dark",
-    # 管理员配置的「网站默认访问链接」。留空时分享链接/二维码使用当前访问地址；
-    # 反代或内网访问下想让对外域名出现在分享链接里时填写（不含结尾斜杠）。
-    # 注意与每请求被 set_hosts() 覆盖的小写 "site_url" 是两套概念：那个仍供邮件、OPDS
-    # 说明页、头像、磁盘扫描等用请求派生的地址，本键只喂分享链接与二维码。
+    # 管理员配置的「网站默认访问链接」。留空时分享链接、二维码、OPDS/WebDAV 说明页
+    # 与 Podcast 订阅链接使用当前访问地址；反代或内网访问下想让对外域名出现在这些
+    # 链接里时填写（不含结尾斜杠）。
+    # 注意与每请求被 set_hosts() 覆盖的小写 "site_url" 是两套概念：那个仍供邮件、
+    # 头像、磁盘扫描等用请求派生的地址，本键只喂需要稳定对外域名的链接。
     "SITE_URL"      : "",
     "ssl_crt_file"  : "/data/books/ssl/ssl.crt",
     "ssl_key_file"  : "/data/books/ssl/ssl.key",

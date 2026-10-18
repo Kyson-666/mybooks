@@ -26,11 +26,17 @@
 </template>
 
 <script>
+import { siteBaseUrl } from '~/utils/siteUrl'
+
 export default {
   data() {
     return {
-      webdavUrl: process.client ? window.location.origin + '/books/' : '',
       copied: false
+    }
+  },
+  computed: {
+    webdavUrl() {
+      return process.client ? `${siteBaseUrl(this.$store)}/books/` : ''
     }
   },
   methods: {

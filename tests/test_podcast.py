@@ -12,7 +12,7 @@ import datetime
 import unittest
 import xml.etree.ElementTree as ET
 
-from webserver.handlers.podcast import PodcastBaseHandler
+from webserver.handlers.podcast import CONF, PodcastBaseHandler
 from webserver.podcast.feed_builder import (
     build_book_feed,
     build_catalog_feed,
@@ -330,18 +330,55 @@ class TestBuildCatalogFeed(unittest.TestCase):
 
 
 class TestGetFullSiteUrl(unittest.TestCase):
-    """RSS/OPML 绝对链接的站点地址必须复用 set_hosts() 的反代感知结果。
+    """RSS/OPML 绝对链接的站点地址优先用管理员配置的 SITE_URL，否则回退反代感知结果。
 
     此前 _get_full_site_url 独立解析请求头，漏掉 X-Forwarded-Port——反代外网
     端口非 80/443 时（如 NPM 的域名:40443），生成的订阅链接会丢端口。
     """
 
-    def test_reuses_set_hosts_site_url(self):
+    def setUp(self):
+        self._saved_site_url = CONF.get("SITE_URL")
+
+    def tearDown(self):
+        if self._saved_site_url is None:
+            CONF.pop("SITE_URL", None)
+        else:
+            CONF["SITE_URL"] = self._saved_site_url
+
+    def _make_handler(self):
         # 跳过 RequestHandler.__init__（需要 application/db），只验证方法契约：
-        # _get_full_site_url 应直接返回 prepare()→set_hosts() 算好的 self.site_url
+        # 留空时 _get_full_site_url 应返回 prepare()→set_hosts() 算好的 self.site_url
         handler = PodcastBaseHandler.__new__(PodcastBaseHandler)
         handler.site_url = "https://books.example.com:40443"
-        self.assertEqual(handler._get_full_site_url(), "https://books.example.com:40443")
+        return handler
+
+    def test_reuses_set_hosts_site_url(self):
+        CONF["SITE_URL"] = ""
+        self.assertEqual(
+            self._make_handler()._get_full_site_url(),
+            "https://books.example.com:40443",
+        )
+
+    def test_prefers_configured_site_url(self):
+        CONF["SITE_URL"] = "https://public.example.com/"
+        self.assertEqual(
+            self._make_handler()._get_full_site_url(),
+            "https://public.example.com",
+        )
+
+    def test_preserves_path_prefix(self):
+        CONF["SITE_URL"] = "https://public.example.com/books/"
+        self.assertEqual(
+            self._make_handler()._get_full_site_url(),
+            "https://public.example.com/books",
+        )
+
+    def test_invalid_configured_site_url_falls_back(self):
+        CONF["SITE_URL"] = "not-a-url"
+        self.assertEqual(
+            self._make_handler()._get_full_site_url(),
+            "https://books.example.com:40443",
+        )
 
 
 if __name__ == "__main__":

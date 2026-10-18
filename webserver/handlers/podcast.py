@@ -15,7 +15,7 @@ from html import escape
 
 from tornado import web
 
-from webserver import loader
+from webserver import loader, utils
 from webserver.handlers.base import BaseHandler
 from webserver.podcast.feed_builder import build_book_feed
 from webserver.podcast.opml_builder import build_book_opml
@@ -51,14 +51,17 @@ class PodcastBaseHandler(BaseHandler):
         self.set_header("Cache-Control", "max-age=300")
 
     def _get_full_site_url(self):
-        """Get full site URL for building absolute URLs.
+        """Get the public site URL for building absolute links.
 
-        复用 BaseHandler.set_hosts() 的结果（prepare() 已按请求算好）：
+        管理员配置了「网站默认访问链接」(SITE_URL) 时优先用它，让反代/多入口部署下
+        生成的 Podcast 首页、RSS 与 OPML 链接稳定指向对外地址；留空则复用
+        BaseHandler.set_hosts() 的结果（prepare() 已按请求算好）：
         它处理了 X-Forwarded-Host 多级代理、X-Forwarded-Port 补端口（含 IPv6、
         标准端口不冗余）与 X-Forwarded-Proto/X-Scheme，此前的独立实现漏掉端口，
         反代外网端口非 80/443 时生成的 RSS/OPML 链接会丢端口。
         """
-        return self.site_url
+        configured = utils.normalize_site_url(CONF.get("SITE_URL", ""))
+        return configured or self.site_url
 
     def _get_site_title(self):
         """Get configured site title."""

@@ -807,8 +807,8 @@ export default {
             if (rsp.sys.language !== '') {
                 this.$i18n.locale = rsp.sys.language;
             }
-            // 分享链接/二维码的站点基地址（管理员可在设置里指定对外域名），
-            // 缓存一份供首屏请求未返回时的分享动作兜底，见 utils/siteUrl.js
+            // 对外链接的站点基地址（管理员可在设置里指定对外域名），
+            // 缓存一份供首屏请求未返回时的分享/OPDS/WebDAV 地址兜底，见 utils/siteUrl.js
             if (process.client && typeof rsp.sys.siteUrl === 'string') {
                 localStorage.setItem('sys_site_url', rsp.sys.siteUrl);
             }
