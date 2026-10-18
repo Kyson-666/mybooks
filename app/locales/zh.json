@@ -898,6 +898,7 @@
     "access_code": "访问码",
     "invite_message": "提示语",
     "user_settings": "用户设置",
+    "require_login": "必须登录后才能访问（开启后以下访客权限全部失效，且覆盖访问码模式）",
     "allow_guest_read": "允许访客在线阅读及播放有声书（无需注册和登录）",
     "allow_guest_download": "允许任意下载（访客无需注册和登录）",
     "allow_guest_push": "允许访客推送到阅读设备（访客无需注册和登录）",

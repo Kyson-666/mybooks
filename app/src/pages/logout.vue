@@ -39,7 +39,16 @@ export default {
     methods: {
         logout: function() {
             this.$backend('/user/sign_out')
-            .then(() => {});
+            .then(() => {
+                // 清掉守卫缓存的会话快照与 store 里的登录态，否则「必须登录」模式下
+                // 点回首页时守卫仍以为已登录，白跑一次请求才被后端弹回 /login。
+                if (this.$resetSession) {
+                    this.$resetSession();
+                }
+                this.$store.commit("login", {
+                    user: { is_login: false, is_admin: false, nickname: "", kindle_email: "", avatar: "" },
+                });
+            });
         }
     },
 }

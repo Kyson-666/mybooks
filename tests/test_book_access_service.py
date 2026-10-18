@@ -44,6 +44,18 @@ class TestBookAccessService(unittest.TestCase):
         self.assertTrue(self.check(conf, BookAccessService.guest_read_allowed))
         self.assertFalse(self.check(conf, BookAccessService.guest_download_allowed))
 
+    def test_require_login_closes_global_guest_gate(self):
+        conf = {"REQUIRE_LOGIN": True, "ALLOW_GUEST_READ": True, "ALLOW_GUEST_DOWNLOAD": True}
+        self.assertFalse(self.check(conf, BookAccessService.guest_read_allowed, 1))
+        self.assertFalse(self.check(conf, BookAccessService.guest_read_allowed))
+        self.assertFalse(self.check(conf, BookAccessService.guest_download_allowed, 1))
+        # 显式分享仍然按各自授权放行（分享链接是受控出口，不随总闸关闭）
+        with mock.patch.dict(book_access_service.CONF, conf, clear=False), \
+                mock.patch.object(BookAccessService, "_share_allows", return_value=True), \
+                mock.patch.object(BookAccessService, "_booklist_allows_read", return_value=False):
+            self.assertEqual(BookAccessService.guest_read_source(NoCookieHandler(), 1), "share")
+            self.assertTrue(BookAccessService.guest_download_allowed(NoCookieHandler(), 1))
+
     def test_handlers_do_not_read_guest_flags_directly(self):
         offenders = []
         for path in WEBSERVER.rglob("*.py"):

@@ -13,7 +13,7 @@ import random
 import time
 import traceback
 from collections import defaultdict
-from urllib.parse import urlparse
+from urllib.parse import quote, urlparse
 from jinja2 import Environment, FileSystemLoader
 from sqlalchemy import func as sql_func
 from sqlalchemy import inspect as sa_inspect
@@ -37,6 +37,70 @@ from webserver.constants import UPGRABLE_REVISION
 messages = defaultdict(list)
 CONF = loader.get_settings()
 AUDIO_OUTPUT_FOLDER = CONF.get("audio_output_folder", "/data/books/audios/")
+
+# 「必须登录才能访问」(REQUIRE_LOGIN) 开启后，仍然允许匿名访问的路径。
+# 精确匹配用于页面路由（避免 /login 前缀误放行 /login-xxx 这类未来路由），
+# 前缀匹配用于登录/安装必需接口、静态资源，以及自带凭据的设备协议入口。
+LOGIN_GATE_ALLOW_EXACT = frozenset({
+    "/login",
+    "/logout",
+    "/signup",
+    "/welcome",
+    "/install",
+    "/starting",
+    "/api/user/info",
+    "/api/user/sign_in",
+    "/api/user/sign_up",
+    "/api/user/reset",
+    "/api/access",
+    "/api/admin/install",
+    "/wap/login",
+    "/wap/welcome",
+    "/favicon.ico",
+    "/robots.txt",
+    "/site.webmanifest",
+    "/apple-touch-icon.png",
+})
+
+LOGIN_GATE_ALLOW_PREFIX = (
+    "/api/user/active/",   # 邮箱激活链接
+    "/api/share/",         # 显式创建的分享（自带有效期/密码/次数）
+    "/api/mcp/",           # MCP 由 AI_MCP_TOKEN 鉴权
+    "/api/favicon/",       # 站点图标（登录页标签页要显示）
+    "/s/",                 # 分享落地页（前端 SPA）
+    "/opds",               # OPDS 由 ENABLE_OPDS_AUTH 的 Basic 认证守护
+    "/podcast/",           # 播客 RSS，路径内含用户 podcast_token
+    "/books",              # WebDAV，自带 Basic 认证（且不走 BaseHandler）
+    "/wap/login",
+    "/wap/welcome",
+    "/_nuxt/",             # SPA 资源，登录页自身要能渲染
+    "/logo/",
+    "/avatar/",
+    "/favicon",
+    "/manifest",
+)
+
+
+LOGIN_GATE_ALLOW_SUFFIX = (
+    ".js", ".mjs", ".css", ".map", ".json",
+    ".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp", ".ico",
+    ".woff", ".woff2", ".ttf", ".eot",
+)
+
+
+def login_gate_allowed(path):
+    """REQUIRE_LOGIN 开启时，这个路径是否允许匿名访问。"""
+    if not path:
+        return False
+    if path in LOGIN_GATE_ALLOW_EXACT:
+        return True
+    if path.startswith(LOGIN_GATE_ALLOW_PREFIX):
+        return True
+    # /api/* 与 /get/*（封面、书籍文件、EPUB 解包）只认白名单，绝不按扩展名放行。
+    if path.startswith(("/api/", "/get/")):
+        return False
+    # 前端构建产物（Nuxt generate 后的 _nuxt/*、logo、图标、字体）登录页自身要用。
+    return path.endswith(LOGIN_GATE_ALLOW_SUFFIX)
 
 
 def day_format(value, format="%Y-%m-%d"):
@@ -290,7 +354,40 @@ class BaseHandler(web.RequestHandler):
     def mark_invited(self):
         self.set_secure_cookie("invited", str(int(time.time())))
 
+    def require_login_enabled(self):
+        """站点是否开启了「必须登录才能访问」（私人图书馆标准模式）。"""
+        return bool(CONF.get("REQUIRE_LOGIN", False))
+
+    def allow_flags(self):
+        """下发给前端的站点开关（sys.allow）。
+
+        必须登录时访客四项一律上报 False：前端有大量 "allow.read / allow.download"
+        分支（详情页访客可读、"访客可读"徽章、顶栏入口…），只靠后端拦会把 UI
+        留在"访客还能读"的错误状态。
+        """
+        require_login = self.require_login_enabled()
+        return {
+            "register": CONF["ALLOW_REGISTER"],
+            "require_login": require_login,
+            "download": False if require_login else CONF["ALLOW_GUEST_DOWNLOAD"],
+            "push": False if require_login else CONF["ALLOW_GUEST_PUSH"],
+            "read": False if require_login else CONF["ALLOW_GUEST_READ"],
+            "upload": False if require_login else CONF.get("ALLOW_GUEST_UPLOAD", False),
+            "physical_books": CONF.get("ENABLE_PHYSICAL_BOOKS", True),
+            "folder": CONF.get("ENABLE_FOLDER_BROWSE", False),
+            "download_quota": CONF.get("ENABLE_DOWNLOAD_QUOTA", False),
+            "server_import": CONF.get("ENABLE_SERVER_FILE_IMPORT", False),
+            "sync": CONF.get("ENABLE_DATA_SYNC", False),
+            "book_review": CONF.get("ENABLE_BOOK_REVIEW", True),
+            "book_recommend": CONF.get("ENABLE_BOOK_RECOMMEND_TO_OTHERS", True),
+            "shared_notes": CONF.get("ENABLE_SHARED_NOTES", True),
+        }
+
     def need_invited(self):
+        # 必须登录是比访问码更强的门：开启后访问码检查整体让位，
+        # 否则会变成「先输访问码、再登录」的两段式，且 /login 自身会被访问码拦住。
+        if self.require_login_enabled():
+            return False
         if not CONF.get("INVITE_MODE", False):
             return False
         if CONF.get("INVITE_CODE", ""):
@@ -385,6 +482,30 @@ class BaseHandler(web.RequestHandler):
             if not self.invited_code_is_ok():
                 return self.send_error_of_not_invited()
 
+    def should_be_logged_in(self):
+        """REQUIRE_LOGIN 开启时的登录门禁：未登录且路径不在放行名单 → 一律拦下。
+
+        - /api/*（以及 /get/* 这类由 BaseHandler 提供的资源接口）返回 user.need_login，
+          前端 $backend 已有该错误的统一跳转，故这里只回 JSON、不回 302；
+        - 其它路径（WAP 页面等）按用户看到的界面跳登录页，带上 next 便于回跳。
+        放行时返回 False；拦下时不返回（写响应后 raise web.Finish）。
+        """
+        if not self.require_login_enabled() or self.current_user:
+            return False
+        path = self.request.path or "/"
+        if login_gate_allowed(path):
+            return False
+        if path.startswith("/api/") or path.startswith("/get/"):
+            self.write({"err": "user.need_login", "msg": _("请先登录")})
+            self.set_status(200)
+            raise web.Finish()
+        if path.startswith("/wap/"):
+            next_url = self.request.uri
+            self.redirect("/wap/login?next=" + quote(next_url, safe=""))
+            raise web.Finish()
+        self.redirect("/login?next=" + quote(self.request.uri, safe=""))
+        raise web.Finish()
+
     def should_be_installed(self):
         if CONF.get("installed", None) is False:
             self.write({"err": "not_installed"})
@@ -436,6 +557,7 @@ class BaseHandler(web.RequestHandler):
         self.process_auth_token()
         self.should_be_installed()
         self.should_be_invited()
+        self.should_be_logged_in()
 
     def set_i18n(self):
         accept = self.request.headers.get("Accept-Language", "")
@@ -1615,21 +1737,7 @@ class BaseHandler(web.RequestHandler):
                 "footer": CONF["FOOTER"] if "FOOTER" in CONF else "",
                 "footer_watermark": CONF.get("FOOTER_WATERMARK", ""),
                 "header": CONF["HEADER"] if "HEADER" in CONF else "",
-                "allow": {
-                    "register": CONF["ALLOW_REGISTER"],
-                    "download": CONF["ALLOW_GUEST_DOWNLOAD"],
-                    "push": CONF["ALLOW_GUEST_PUSH"],
-                    "read": CONF["ALLOW_GUEST_READ"],
-                    "physical_books": CONF.get("ENABLE_PHYSICAL_BOOKS", True),
-                    "folder": CONF.get("ENABLE_FOLDER_BROWSE", False),
-                    "download_quota": CONF.get("ENABLE_DOWNLOAD_QUOTA", False),
-                    "upload": CONF.get("ALLOW_GUEST_UPLOAD", False),
-                    "server_import": CONF.get("ENABLE_SERVER_FILE_IMPORT", False),
-                    "sync": CONF.get("ENABLE_DATA_SYNC", False),
-                    "book_review": CONF.get("ENABLE_BOOK_REVIEW", True),
-                    "book_recommend": CONF.get("ENABLE_BOOK_RECOMMEND_TO_OTHERS", True),
-                    "shared_notes": CONF.get("ENABLE_SHARED_NOTES", True),
-                },
+                "allow": self.allow_flags(),
                 "indexPage": CONF.get("INDEX_PAGE_TYPE", "index"),
                 "epub_viewer": CONF.get("EPUB_VIEWER", "MyReader"),
                 "defaultPageSize": CONF.get("DEFAULT_PAGE_SIZE", 60),

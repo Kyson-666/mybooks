@@ -1481,7 +1481,7 @@ const SEARCH_ALIASES = {
     "read range": ["ALLOW_READ_RANGE_SETTING", "DEFAULT_READ_RANGE"], "reading range": ["ALLOW_READ_RANGE_SETTING", "DEFAULT_READ_RANGE"],
     quota: ["ENABLE_DOWNLOAD_QUOTA", "GLOBAL_DOWNLOAD_QUOTA"], quotas: ["ENABLE_DOWNLOAD_QUOTA", "GLOBAL_DOWNLOAD_QUOTA"], "daily limit": ["ENABLE_DOWNLOAD_QUOTA", "GLOBAL_DOWNLOAD_QUOTA"], "download limit": ["ENABLE_DOWNLOAD_QUOTA", "GLOBAL_DOWNLOAD_QUOTA"],
     // Users & Access · social login
-    login: ["SOCIALS", "ALLOW_REGISTER", "INVITE_MODE"], social: ["SOCIALS"], "social login": ["SOCIALS"], oauth: ["SOCIALS"], "third party": ["SOCIALS"], sso: ["SOCIALS"], qq: ["SOCIALS"], wechat: ["SOCIALS"], weibo: ["SOCIALS"], github: ["SOCIALS"],
+    login: ["SOCIALS", "ALLOW_REGISTER", "INVITE_MODE", "REQUIRE_LOGIN"], social: ["SOCIALS"], "social login": ["SOCIALS"], oauth: ["SOCIALS"], "third party": ["SOCIALS"], sso: ["SOCIALS"], qq: ["SOCIALS"], wechat: ["SOCIALS"], weibo: ["SOCIALS"], github: ["SOCIALS"],
     // Import & Storage · upload
     "upload limit": ["MAX_UPLOAD_SIZE", "CHUNK_UPLOAD_SIZE"], "file size": ["MAX_UPLOAD_SIZE"], "max upload": ["MAX_UPLOAD_SIZE"], size: ["MAX_UPLOAD_SIZE", "CACHE_MAX_MB"], limit: ["MAX_UPLOAD_SIZE", "CHUNK_UPLOAD_SIZE", "ENABLE_DOWNLOAD_QUOTA", "GLOBAL_DOWNLOAD_QUOTA", "CACHE_MAX_MB"],
     chunk: ["CHUNK_UPLOAD_SIZE"], chunks: ["CHUNK_UPLOAD_SIZE"], "chunked upload": ["CHUNK_UPLOAD_SIZE"], "large file": ["CHUNK_UPLOAD_SIZE"], resume: ["CHUNK_UPLOAD_SIZE"],
@@ -1870,6 +1870,8 @@ export default {
             icon: "mdi-account",
             title: "settings.sec_users_guest",
             fields: [
+              // 私人图书馆标准模式：开启后所有页面与接口都要求登录，下面四项访客权限随之失效
+              { icon: "mdi-login-variant", key: "REQUIRE_LOGIN", label: "settings.require_login", type: "checkbox", al: ["必须登录", "私人图书馆", "需登录", "login required"] },
               { icon: "mdi-read", key: "ALLOW_GUEST_READ", label: "settings.allow_guest_read", type: "checkbox" },
               { icon: "mdi-download", key: "ALLOW_GUEST_DOWNLOAD", label: "settings.allow_guest_download", type: "checkbox" },
               { icon: "mdi-upload", key: "ALLOW_GUEST_UPLOAD", label: "settings.allow_guest_upload", type: "checkbox" },

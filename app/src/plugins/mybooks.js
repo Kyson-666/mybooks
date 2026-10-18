@@ -102,7 +102,11 @@ export default ({ app }, inject) => {
                         redirect(301, "/welcome" + next);
                     }
                 } else if (rsp.err === 'user.need_login') {
-                    redirect(301, "/login");
+                    // 「必须登录才能访问」开启后，任何页面/接口都可能返回它；
+                    // 带上 next，登录成功后回到原页面（登录页自己不再重复跳）。
+                    if (route.path !== "/login") {
+                        redirect(301, "/login?next=" + encodeURIComponent(route.fullPath));
+                    }
                 } else if (rsp.err === 'exception') {
                     if (res !== undefined) {
                         res.setHeader('Cache-Control', 'no-cache');

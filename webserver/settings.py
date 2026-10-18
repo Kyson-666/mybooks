@@ -279,6 +279,10 @@ settings = {
     'INVITE_CODE'   : 'mybooks',
     'INVITE_MESSAGE': '''本站为私人图书馆，需输入密码才可进行访问''',
 
+    # 私人图书馆标准模式：所有页面与 /api 一律要求登录，访客权限（ALLOW_GUEST_*）随之失效。
+    # 开启后 INVITE_MODE 被覆盖（访问码是比登录更弱的门，不叠加），见 BaseHandler.need_invited。
+    'REQUIRE_LOGIN' : False,
+
     'ALLOW_GUEST_READ' : True,
     'ALLOW_GUEST_PUSH' : True,
     'ALLOW_GUEST_DOWNLOAD' : True,

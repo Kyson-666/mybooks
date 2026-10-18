@@ -139,6 +139,14 @@ export default {
         navIsDark() {
             return !isLightBackground(this.navBgColor);
         },
+        // 登录后回跳：只接受站内绝对路径，避免 ?next=//evil.com 变成开放重定向
+        nextTarget() {
+            const next = this.$route.query.next;
+            if (typeof next === "string" && next.startsWith("/") && !next.startsWith("//")) {
+                return next;
+            }
+            return "/";
+        },
     },
     methods: {
         do_login: function () {
@@ -154,7 +162,18 @@ export default {
                     this.alert.msg = rsp.msg;
                 } else {
                     this.$store.commit("navbar", true);
-                    this.$router.push("/");
+                    // 登录接口只回 {err:"ok"}，store 里的 user.is_login 还没更新；
+                    // 全站守卫靠它判断放行，所以先作废旧的"未登录"快照、重新拉一次会话，
+                    // 再跳回被拦下的原页面，否则会刚登录就被守卫弹回 /login。
+                    if (this.$resetSession) {
+                        this.$resetSession();
+                    }
+                    const go = () => this.$router.push(this.nextTarget);
+                    if (this.$ensureSession) {
+                        this.$ensureSession().then(go, go);
+                    } else {
+                        go();
+                    }
                 }
             });
         },

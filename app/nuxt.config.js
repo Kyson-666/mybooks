@@ -47,6 +47,7 @@ export default {
   // Plugins to run before rendering page: https://go.nuxtjs.dev/config-plugins
   plugins: [
     "~/plugins/mybooks.js",
+    "~/plugins/session.js",
     "~/plugins/load-plugins.js",
     "~/plugins/i18n.js",
     // 外观设置（顶栏品牌色 / 侧栏图标配色 / 深浅色…）：把 store 状态落到 CSS 变量与 Vuetify 主题
@@ -55,6 +56,12 @@ export default {
 
   // Auto import components: https://go.nuxtjs.dev/config-components
   components: true,
+
+  // 全站路由守卫：REQUIRE_LOGIN 开启且未登录时把页面跳到 /login。
+  // 页面 HTML 不经后端 BaseHandler（见 handlers/base.py 的门禁注释），只能在前端补这一层。
+  router: {
+    middleware: ["require-login"],
+  },
 
   // Modules for dev and build (recommended): https://go.nuxtjs.dev/config-modules
   buildModules: [

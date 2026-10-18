@@ -893,6 +893,7 @@
     "access_code": "存取碼",
     "invite_message": "提示語",
     "user_settings": "使用者設定",
+    "require_login": "必須登入後才能存取（開啟後以下訪客權限全部失效，且覆蓋存取碼模式）",
     "allow_guest_read": "允許訪客線上閱讀及播放有聲書（無需註冊和登入）",
     "allow_guest_download": "允許任意下載（訪客無需註冊和登入）",
     "allow_guest_push": "允許訪客推送到閱讀裝置（訪客無需註冊和登入）",

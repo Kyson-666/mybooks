@@ -14,6 +14,7 @@ export const state = () => ({
             download_quota: false,
             upload: false,
             register: false,
+            require_login: false,
             guest_read: false,
             guest_download: false,
             guest_upload: false,
