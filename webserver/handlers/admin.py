@@ -43,7 +43,7 @@ from webserver.models import Reader, Item, Authors, Reading, BookReview, Message
 from webserver.services.book_review_service import BookReviewService
 from webserver.base.formatter import SimpleBookFormatter
 from webserver.base.setting_saver import ADMIN_SETTING_KEYS, SettingsSaver
-from webserver.base.homepage import homepage_from_legacy, normalize_homepage
+from webserver.base.homepage import get_homepage_config, normalize_homepage
 from webserver.base.trash_manager import TrashManager
 from webserver.version import VERSION
 from webserver.handlers.audio import AudioUtils
@@ -460,8 +460,9 @@ class AdminSettings(BaseHandler):
         if not CONF.get("SIDEBAR_ITEMS", []):
             CONF["SIDEBAR_ITEMS"] = ["audiobooks", "printbooks", "publishers", "folders", "tags", "series", "languages", "rating", "memo", "categories"]
 
-        raw_homepage = CONF.get("HOMEPAGE_CONFIG")
-        homepage_config = normalize_homepage(raw_homepage) if raw_homepage else homepage_from_legacy(CONF)
+        # 与首页渲染共用同一套归一化：auto.py 被手改成非 dict/空值时也会回退旧开关，
+        # 否则设置页显示"全部可见"，管理员保存任意设置就会被静默改写首页行为。
+        homepage_config = get_homepage_config()
 
         CONF["site_icon"] = "favicon_0"  # default icon, means use current favicon.ico
         CONF["META_ALL_SOURCES"] = BookSearch.all_sources()

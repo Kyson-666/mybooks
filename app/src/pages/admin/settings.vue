@@ -1165,7 +1165,7 @@ const SEARCH_ALIASES = {
     友情链接: ["FRIENDS"], 友链: ["FRIENDS"], 链接: ["FRIENDS", "HIDE_PROJECT_LINKS", "douban_baseurl", "AI_API_URL", "static_host", "SITE_URL"],
     网址: ["douban_baseurl", "AI_API_URL", "static_host", "SITE_URL"], 地址: ["douban_baseurl", "AI_API_URL", "static_host", "smtp_server", "SITE_URL"],
     // 站点与外观 · 首页与列表
-    随机: ["MAIN_PAGE_RANDOM_COUNT"], 推荐: ["RECOMMEND_ENABLE", "RECOMMEND_USE_CROWD", "MAIN_PAGE_RANDOM_COUNT"], 智能: ["RECOMMEND_ENABLE"],
+    随机: ["MAIN_PAGE_RANDOM_COUNT"], 推荐: ["RECOMMEND_ENABLE", "RECOMMEND_USE_CROWD", "ENABLE_BOOK_RECOMMEND_TO_OTHERS", "MAIN_PAGE_RANDOM_COUNT"], 智能: ["RECOMMEND_ENABLE"],
     协同: ["RECOMMEND_USE_CROWD"], 协同过滤: ["RECOMMEND_USE_CROWD"], 参考他人: ["RECOMMEND_USE_CROWD"],
     新书: ["MAIN_PAGE_RECENT_COUNT", "SEND_MAIL_FOR_NEW_BOOKS"], 最新: ["MAIN_PAGE_RECENT_COUNT"], 最近更新: ["MAIN_PAGE_RECENT_COUNT"],
     分页: ["DEFAULT_PAGE_SIZE"], 每页: ["DEFAULT_PAGE_SIZE"], 每页数量: ["DEFAULT_PAGE_SIZE"],
@@ -1174,7 +1174,7 @@ const SEARCH_ALIASES = {
     统计: ["HOMEPAGE_CONFIG", "ALLOW_USER_DISABLE_STATISTIC"], banner: ["HOMEPAGE_CONFIG"], 阅读统计: ["HOMEPAGE_CONFIG"],
     在读: ["HOMEPAGE_CONFIG"], 正在阅读: ["HOMEPAGE_CONFIG"],
     书单: ["HOMEPAGE_CONFIG", "BOOK_NAV"], 书单推荐: ["HOMEPAGE_CONFIG"],
-    推荐给他人: ["HOMEPAGE_CONFIG"], 他人推荐: ["HOMEPAGE_CONFIG"],
+    推荐给他人: ["ENABLE_BOOK_RECOMMEND_TO_OTHERS", "HOMEPAGE_CONFIG"], 他人推荐: ["ENABLE_BOOK_RECOMMEND_TO_OTHERS", "HOMEPAGE_CONFIG"],
     // 站点与外观 · 书籍分类
     分类: ["BOOK_NAV", "IMPORT_CATEGORY_WITH_FOLDER", "ENABLE_FOLDER_BROWSE", "AI_ALLOW_SET_CATEGORY"], 导航: ["BOOK_NAV"], 标签: ["BOOK_NAV"],
     分类导航: ["BOOK_NAV"], 分类管理: ["BOOK_NAV"], 分类树: ["BOOK_NAV"],
@@ -1193,7 +1193,7 @@ const SEARCH_ALIASES = {
     生词: ["READER_MYDICTS"], 划词: ["READER_MYDICTS"], 查词: ["READER_MYDICTS"], 取词: ["READER_MYDICTS"],
     百科: ["READER_DICT_BAIKE_ENABLED"], 百度百科: ["READER_DICT_BAIKE_ENABLED"],
     // 阅读与内容 · 书评与互动
-    评论: ["ENABLE_BOOK_REVIEW", "REVIEW_REQUIRES_APPROVAL"], 评分: ["ENABLE_BOOK_REVIEW"], 书评: ["ENABLE_BOOK_REVIEW"], 打分: ["ENABLE_BOOK_REVIEW"], 星级: ["ENABLE_BOOK_REVIEW"],
+    评论: ["ENABLE_BOOK_REVIEW", "REVIEW_REQUIRES_APPROVAL", "ENABLE_BOOK_RECOMMEND_TO_OTHERS"], 评分: ["ENABLE_BOOK_REVIEW"], 书评: ["ENABLE_BOOK_REVIEW"], 打分: ["ENABLE_BOOK_REVIEW"], 星级: ["ENABLE_BOOK_REVIEW"],
     审核: ["REVIEW_REQUIRES_APPROVAL", "ENABLE_AUTO_NEW_USER_APPROVAL"], 先审后发: ["REVIEW_REQUIRES_APPROVAL"],
     // 阅读与内容 · 实体书与图章
     实体书: ["ENABLE_PHYSICAL_BOOKS", "ENABLE_BOOKS_TYPE_CONVERT_DIRECT"], 纸书: ["ENABLE_PHYSICAL_BOOKS"], 纸质书: ["ENABLE_PHYSICAL_BOOKS"], 书架: ["ENABLE_PHYSICAL_BOOKS"], 印刷: ["ENABLE_PHYSICAL_BOOKS"],
@@ -1311,7 +1311,7 @@ const SEARCH_ALIASES = {
     友情連結: ["FRIENDS"], 友鏈: ["FRIENDS"], 連結: ["FRIENDS", "HIDE_PROJECT_LINKS", "douban_baseurl", "AI_API_URL", "static_host", "SITE_URL"],
     網址: ["douban_baseurl", "AI_API_URL", "static_host", "SITE_URL"], 位址: ["douban_baseurl", "AI_API_URL", "static_host", "smtp_server", "SITE_URL"],
     // 網站與外觀 · 首頁與列表
-    隨機: ["MAIN_PAGE_RANDOM_COUNT"], 推薦: ["RECOMMEND_ENABLE", "RECOMMEND_USE_CROWD", "MAIN_PAGE_RANDOM_COUNT"], 智慧: ["RECOMMEND_ENABLE"], 智慧推薦: ["RECOMMEND_ENABLE"],
+    隨機: ["MAIN_PAGE_RANDOM_COUNT"], 推薦: ["RECOMMEND_ENABLE", "RECOMMEND_USE_CROWD", "ENABLE_BOOK_RECOMMEND_TO_OTHERS", "MAIN_PAGE_RANDOM_COUNT"], 智慧: ["RECOMMEND_ENABLE"], 智慧推薦: ["RECOMMEND_ENABLE"],
     協同: ["RECOMMEND_USE_CROWD"], 協同過濾: ["RECOMMEND_USE_CROWD"], 參考他人: ["RECOMMEND_USE_CROWD"],
     新書: ["MAIN_PAGE_RECENT_COUNT", "SEND_MAIL_FOR_NEW_BOOKS"], 最新: ["MAIN_PAGE_RECENT_COUNT"], 最近更新: ["MAIN_PAGE_RECENT_COUNT"], 新書推薦: ["MAIN_PAGE_RECENT_COUNT"],
     分頁: ["DEFAULT_PAGE_SIZE"], 每頁: ["DEFAULT_PAGE_SIZE"], 每頁數量: ["DEFAULT_PAGE_SIZE"],
@@ -1320,7 +1320,7 @@ const SEARCH_ALIASES = {
     統計: ["HOMEPAGE_CONFIG", "ALLOW_USER_DISABLE_STATISTIC"], banner: ["HOMEPAGE_CONFIG"], 閱讀統計: ["HOMEPAGE_CONFIG"],
     在讀: ["HOMEPAGE_CONFIG"], 正在閱讀: ["HOMEPAGE_CONFIG"],
     書單: ["HOMEPAGE_CONFIG", "BOOK_NAV"], 書單推薦: ["HOMEPAGE_CONFIG"], 推薦書單: ["HOMEPAGE_CONFIG"],
-    推薦給他人: ["HOMEPAGE_CONFIG"], 他人推薦: ["HOMEPAGE_CONFIG"],
+    推薦給他人: ["ENABLE_BOOK_RECOMMEND_TO_OTHERS", "HOMEPAGE_CONFIG"], 他人推薦: ["ENABLE_BOOK_RECOMMEND_TO_OTHERS", "HOMEPAGE_CONFIG"],
     // 網站與外觀 · 書籍分類
     分類: ["BOOK_NAV", "IMPORT_CATEGORY_WITH_FOLDER", "ENABLE_FOLDER_BROWSE", "AI_ALLOW_SET_CATEGORY"], 導覽: ["BOOK_NAV"], 標籤: ["BOOK_NAV"],
     分類導覽: ["BOOK_NAV"], 分類管理: ["BOOK_NAV"], 分類樹: ["BOOK_NAV"],
@@ -1338,7 +1338,7 @@ const SEARCH_ALIASES = {
     生詞: ["READER_MYDICTS"], 查詞: ["READER_MYDICTS"], 劃詞: ["READER_MYDICTS"],
     百科: ["READER_DICT_BAIKE_ENABLED"], 百度百科: ["READER_DICT_BAIKE_ENABLED"],
     // 閱讀與內容 · 書評與互動
-    評論: ["ENABLE_BOOK_REVIEW", "REVIEW_REQUIRES_APPROVAL"], 評分: ["ENABLE_BOOK_REVIEW"], 書評: ["ENABLE_BOOK_REVIEW"], 打分: ["ENABLE_BOOK_REVIEW"], 星等: ["ENABLE_BOOK_REVIEW"],
+    評論: ["ENABLE_BOOK_REVIEW", "REVIEW_REQUIRES_APPROVAL", "ENABLE_BOOK_RECOMMEND_TO_OTHERS"], 評分: ["ENABLE_BOOK_REVIEW"], 書評: ["ENABLE_BOOK_REVIEW"], 打分: ["ENABLE_BOOK_REVIEW"], 星等: ["ENABLE_BOOK_REVIEW"],
     審核: ["REVIEW_REQUIRES_APPROVAL", "ENABLE_AUTO_NEW_USER_APPROVAL"], 先審後發: ["REVIEW_REQUIRES_APPROVAL"],
     // 閱讀與內容 · 實體書與圖章
     實體書: ["ENABLE_PHYSICAL_BOOKS", "ENABLE_BOOKS_TYPE_CONVERT_DIRECT"], 紙書: ["ENABLE_PHYSICAL_BOOKS"], 紙本書: ["ENABLE_PHYSICAL_BOOKS"], 書架: ["ENABLE_PHYSICAL_BOOKS"], 印刷: ["ENABLE_PHYSICAL_BOOKS"],
@@ -1455,7 +1455,7 @@ const SEARCH_ALIASES = {
     url: ["AI_API_URL", "douban_baseurl", "static_host", "SITE_URL"], address: ["douban_baseurl", "AI_API_URL", "static_host", "smtp_server", "SITE_URL"], endpoint: ["AI_API_URL", "douban_baseurl"],
     // Site & Appearance · home & listing
     random: ["MAIN_PAGE_RANDOM_COUNT"], shuffle: ["MAIN_PAGE_RANDOM_COUNT"],
-    recommend: ["RECOMMEND_ENABLE", "RECOMMEND_USE_CROWD", "MAIN_PAGE_RANDOM_COUNT", "HOMEPAGE_CONFIG"], recommendation: ["RECOMMEND_ENABLE"], recommendations: ["RECOMMEND_ENABLE"], smart: ["RECOMMEND_ENABLE"], recommender: ["RECOMMEND_ENABLE"],
+    recommend: ["RECOMMEND_ENABLE", "RECOMMEND_USE_CROWD", "ENABLE_BOOK_RECOMMEND_TO_OTHERS", "MAIN_PAGE_RANDOM_COUNT", "HOMEPAGE_CONFIG"], recommendation: ["RECOMMEND_ENABLE"], recommendations: ["RECOMMEND_ENABLE"], smart: ["RECOMMEND_ENABLE"], recommender: ["RECOMMEND_ENABLE"],
     crowd: ["RECOMMEND_USE_CROWD"], collaborative: ["RECOMMEND_USE_CROWD"], "other users": ["RECOMMEND_USE_CROWD"], community: ["RECOMMEND_USE_CROWD"],
     recent: ["MAIN_PAGE_RECENT_COUNT"], latest: ["MAIN_PAGE_RECENT_COUNT"], newest: ["MAIN_PAGE_RECENT_COUNT"], "new books": ["MAIN_PAGE_RECENT_COUNT", "SEND_MAIL_FOR_NEW_BOOKS"],
     pagination: ["DEFAULT_PAGE_SIZE"], "page size": ["DEFAULT_PAGE_SIZE"], "per page": ["DEFAULT_PAGE_SIZE"], "items per page": ["DEFAULT_PAGE_SIZE"],
@@ -1464,7 +1464,7 @@ const SEARCH_ALIASES = {
     stats: ["HOMEPAGE_CONFIG", "ALLOW_USER_DISABLE_STATISTIC"], statistics: ["HOMEPAGE_CONFIG", "ALLOW_USER_DISABLE_STATISTIC"], "reading stats": ["HOMEPAGE_CONFIG"], banner: ["HOMEPAGE_CONFIG"],
     "currently reading": ["HOMEPAGE_CONFIG"], "reading now": ["HOMEPAGE_CONFIG"], "in progress": ["HOMEPAGE_CONFIG"],
     booklist: ["HOMEPAGE_CONFIG", "BOOK_NAV"], "book list": ["HOMEPAGE_CONFIG", "BOOK_NAV"], collections: ["HOMEPAGE_CONFIG"], featured: ["HOMEPAGE_CONFIG"],
-    "recommend to others": ["HOMEPAGE_CONFIG"], "share books": ["HOMEPAGE_CONFIG"],
+    "recommend to others": ["ENABLE_BOOK_RECOMMEND_TO_OTHERS", "HOMEPAGE_CONFIG"], "share books": ["ENABLE_BOOK_RECOMMEND_TO_OTHERS", "HOMEPAGE_CONFIG"],
     // Site & Appearance · categories
     category: ["BOOK_NAV", "IMPORT_CATEGORY_WITH_FOLDER", "AI_ALLOW_SET_CATEGORY"], categories: ["BOOK_NAV", "IMPORT_CATEGORY_WITH_FOLDER"], categorize: ["AI_ALLOW_SET_CATEGORY"], tag: ["BOOK_NAV"], tags: ["BOOK_NAV"],
     // Reading & Content · reader & sync
@@ -1479,7 +1479,7 @@ const SEARCH_ALIASES = {
     translate: ["READER_MYDICTS", "READER_DICT_MYBOOKS_ENABLED", "READER_DICT_BAIKE_ENABLED"], translation: ["READER_MYDICTS", "READER_DICT_MYBOOKS_ENABLED", "READER_DICT_BAIKE_ENABLED"], vocabulary: ["READER_MYDICTS"], "word lookup": ["READER_MYDICTS"], lookup: ["READER_MYDICTS"],
     encyclopedia: ["READER_DICT_BAIKE_ENABLED"], baike: ["READER_DICT_BAIKE_ENABLED"], baidu: ["READER_DICT_BAIKE_ENABLED"], wiki: ["READER_DICT_BAIKE_ENABLED"],
     // Reading & Content · reviews
-    review: ["ENABLE_BOOK_REVIEW", "REVIEW_REQUIRES_APPROVAL"], reviews: ["ENABLE_BOOK_REVIEW", "REVIEW_REQUIRES_APPROVAL"], rating: ["ENABLE_BOOK_REVIEW"], rate: ["ENABLE_BOOK_REVIEW"], comment: ["ENABLE_BOOK_REVIEW"], comments: ["ENABLE_BOOK_REVIEW"], stars: ["ENABLE_BOOK_REVIEW"],
+    review: ["ENABLE_BOOK_REVIEW", "REVIEW_REQUIRES_APPROVAL", "ENABLE_BOOK_RECOMMEND_TO_OTHERS"], reviews: ["ENABLE_BOOK_REVIEW", "REVIEW_REQUIRES_APPROVAL"], rating: ["ENABLE_BOOK_REVIEW"], rate: ["ENABLE_BOOK_REVIEW"], comment: ["ENABLE_BOOK_REVIEW"], comments: ["ENABLE_BOOK_REVIEW"], stars: ["ENABLE_BOOK_REVIEW"],
     approve: ["REVIEW_REQUIRES_APPROVAL", "ENABLE_AUTO_NEW_USER_APPROVAL"], moderate: ["REVIEW_REQUIRES_APPROVAL"], moderation: ["REVIEW_REQUIRES_APPROVAL"],
     // Reading & Content · physical books & stamp
     physical: ["ENABLE_PHYSICAL_BOOKS", "ENABLE_BOOKS_TYPE_CONVERT_DIRECT"], hardcopy: ["ENABLE_PHYSICAL_BOOKS"], print: ["ENABLE_PHYSICAL_BOOKS"], printed: ["ENABLE_PHYSICAL_BOOKS"], "paper books": ["ENABLE_PHYSICAL_BOOKS"], shelf: ["ENABLE_PHYSICAL_BOOKS"], bookshelf: ["ENABLE_PHYSICAL_BOOKS"],
@@ -1855,6 +1855,7 @@ export default {
             fields: [
               { icon: "mdi-star-outline", key: "ENABLE_BOOK_REVIEW", label: "settings.enable_book_review", type: "checkbox" },
               { icon: "mdi-shield-check-outline", key: "REVIEW_REQUIRES_APPROVAL", label: "settings.review_requires_approval", type: "checkbox" },
+              { icon: "mdi-thumb-up-outline", key: "ENABLE_BOOK_RECOMMEND_TO_OTHERS", label: "settings.enable_book_recommend_to_others", type: "checkbox" },
             ],
           },
           {

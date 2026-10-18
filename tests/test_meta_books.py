@@ -46,8 +46,19 @@ class TestMetaBooks(unittest.TestCase):
     def test_invalid_rating_returns_empty_without_raising(self):
         """公开路由 /api/rating/<name>：非 1-5 整数不能让 int() 抛给 @js。"""
         handler = make_handler()
-        for bad in ("abc", "0", "6", "", "4.5"):
+        # '²'.isdigit() 为 True 但 int() 抛 ValueError，是 isdigit() 预判漏掉的一类。
+        for bad in ("abc", "0", "6", "", "4.5", "²"):
             self.assertEqual(handler._book_ids("rating", bad), set(), bad)
+
+    def test_unicode_decimal_digit_rating_is_parsed(self):
+        """'٣'（阿拉伯-印度数字 3）isdigit() 为 True 且 int() 可解析，按 3 星处理。"""
+        handler = make_handler()
+        handler.calibre_db_cache.backend = mock.Mock()
+        handler.calibre_db_cache.backend.conn.get = mock.Mock(return_value=[])
+        handler.calibre_db = mock.Mock()
+        self.assertEqual(handler._book_ids("rating", "٣"), set())
+        _, params = handler.calibre_db_cache.backend.conn.get.call_args.args
+        self.assertEqual(params, (5, 6))
 
     def test_rating_reads_ratings_table_and_unions_categories(self):
         """rating 走 ratings 表的 0-10 原始分值（4 星 = 7/8），再按 item id 取书。"""

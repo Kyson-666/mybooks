@@ -1151,7 +1151,7 @@
     "reader": "瀏覽與閱讀",
     "enable_book_review": "允許用戶對書籍進行評論及評分",
     "review_requires_approval": "評論需要審核後才能展示（僅在允許評論時生效）",
-    "enable_book_recommend_to_others": "在首頁展示其他用戶評論過的書籍",
+    "enable_book_recommend_to_others": "評價計入他人推薦（詳情頁推薦人數）",
     "enable_shared_notes": "閱讀時支援查看其他用戶的劃線與筆記",
     "enable_homepage_booklists": "在首頁展示書單推薦",
     "reader_dicts": "MyReader 網頁版詞典",

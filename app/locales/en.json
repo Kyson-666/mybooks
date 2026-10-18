@@ -869,7 +869,7 @@
     "reader": "Browsing & Reading",
     "enable_book_review": "Allow users to rate and review books",
     "review_requires_approval": "Reviews require approval before showing (only when reviews are allowed)",
-    "enable_book_recommend_to_others": "Allow users to recommend books to others",
+    "enable_book_recommend_to_others": "Count reviews as recommendations (recommendation count on book details)",
     "enable_shared_notes": "Allow readers to see other users' highlights and notes while reading",
     "enable_homepage_booklists": "Show booklist recommendations on homepage",
     "reader_dicts": "MyReader web dictionaries",

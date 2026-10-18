@@ -216,8 +216,12 @@ class MetaBooks(ListHandler):
         extra_ids = None
         if meta == "rating":
             # 公开路由，name 来自 URL/自定义卡片配置：非 1-5 的整数直接视为无匹配，
-            # 不能让 int() 的 ValueError 冒泡到 @js（会把 traceback 回显给游客）
-            star = int(name) if name.isdigit() else 0
+            # 不能让 int() 的 ValueError 冒泡到 @js（会把 traceback 回显给游客）。
+            # 不能用 isdigit() 预判：'²'.isdigit() 为 True，但 int('²') 会抛 ValueError。
+            try:
+                star = int(name)
+            except (TypeError, ValueError):
+                star = 0
             if not 1 <= star <= 5:
                 logging.info(f"Ignore invalid rating: {name}")
                 return set()

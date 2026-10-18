@@ -123,7 +123,7 @@ class TestAdminSettingsPost(unittest.TestCase):
         """隐藏首页"他人推荐"卡不能反写 ENABLE_BOOK_RECOMMEND_TO_OTHERS。
 
         该 flag 还管"评价是否计入推荐人数/详情页推荐"，一旦被卡片开关连带关掉，
-        首页卡片就永远取不到数据、且界面上已无入口能把它打开。
+        首页卡片就永远取不到数据；它在「书评与互动」里另有独立开关。
         """
         rsp, saved = self.post(
             {
@@ -159,6 +159,34 @@ class TestAdminSettingsPost(unittest.TestCase):
         )
         self.assertEqual("ok", rsp["err"])
         self.assertEqual(saved["MAIN_PAGE_RANDOM_COUNT"], 0)
+
+    def test_recommend_flag_has_independent_setting_entry(self):
+        """卡片开关之外仍可单独保存 ENABLE_BOOK_RECOMMEND_TO_OTHERS（设置页有独立项）。"""
+        rsp, saved = self.post({"ENABLE_BOOK_RECOMMEND_TO_OTHERS": False})
+        self.assertEqual("ok", rsp["err"])
+        self.assertFalse(saved["ENABLE_BOOK_RECOMMEND_TO_OTHERS"])
+
+
+class TestAdminSettingsGet(unittest.TestCase):
+    """GET /api/admin/settings 的首页配置必须与 /api/homepage 渲染口径一致。"""
+
+    def get(self, settings):
+        handler = FakeHandler({})
+        handler.site_url = "http://books.example.com"
+        with mock.patch.object(admin_module, "CONF", settings), mock.patch(
+            "webserver.loader.get_settings", return_value=settings
+        ):
+            asyncio.run(AdminSettings.get(handler))
+        return handler.written
+
+    def test_corrupted_homepage_config_falls_back_like_rendering(self):
+        """auto.py 手改成字符串时，设置页不能显示"全部可见"（否则保存一次就改写首页）。"""
+        rsp = self.get({"HOMEPAGE_CONFIG": "oops", "ENABLE_HOMEPAGE_BOOKLISTS": False})
+        self.assertEqual("ok", rsp["err"])
+        self.assertEqual(
+            rsp["settings"]["HOMEPAGE_CONFIG"]["hidden"],
+            ["index.booklistRecommendation"],
+        )
 
 
 if __name__ == "__main__":
