@@ -56,6 +56,7 @@ LOGIN_GATE_ALLOW_EXACT = frozenset({
     "/api/user/sign_up",
     "/api/user/reset",
     "/api/user/sign_out",
+    "/api/done",           # 社交登录 OAuth 回调（回调里才建立会话，必须先放行）
     "/api/access",
     "/api/admin/install",
     "/wap/login",
@@ -474,12 +475,15 @@ class BaseHandler(web.RequestHandler):
         recent = BaseHandler._token_login_at.get(user.id, 0) > now - self.TOKEN_LOGIN_SAVE_INTERVAL
         if not recent:
             BaseHandler._token_login_at[user.id] = now
-        # 记下"这次身份来自长期 token"：podcast_token 会出现在 RSS URL/日志/Referer 里，
-        # 不能让它在 REQUIRE_LOGIN 模式下当成网页登录态去读整站（见 should_be_logged_in）。
-        # 已经有 cookie 会话时维持"真实登录"判定，避免正常用户被误伤。
-        if not self.current_user:
+        # 用 user_id()（只读 cookie）判断"是否已有网页会话"，不能读 self.current_user：
+        # 那会触发 Tornado 的 _current_user 缓存，在 login 之前缓存成 None，
+        # 导致整个 handler 里 current_user 变成匿名（播客目录页会因此丢掉 token 链接）。
+        if not self.user_id():
             self._login_via_token = True
-        self.login_user(user, persist=not recent)
+        # token 身份不种 cookie、也不写登录审计：它只是"这一次请求的凭据"
+        self.login_user(user, persist=False, set_cookie=False)
+        # 让 Tornado 的缓存与本次身份一致（login_user 不会动 current_user）
+        self.current_user = user
         return True
 
     DOWNLOAD_SIGN_MAX_AGE_SECONDS = 10
@@ -529,11 +533,15 @@ class BaseHandler(web.RequestHandler):
         """
         if not self.require_login_enabled():
             return False
-        # 只有 cookie 会话算"已登录"：?token=/X-MYBOOKS-TOKEN 走的是长期 podcast_token，
-        # 它出现在 RSS URL、日志、Referer 里，不能当整站通行证用（播客路径本身在白名单里）。
-        if self.current_user and not getattr(self, "_login_via_token", False):
-            return False
         path = (self.request.path or "/").rstrip("/") or "/"
+        # 只有 cookie 会话算"已登录"：?token=/X-MYBOOKS-TOKEN 走的是长期 podcast_token，
+        # 它出现在 RSS URL、日志、Referer 里，不能当整站通行证用；但播客自己的页面/目录
+        # 允许它（订阅页要把"我的收藏/待读"渲染出来，且链接里带的就是这个 token）。
+        if self.current_user:
+            if not getattr(self, "_login_via_token", False):
+                return False
+            if path.startswith("/podcast"):
+                return False
         if login_gate_allowed(path):
             return False
         # 带下载签名的书籍直链（formatter 给登录用户生成、10 秒有效、绑定用户+书+格式）：
@@ -723,9 +731,12 @@ class BaseHandler(web.RequestHandler):
             return False
         return self.current_user.is_admin()
 
-    def login_user(self, user, persist=True):
-        self.set_secure_cookie("user_id", str(user.id))
-        self.set_secure_cookie("lt", str(int(time.time())))
+    def login_user(self, user, persist=True, set_cookie=True):
+        # set_cookie=False 用于 ?token= 这类"凭据即身份"的场景：token 会出现在 RSS URL、
+        # 日志、Referer 里，绝不能因为它给客户端种下 7 天有效的整站会话 cookie。
+        if set_cookie:
+            self.set_secure_cookie("user_id", str(user.id))
+            self.set_secure_cookie("lt", str(int(time.time())))
         if not persist:
             return
         logging.info(

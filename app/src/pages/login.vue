@@ -64,6 +64,7 @@
 
 <script>
 import { isLightBackground, resolveBrandColor } from "~/utils/appearance";
+import safeNext from "~/utils/safeNext";
 
 export default {
     data: () => ({
@@ -113,7 +114,11 @@ export default {
 
         // API调用放在最后，确保状态管理稳定
         this.$backend("/user/info").then((rsp) => {
-            this.$store.commit("login", rsp);
+            // 这个响应属于"登录页首屏的匿名快照"：如果用户已经在它返回前登录成功，
+            // 不能再拿它把 store 里的新会话覆盖回匿名。
+            if (!(this.$store.state.user && this.$store.state.user.is_login)) {
+                this.$store.commit("login", rsp);
+            }
             // 更新页面标题模板
             if (rsp.sys && rsp.sys.title) {
                 this.$store.state.site_title_template = "%s | " + rsp.sys.title;
@@ -139,31 +144,16 @@ export default {
         navIsDark() {
             return !isLightBackground(this.navBgColor);
         },
-        // 登录后回跳：只接受同源路径（挡 //evil.com、/\evil.com 这类开放重定向——
-        // 浏览器把反斜杠当斜杠，光判 "//" 前缀会被绕过），并排除登录/退出页自身，
-        // 否则 next=/logout 会在登录后立刻把自己退掉。
+        // 登录后回跳：safeNext 保证同源站内（挡 //evil.com、/\evil.com 这类），
+        // 再排除登录/退出等"回去没意义或会自我注销"的目标。
         nextTarget() {
-            const next = this.$route.query.next;
-            if (typeof next !== "string" || !next.startsWith("/") || next.startsWith("//")) {
+            const target = safeNext(this.$route.query.next, "/");
+            const path = target.split(/[?#]/)[0].replace(/\/+$/, "");
+            // /api/* 是接口不是页面：整页跳过去只会看到一个 JSON，直接回首页
+            if (/^\/(login|logout|signup|welcome)(\/|$)/.test(path) || path.startsWith("/api/")) {
                 return "/";
             }
-            if (next.indexOf("\\") !== -1) {
-                return "/";
-            }
-            let url;
-            try {
-                url = new URL(next, window.location.origin);
-            } catch (e) {
-                return "/";
-            }
-            if (url.origin !== window.location.origin) {
-                return "/";
-            }
-            const path = url.pathname.replace(/\/+$/, "");
-            if (/^\/(login|logout|signup|welcome)/.test(path)) {
-                return "/";
-            }
-            return url.pathname + url.search + url.hash;
+            return target;
         },
     },
     methods: {
@@ -171,7 +161,7 @@ export default {
         // 用 router.push 会渲染空白或 404，必须整页跳转交给后端。
         // 注意 /opds 本身（不带子路径）也是后端路由，边界要匹配路径结束。
         needsFullLoad(target) {
-            return /^\/(read|get|api|opds|books|podcast)(\/|$|\?)/.test(target);
+            return /^\/(read|get|opds|books|podcast)(\/|$|\?)/.test(target);
         },
         do_login: function () {
             var data = new URLSearchParams();

@@ -25,6 +25,8 @@
 </template>
 
 <script>
+import safeNext from "~/utils/safeNext";
+
 export default {
     data: () => ({
         valid: true,
@@ -56,7 +58,7 @@ export default {
             this.$store.commit('appearance/adoptSiteTheme', localStorage.getItem('site_theme'));
         }
         if ( this.err == 'free' ) {
-            this.$router.push(this.$route.query.next || "/");
+            this.$router.push(safeNext(this.$route.query.next, "/"));
         } else if ( this.err == 'not_installed' ) {
             this.$router.push("/install")
         }

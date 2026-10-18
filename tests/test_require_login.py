@@ -77,6 +77,7 @@ class TestLoginGateAllowList(unittest.TestCase):
             "/api/user/sign_up",
             "/api/user/reset",
             "/api/user/sign_out",
+            "/api/done",                  # 社交登录 OAuth 回调
             "/api/active/alice/3f2b1c",   # 邮件里的真实激活链接
             "/api/access",
             "/api/admin/install",
@@ -247,6 +248,36 @@ class TestShouldBeLoggedIn(unittest.TestCase):
         handler._login_via_token = True
         self.assertFalse(handler.should_be_logged_in())
 
+    def test_podcast_catalog_allowed_for_token_identity(self):
+        # 订阅页的目录（?token=）要能把"我的收藏/待读"渲染出来，但绝不能放行 /api/*
+        CONF["REQUIRE_LOGIN"] = True
+        handler = _bare_handler("/podcast/all")
+        handler.current_user = SimpleNamespace(id=2)
+        handler._login_via_token = True
+        self.assertFalse(handler.should_be_logged_in())
+        handler = _bare_handler("/api/index")
+        handler.current_user = SimpleNamespace(id=2)
+        handler._login_via_token = True
+        with self.assertRaises(web.Finish):
+            handler.should_be_logged_in()
+
+    def test_token_login_never_sets_cookie(self):
+        # 长期 token 只是"本次请求的凭据"，响应里不能种 user_id/lt（否则一次 curl 换 7 天会话）
+        handler = BaseHandler.__new__(BaseHandler)
+        handler.saved_cookies = []
+        handler.set_secure_cookie = lambda k, v: handler.saved_cookies.append(k)
+        handler.sqlite_session = SimpleNamespace()
+        handler.request = SimpleNamespace(remote_ip="127.0.0.1")
+        handler.login_user(SimpleNamespace(id=3, username="u"), persist=False, set_cookie=False)
+        self.assertEqual(handler.saved_cookies, [])
+
+    def test_password_login_still_sets_cookie(self):
+        handler = BaseHandler.__new__(BaseHandler)
+        handler.saved_cookies = []
+        handler.set_secure_cookie = lambda k, v: handler.saved_cookies.append(k)
+        handler.login_user(SimpleNamespace(id=3, username="u"), persist=False)
+        self.assertEqual(handler.saved_cookies, ["user_id", "lt"])
+
 
 class TestInviteModeInteraction(unittest.TestCase):
     def setUp(self):
@@ -313,3 +344,20 @@ class TestAllowFlags(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestWapSafeNext(unittest.TestCase):
+    """WAP 登录/访问码页的 next 校验（此前只判 //，反斜杠写法可绕过）。"""
+
+    def test_rejects_offsite_targets(self):
+        from webserver.handlers.wap import safe_next_path
+
+        for bad in ("//evil.com", "/" + chr(92) + "evil.com", "%2F%5Cevil.com", "http://evil.com", "https://x/y", "", None):
+            self.assertEqual(safe_next_path(bad), "/wap", repr(bad))
+
+    def test_keeps_site_paths(self):
+        from webserver.handlers.wap import safe_next_path
+
+        self.assertEqual(safe_next_path("/wap/search"), "/wap/search")
+        self.assertEqual(safe_next_path("%2Fwap%2Ffavorites"), "/wap/favorites")
+        self.assertEqual(safe_next_path("/wap/book/1?x=1"), "/wap/book/1?x=1")

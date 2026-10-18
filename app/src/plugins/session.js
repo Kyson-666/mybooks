@@ -63,4 +63,10 @@ export default ({ app }, inject) => {
         cached = null;
         cachedAt = 0;
     });
+
+    // 给 $backend 用：请求发出时记下代次，回来时若已变（登录/退出）
+    // 就丢弃这个响应，避免迟到的 need_login 把刚登录的用户清掉。
+    inject("sessionEpoch", function () {
+        return epoch;
+    });
 };
