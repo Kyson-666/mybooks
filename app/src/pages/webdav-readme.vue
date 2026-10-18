@@ -36,7 +36,7 @@ export default {
   },
   computed: {
     webdavUrl() {
-      return process.client ? `${siteBaseUrl(this.$store)}/books/` : ''
+      return process.client ? `${siteBaseUrl(this.$store, { allowCache: false })}/books/` : ''
     }
   },
   methods: {

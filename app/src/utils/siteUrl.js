@@ -10,17 +10,27 @@
  *
  * store 里已经有值时不再看缓存——包括管理员清空后的空串：那种情况下缓存里还是上一次的
  * 旧地址，继续回退会把已经作废的域名又拿去拼分享链接。
+ *
+ * OPDS/WebDAV 这类可复制地址传 allowCache=false：首次进页面、/user/info 还没回来时
+ * 宁可回退当前 origin，也不拿 localStorage 里上一次配置的旧域名。
  */
 const SITE_URL_STORAGE_KEY = 'sys_site_url';
 
-export function siteBaseUrl(store) {
+export function siteBaseUrl(store, { allowCache = true } = {}) {
     const sys = store && store.state ? store.state.sys : null;
     const fromStore = !!(sys && typeof sys.siteUrl === 'string');
     let url = fromStore ? sys.siteUrl : '';
-    if (!fromStore && process.client && typeof localStorage !== 'undefined') {
+    if (!fromStore && allowCache && process.client && typeof localStorage !== 'undefined') {
         url = localStorage.getItem(SITE_URL_STORAGE_KEY) || '';
     }
-    url = url.trim().replace(/\/+$/, '');
+    url = url.trim();
+    // 基地址后面要直接追加 /opds、/books 等路由；查询串/片段会让追加内容失效。
+    // 后端 normalize_site_url 已拒绝这类值，这里兜住升级前写进 localStorage 的旧值。
+    const queryOrHash = url.search(/[?#]/);
+    if (queryOrHash >= 0) {
+        url = url.slice(0, queryOrHash);
+    }
+    url = url.replace(/\/+$/, '');
     if (url) return url;
     return typeof window !== 'undefined' ? window.location.origin : '';
 }

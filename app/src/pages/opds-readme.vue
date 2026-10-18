@@ -49,7 +49,7 @@ export default {
   },
   computed: {
     opdsUrl() {
-      return process.client ? `${siteBaseUrl(this.$store)}/opds/` : ''
+      return process.client ? `${siteBaseUrl(this.$store, { allowCache: false })}/opds/` : ''
     }
   },
   methods: {

@@ -124,7 +124,10 @@ class PodcastBaseHandler(BaseHandler):
             f"<h1>🎧 {title}</h1>",
         ]
         if show_back:
-            html.append('<p><a href="/podcast">🔙 返回 Podcast 首页</a></p>')
+            back_url = self._get_full_site_url() + "/podcast"
+            html.append(
+                f'<p><a href="{escape(back_url, quote=True)}">🔙 返回 Podcast 首页</a></p>'
+            )
         html.append(body_html)
         html.append(
             "<script>(function(){"

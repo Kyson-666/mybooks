@@ -381,5 +381,39 @@ class TestGetFullSiteUrl(unittest.TestCase):
         )
 
 
+class TestPodcastBackLink(unittest.TestCase):
+    """Podcast 页面上的「返回首页」链接要跟随 SITE_URL 的路径前缀。"""
+
+    def setUp(self):
+        self._saved_site_url = CONF.get("SITE_URL")
+        self._handler = PodcastBaseHandler.__new__(PodcastBaseHandler)
+        self._handler.site_url = "https://internal.example.com:8000"
+        self._handler.set_header = lambda *args, **kwargs: None
+        self._written = []
+        self._handler.write = self._written.append
+
+    def tearDown(self):
+        if self._saved_site_url is None:
+            CONF.pop("SITE_URL", None)
+        else:
+            CONF["SITE_URL"] = self._saved_site_url
+
+    def test_back_link_uses_configured_path_prefix(self):
+        CONF["SITE_URL"] = "https://public.example.com/books/"
+        self._handler.render_html_page("测试", "body")
+        self.assertIn(
+            'href="https://public.example.com/books/podcast"',
+            self._written[0],
+        )
+
+    def test_back_link_falls_back_to_request_url(self):
+        CONF["SITE_URL"] = ""
+        self._handler.render_html_page("测试", "body")
+        self.assertIn(
+            'href="https://internal.example.com:8000/podcast"',
+            self._written[0],
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
