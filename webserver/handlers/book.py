@@ -18,15 +18,6 @@ from typing import Optional
 from concurrent.futures import ThreadPoolExecutor
 from webserver.i18n import _
 
-
-def _load_jieba():
-    try:
-        import jieba
-        return jieba
-    except ImportError:
-        return None
-
-
 import tornado.escape
 from tornado import web
 from sqlalchemy import func
@@ -38,6 +29,7 @@ from webserver.base.image_generator import ImageGenerator
 from webserver.base.image_helper import ImageHelper
 from webserver.base.epub_helper import EpubHelper
 from webserver.base.meta_helper import guess_authors, guess_tags
+from webserver.base.homepage import get_homepage_config
 from webserver.services.book_visit_service import BookVisitService
 from webserver.services.book_access_service import BookAccessService
 from webserver.services.autofill import AutoFillService
@@ -71,6 +63,14 @@ from webserver.constants import CALIBRE_COLUMN_DYNAMIC_COVER, COLUMN_DYNAMIC_COV
 from webserver.constants import CALIBRE_COLUMN_TRANSLATORS, COLUMN_TRANSLATORS
 
 
+def _load_jieba():
+    try:
+        import jieba
+        return jieba
+    except ImportError:
+        return None
+
+
 CONF = loader.get_settings()
 
 
@@ -94,10 +94,12 @@ class Index(BaseHandler):
 
     async def _social_recommend_books(self):
         """首页"其他用户推荐"：最近 90 天内被评价（且状态通过）的书，见 plan §2.3。
-        仅登录且个人偏好 show_home_recommendations=True 时才计算，游客/关闭时返回空列表。"""
+        仅登录且个人偏好 show_home_recommendations=True 时才计算，游客/关闭时返回空列表。
+
+        是否展示这张卡由 HOMEPAGE_CONFIG 决定（见 homepage_from_legacy：老站点的
+        ENABLE_BOOK_RECOMMEND_TO_OTHERS 只用于推导初始可见性）。这个 flag 继续管
+        "评价是否计入推荐人数/详情页推荐"，不再反过来让首页卡片永远取不到数据。"""
         if not CONF.get("ENABLE_BOOK_REVIEW", True) or perf.lite_on("LITE_NO_RECOMMEND"):
-            return []
-        if not CONF.get("ENABLE_BOOK_RECOMMEND_TO_OTHERS", True):
             return []
         if not self.current_user or not getattr(self.current_user, "show_home_recommendations", True):
             return []
@@ -183,20 +185,49 @@ class Index(BaseHandler):
     @throttle()
     async def get(self):
         """首页显示随机书籍和最近添加的书籍"""
+        homepage_config = get_homepage_config()
+        hidden = set(homepage_config.get("hidden") or [])
+        need_random = "index.randomRecommendation" not in hidden
+        need_new = "index.newRecommendation" not in hidden
+        need_social = "index.socialRecommendation" not in hidden
+
         setting_random_count = CONF.get("MAIN_PAGE_RANDOM_COUNT", 12)
         setting_recent_count = CONF.get("MAIN_PAGE_RECENT_COUNT", 12)
         if perf.lite_on("LITE_PAGE_SIZE"):
             setting_random_count = min(setting_random_count, 12)
             setting_recent_count = min(setting_recent_count, 12)
-        cnt_random = min(int(self.get_argument("random", setting_random_count)), setting_random_count)
-        cnt_recent = min(int(self.get_argument("recent", setting_recent_count)), 200)
+        if need_random:
+            cnt_random = min(int(self.get_argument("random", setting_random_count)), setting_random_count)
+        else:
+            cnt_random = 0
+        if need_new:
+            cnt_recent = min(int(self.get_argument("recent", setting_recent_count)), 200)
+        else:
+            cnt_recent = 0
 
         home_key = None
         if perf.lite_on("LITE_HOME_CACHE") and self.get_argument("refresh", "0") != "1":
-            home_key = (self.user_id(), cnt_random, cnt_recent, self.get_argument("exclude", ""), self.get_argument("personalized", "1"), self.get_argument("seed", ""))
+            home_key = (
+                self.user_id(), cnt_random, cnt_recent, self.get_argument("exclude", ""), self.get_argument("personalized", "1"),
+                self.get_argument("seed", ""), need_random, need_new, need_social, tuple(sorted(hidden)),
+            )
             cached = BaseHandler._home_cache.get(home_key, self.library_version())
             if cached is not None:
+                cached = dict(cached)
+                cached["homepage"] = homepage_config
                 return cached
+
+        if not need_random and not need_new and not need_social:
+            return {
+                "err": "ok",
+                "random_books_count": 0,
+                "new_books_count": 0,
+                "random_books": [],
+                "new_books": [],
+                "social_recommend_books": [],
+                "seed": "",
+                "homepage": homepage_config,
+            }
 
         t0 = time.perf_counter()
         ids = await self.run_calibre_read_async(self._all_book_ids)
@@ -207,12 +238,14 @@ class Index(BaseHandler):
                 "random_books_count": 0,
                 "new_books_count": 0,
                 "random_books": [],
-                "new_books": []
+                "new_books": [],
+                "social_recommend_books": [],
+                "homepage": homepage_config,
             }
 
         cnt_recent = min(cnt_recent, len(ids))
         cnt_random = min(cnt_random, len(ids))
-        social_books = await self._social_recommend_books()
+        social_books = await self._social_recommend_books() if need_social else []
         t_social = time.perf_counter()
         reader_id = self.user_id() or None
         seed = self._home_seed(reader_id)
@@ -230,6 +263,7 @@ class Index(BaseHandler):
             "new_books": [self._fmt_with_reason(b, reasons) for b in new_books],
             "social_recommend_books": social_books,
             "seed": seed if home_ids else "",
+            "homepage": homepage_config,
         }
         t_fmt = time.perf_counter()
         logging.info(
@@ -238,8 +272,16 @@ class Index(BaseHandler):
             (t_home - t_social) * 1000, (t_books - t_home) * 1000, (t_fmt - t_books) * 1000, (t_fmt - t0) * 1000,
         )
         if home_key is not None:
-            BaseHandler._home_cache.put(home_key, self.library_version(), result)
+            cache_payload = dict(result)
+            cache_payload.pop("homepage", None)
+            BaseHandler._home_cache.put(home_key, self.library_version(), cache_payload)
         return result
+
+
+class HomepageConfig(BaseHandler):
+    @js
+    def get(self):
+        return {"err": "ok", "config": get_homepage_config()}
 
 
 class BookDetail(BaseHandler):
@@ -4772,6 +4814,7 @@ class BookExchangeType(BaseHandler):
 def routes():
     return [
         (r"/api/index", Index),
+        (r"/api/homepage", HomepageConfig),
         (r"/api/search", SearchBook),
         (r"/api/recent", RecentBook),
         (r"/api/all", RecentBook),

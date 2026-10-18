@@ -43,6 +43,7 @@ from webserver.models import Reader, Item, Authors, Reading, BookReview, Message
 from webserver.services.book_review_service import BookReviewService
 from webserver.base.formatter import SimpleBookFormatter
 from webserver.base.setting_saver import ADMIN_SETTING_KEYS, SettingsSaver
+from webserver.base.homepage import get_homepage_config, normalize_homepage
 from webserver.base.trash_manager import TrashManager
 from webserver.version import VERSION
 from webserver.handlers.audio import AudioUtils
@@ -459,6 +460,10 @@ class AdminSettings(BaseHandler):
         if not CONF.get("SIDEBAR_ITEMS", []):
             CONF["SIDEBAR_ITEMS"] = ["audiobooks", "printbooks", "publishers", "folders", "tags", "series", "languages", "rating", "memo", "categories"]
 
+        # 与首页渲染共用同一套归一化：auto.py 被手改成非 dict/空值时也会回退旧开关，
+        # 否则设置页显示"全部可见"，管理员保存任意设置就会被静默改写首页行为。
+        homepage_config = get_homepage_config()
+
         CONF["site_icon"] = "favicon_0"  # default icon, means use current favicon.ico
         CONF["META_ALL_SOURCES"] = BookSearch.all_sources()
 
@@ -484,6 +489,7 @@ class AdminSettings(BaseHandler):
             },
         ]
         settings = dict(CONF)
+        settings["HOMEPAGE_CONFIG"] = homepage_config
         return {"err": "ok", "settings": settings, "sns": sns, "site_url": self.site_url}
 
     @js
@@ -566,6 +572,19 @@ class AdminSettings(BaseHandler):
                     "msg": _("系统时区无效，需填写 auto 或 IANA 时区名（如 Asia/Shanghai）"),
                 }
             args["site_timezone"] = tz
+        if "HOMEPAGE_CONFIG" in args:
+            args["HOMEPAGE_CONFIG"] = normalize_homepage(args["HOMEPAGE_CONFIG"])
+            homepage_hidden = set(args["HOMEPAGE_CONFIG"]["hidden"])
+            args["ENABLE_HOMEPAGE_READING_STATS"] = "readingStats" not in homepage_hidden
+            args["ENABLE_HOMEPAGE_READING_BOOKS"] = "index.myReading" not in homepage_hidden
+            args["ENABLE_HOMEPAGE_BOOKLISTS"] = "index.booklistRecommendation" not in homepage_hidden
+            if "index.randomRecommendation" not in homepage_hidden:
+                fallback_random = CONF.get("MAIN_PAGE_RANDOM_COUNT", 12) or 12
+                try:
+                    if int(args.get("MAIN_PAGE_RANDOM_COUNT", fallback_random) or 0) <= 0:
+                        args["MAIN_PAGE_RANDOM_COUNT"] = 12
+                except (TypeError, ValueError):
+                    args["MAIN_PAGE_RANDOM_COUNT"] = 12
         # Check the douban_apikey if only number, letters, _ or -, and length <=48
         if "douban_apikey" in args:
             apikey = args["douban_apikey"]

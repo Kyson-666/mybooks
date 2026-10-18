@@ -101,6 +101,93 @@ class TestAdminSettingsPost(unittest.TestCase):
         self.assertEqual("ok", rsp["err"])
         self.assertEqual("Asia/Shanghai", saved["site_timezone"])
 
+    def test_homepage_config_syncs_legacy_flags(self):
+        rsp, saved = self.post(
+            {
+                "HOMEPAGE_CONFIG": {
+                    "hidden": ["readingStats", "index.myReading"],
+                    "custom": [
+                        {"id": "c1", "type": "author", "value": "刘慈欣"}
+                    ],
+                }
+            }
+        )
+        self.assertEqual("ok", rsp["err"])
+        self.assertFalse(saved["ENABLE_HOMEPAGE_READING_STATS"])
+        self.assertFalse(saved["ENABLE_HOMEPAGE_READING_BOOKS"])
+        self.assertTrue(saved["ENABLE_HOMEPAGE_BOOKLISTS"])
+        self.assertNotIn("ENABLE_BOOK_RECOMMEND_TO_OTHERS", saved)
+        self.assertEqual(saved["HOMEPAGE_CONFIG"]["custom"][0]["value"], "刘慈欣")
+
+    def test_hiding_social_card_does_not_touch_global_recommend_flag(self):
+        """隐藏首页"他人推荐"卡不能反写 ENABLE_BOOK_RECOMMEND_TO_OTHERS。
+
+        该 flag 还管"评价是否计入推荐人数/详情页推荐"，一旦被卡片开关连带关掉，
+        首页卡片就永远取不到数据；它在「书评与互动」里另有独立开关。
+        """
+        rsp, saved = self.post(
+            {
+                "HOMEPAGE_CONFIG": {
+                    "hidden": ["index.socialRecommendation"],
+                    "custom": [],
+                }
+            }
+        )
+        self.assertEqual("ok", rsp["err"])
+        self.assertNotIn("ENABLE_BOOK_RECOMMEND_TO_OTHERS", saved)
+        self.assertIn("index.socialRecommendation", saved["HOMEPAGE_CONFIG"]["hidden"])
+
+    def test_homepage_random_card_keeps_count_when_visible(self):
+        rsp, saved = self.post(
+            {
+                "HOMEPAGE_CONFIG": {"hidden": [], "custom": []},
+                "MAIN_PAGE_RANDOM_COUNT": 0,
+            }
+        )
+        self.assertEqual("ok", rsp["err"])
+        self.assertEqual(saved["MAIN_PAGE_RANDOM_COUNT"], 12)
+
+    def test_homepage_random_card_hidden_keeps_zero_count(self):
+        rsp, saved = self.post(
+            {
+                "HOMEPAGE_CONFIG": {
+                    "hidden": ["index.randomRecommendation"],
+                    "custom": [],
+                },
+                "MAIN_PAGE_RANDOM_COUNT": 0,
+            }
+        )
+        self.assertEqual("ok", rsp["err"])
+        self.assertEqual(saved["MAIN_PAGE_RANDOM_COUNT"], 0)
+
+    def test_recommend_flag_has_independent_setting_entry(self):
+        """卡片开关之外仍可单独保存 ENABLE_BOOK_RECOMMEND_TO_OTHERS（设置页有独立项）。"""
+        rsp, saved = self.post({"ENABLE_BOOK_RECOMMEND_TO_OTHERS": False})
+        self.assertEqual("ok", rsp["err"])
+        self.assertFalse(saved["ENABLE_BOOK_RECOMMEND_TO_OTHERS"])
+
+
+class TestAdminSettingsGet(unittest.TestCase):
+    """GET /api/admin/settings 的首页配置必须与 /api/homepage 渲染口径一致。"""
+
+    def get(self, settings):
+        handler = FakeHandler({})
+        handler.site_url = "http://books.example.com"
+        with mock.patch.object(admin_module, "CONF", settings), mock.patch(
+            "webserver.loader.get_settings", return_value=settings
+        ):
+            asyncio.run(AdminSettings.get(handler))
+        return handler.written
+
+    def test_corrupted_homepage_config_falls_back_like_rendering(self):
+        """auto.py 手改成字符串时，设置页不能显示"全部可见"（否则保存一次就改写首页）。"""
+        rsp = self.get({"HOMEPAGE_CONFIG": "oops", "ENABLE_HOMEPAGE_BOOKLISTS": False})
+        self.assertEqual("ok", rsp["err"])
+        self.assertEqual(
+            rsp["settings"]["HOMEPAGE_CONFIG"]["hidden"],
+            ["index.booklistRecommendation"],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
