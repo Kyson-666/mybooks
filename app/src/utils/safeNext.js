@@ -24,5 +24,12 @@ export default function safeNext(raw, fallback = "/") {
     if (url.origin !== window.location.origin) {
         return fallback;
     }
-    return url.pathname + url.search + url.hash;
+    // 解析后再判一次 pathname：`/..//evil.com`、`/./\evil.com` 这类点段会被 URL
+    // 归一化成 `//evil.com`，origin 仍是本站，只比对入参前缀会漏掉；
+    // 以 `//` 开头的路径交给 location.replace 就是协议相对地址（会跳外站）。
+    const pathname = url.pathname || "";
+    if (!pathname.startsWith("/") || pathname.startsWith("//")) {
+        return fallback;
+    }
+    return pathname + url.search + url.hash;
 }

@@ -55,6 +55,9 @@ class TestBookAccessService(unittest.TestCase):
                 mock.patch.object(BookAccessService, "_booklist_allows_read", return_value=True):
             self.assertIsNone(BookAccessService.guest_read_source(NoCookieHandler(), 1))
             self.assertFalse(BookAccessService.guest_download_allowed(NoCookieHandler(), 1))
+            # 分享授权在 HTTP 层的快捷判定也要一并失效（否则被禁用账号拿 share 仍可读）
+            self.assertFalse(BookAccessService.share_read_granted(NoCookieHandler(), 1))
+            self.assertFalse(BookAccessService.share_download_granted(NoCookieHandler(), 1))
 
     def test_require_login_disables_guest_upload_and_push(self):
         # handlers 里"访客上传/推送开着就跳过 can_upload()/can_push()"的分支必须读这两个总开关，

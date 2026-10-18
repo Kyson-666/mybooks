@@ -73,6 +73,11 @@ class Done(BaseHandler):
 
     def get(self):
         user = self.update_userinfo()
+        # 没有 user_id cookie / 没有绑定社交账号时 update_userinfo 返回 None：
+        # 直接回首页，别让 /api/done 变成匿名可触发的 500。
+        if not user:
+            self.redirect("/")
+            return
         if not user.can_login():
             raise web.HTTPError(403, log_message=_("无权登录"))
         self.login_user(user)

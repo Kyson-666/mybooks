@@ -72,6 +72,7 @@ export default {
         password: "",
         email: "",
         show_login: true,
+        submitting: false,
         alert: {
             type: "error",
             msg: "",
@@ -164,6 +165,11 @@ export default {
             return /^\/(read|get|opds|books|podcast)(\/|$|\?)/.test(target);
         },
         do_login: function () {
+            // 防双击：两次 sign_in 会连着触发 resetSession/ensureSession/导航
+            if (this.submitting) {
+                return;
+            }
+            this.submitting = true;
             var data = new URLSearchParams();
             data.append("username", this.username);
             data.append("password", this.password);
@@ -172,30 +178,45 @@ export default {
                 body: data,
             }).then((rsp) => {
                 if (rsp.err != "ok") {
+                    this.submitting = false;
                     this.alert.type = "error";
                     this.alert.msg = rsp.msg;
-                } else {
-                    this.$store.commit("navbar", true);
-                    // 登录接口只回 {err:"ok"}，store 里的 user.is_login 还没更新；
-                    // 全站守卫靠它判断放行，所以先作废旧的"未登录"快照、重新拉一次会话，
-                    // 再跳回被拦下的原页面，否则会刚登录就被守卫弹回 /login。
-                    if (this.$resetSession) {
-                        this.$resetSession();
-                    }
-                    const go = () => {
-                        const target = this.nextTarget;
-                        if (this.needsFullLoad(target)) {
-                            window.location.assign(target);
-                        } else {
-                            this.$router.push(target).catch(() => {});
-                        }
-                    };
-                    if (this.$ensureSession) {
-                        this.$ensureSession().then(go, go);
-                    } else {
-                        go();
-                    }
+                    return;
                 }
+                this.$store.commit("navbar", true);
+                // 登录接口只回 {err:"ok"}，store 里的 user.is_login 还没更新；
+                // 全站守卫靠它判断放行，所以先作废旧的"未登录"快照、重新拉一次会话，
+                // 再跳回被拦下的原页面，否则会刚登录就被守卫弹回 /login。
+                if (this.$resetSession) {
+                    this.$resetSession();
+                }
+                const go = (info) => {
+                    this.submitting = false;
+                    const user = (info && info.user) || this.$store.state.user || {};
+                    if (!user.is_login) {
+                        // cookie 没被接受（禁用 cookie / 反代丢 Set-Cookie）：留在登录页提示，
+                        // 别跳到深链再被守卫弹回来，变成没有提示的死循环。
+                        this.alert.type = "error";
+                        this.alert.msg = "登录状态未生效，请检查浏览器是否允许本站 Cookie 后重试。";
+                        return;
+                    }
+                    const target = this.nextTarget;
+                    if (this.needsFullLoad(target)) {
+                        window.location.assign(target);
+                    } else {
+                        this.$router.push(target).catch(() => {});
+                    }
+                };
+                if (this.$ensureSession) {
+                    this.$ensureSession().then(go, () => go());
+                } else {
+                    go();
+                }
+            }, () => {
+                // $backend 对 5xx/网络错误会 reject，不能让按钮一直"点了没反应"
+                this.submitting = false;
+                this.alert.type = "error";
+                this.alert.msg = "登录请求失败，请稍后重试。";
             });
         },
         do_reset: function () {

@@ -38,8 +38,14 @@ export default ({ app }, inject) => {
                     }
                     if (rsp && rsp.sys) {
                         app.store.commit("login", rsp);
-                        cached = rsp;
-                        cachedAt = Date.now();
+                        // 匿名快照只在"站点不要求登录"时缓存：否则另一个标签页登录后，
+                        // 本标签页会拿着 60 秒内的匿名快照把已登录用户弹回登录页。
+                        const loggedIn = !!(rsp.user && rsp.user.is_login);
+                        const requireLogin = !!(rsp.sys.allow && rsp.sys.allow.require_login);
+                        if (loggedIn || !requireLogin) {
+                            cached = rsp;
+                            cachedAt = Date.now();
+                        }
                     }
                     return rsp || {};
                 })

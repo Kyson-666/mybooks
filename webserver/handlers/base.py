@@ -468,20 +468,26 @@ class BaseHandler(web.RequestHandler):
             .filter(Reader.podcast_token == token)
             .first()
         )
-        if not user:
+        if not user or not user.active:
             logging.warning("Not login yet")
+            return False
+        # 用 user_id()（只读 cookie）判断"是否已有网页会话"，不能读 self.current_user：
+        # 那会触发 Tornado 的 _current_user 缓存，在 login 之前缓存成 None，
+        # 导致整个 handler 里 current_user 变成匿名（播客目录页会因此丢掉 token 链接）。
+        # 先看有没有 user_id cookie 再解析：没有 cookie 时不必走 user_id() 的过期判定。
+        cookie_uid = self.user_id() if self.get_secure_cookie("user_id") else None
+        if cookie_uid and str(cookie_uid) != str(user.id):
+            # 已登录 A 又拿来 B 的 token：会让"授权按 A、数据归属按 B"分裂，直接忽略
+            logging.info("Ignore podcast token of another user for the current session")
             return False
         now = time.time()
         recent = BaseHandler._token_login_at.get(user.id, 0) > now - self.TOKEN_LOGIN_SAVE_INTERVAL
         if not recent:
             BaseHandler._token_login_at[user.id] = now
-        # 用 user_id()（只读 cookie）判断"是否已有网页会话"，不能读 self.current_user：
-        # 那会触发 Tornado 的 _current_user 缓存，在 login 之前缓存成 None，
-        # 导致整个 handler 里 current_user 变成匿名（播客目录页会因此丢掉 token 链接）。
-        if not self.user_id():
-            self._login_via_token = True
-        # token 身份不种 cookie、也不写登录审计：它只是"这一次请求的凭据"
-        self.login_user(user, persist=False, set_cookie=False)
+        self._login_via_token = not cookie_uid
+        # token 身份不种 cookie（否则一次 curl 就能换到 7 天整站会话），
+        # 但仍保留原有的"同一用户 5 分钟内只落一次库"的节流语义。
+        self.login_user(user, persist=not recent, set_cookie=False)
         # 让 Tornado 的缓存与本次身份一致（login_user 不会动 current_user）
         self.current_user = user
         return True

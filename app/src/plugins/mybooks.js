@@ -70,6 +70,17 @@ export default ({ app }, inject) => {
                 if (rsp.status === 502) {
                     if (!process.server) {
                         goStarting();
+                        // 与 need_login 同款兜底：导航结束后 redirect 是空操作，
+                        // 否则页面会停在一个永不 settle 的请求上（半空状态）。
+                        if (process.client) {
+                            setTimeout(() => {
+                                if (!window.location.pathname.startsWith("/starting")) {
+                                    window.location.assign(
+                                        "/starting?next=" + encodeURIComponent(app.context.route.fullPath)
+                                    );
+                                }
+                            }, 300);
+                        }
                         return new Promise(() => {});
                     }
                     msg = "服务器正在启动中...";
@@ -101,10 +112,9 @@ export default ({ app }, inject) => {
                 if (rsp.err === 'not_installed') {
                     redirect(301, "/install");
                 } else if (rsp.err === 'not_invited') {
-                    var next = route.fullPath;
-                    next = next ? "?next=" + next : "";
                     if (route.path !== "/welcome") {
-                        redirect(301, "/welcome" + next);
+                        // 302：带 next 的用户相关跳转不该被缓存；next 必须编码，否则 ?/# 会截断
+                        redirect(302, "/welcome?next=" + encodeURIComponent(route.fullPath));
                     }
                 } else if (rsp.err === 'user.need_login') {
                     // 请求发出后登录/退出过（代次变了）→ 这个响应已经过期：

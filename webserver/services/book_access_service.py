@@ -45,10 +45,16 @@ class BookAccessService:
 
     @staticmethod
     def share_read_granted(handler, book_id) -> bool:
+        # REQUIRE_LOGIN 下分享链接整体失效：否则被禁用/无 read 权限的账号拿着 share
+        # 仍可读，等于绕过"必须登录 + 账号权限"。
+        if CONF.get("REQUIRE_LOGIN", False):
+            return False
         return book_id is not None and BookAccessService._share_allows(handler, book_id, "allow_read")
 
     @staticmethod
     def share_download_granted(handler, book_id) -> bool:
+        if CONF.get("REQUIRE_LOGIN", False):
+            return False
         return book_id is not None and BookAccessService._share_allows(handler, book_id, "allow_download")
 
     @staticmethod
