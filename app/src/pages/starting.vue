@@ -22,6 +22,8 @@
 </template>
 
 <script>
+import safeNext from "~/utils/safeNext";
+
 const POLL_INTERVAL = 1500;
 const SPIN_INTERVAL = 100;
 
@@ -101,8 +103,7 @@ export default {
         },
         leave() {
             this.finished = true;
-            const next = this.$route.query.next;
-            const target = typeof next === "string" && next.startsWith("/") && !next.startsWith("//") ? next : "/";
+            const target = safeNext(this.$route.query.next, "/");
             setTimeout(() => {
                 this.$store.commit("navbar", true);
                 window.location.replace(target);

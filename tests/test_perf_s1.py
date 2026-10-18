@@ -121,6 +121,10 @@ class TestTokenThrottle(unittest.TestCase):
         handler.sqlite_session.query.return_value = query
         handler.get_argument = mock.Mock(return_value="tok")
         handler.request = mock.Mock(headers={})
+        # process_auth_token 现在先用 user_id() 读 cookie 判断是否已有会话，这里模拟"无会话"
+        handler.cookies_cache = {}
+        handler.get_secure_cookie = mock.Mock(return_value=None)
+        handler.get_secure_cookie_timestamp = mock.Mock(return_value=None)
         handler.login_user = mock.Mock()
         handler.process_auth_token()
         handler.process_auth_token()

@@ -76,6 +76,9 @@ class PodcastBaseHandler(BaseHandler):
                 .filter(Reader.podcast_token == token)
                 .first()
             )
+            # 被管理员禁用/回收登录权限的账号，token 不能继续当凭据用
+            if user is not None and (not user.active or not user.can_login()):
+                return None
             return user
         except Exception as e:
             logging.error(f"Error looking up podcast token: {e}")

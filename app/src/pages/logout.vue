@@ -38,8 +38,17 @@ export default {
     },
     methods: {
         logout: function() {
-            this.$backend('/user/sign_out')
-            .then(() => {});
+            // 成功失败都清本地状态：网络错误/5xx 时 $backend 会 reject，
+            // 只写在 .then 里会让"已退出"的画面和"还登录着"的缓存打架。
+            const clear = () => {
+                // 清掉守卫缓存的会话快照与 store 里的登录态，否则「必须登录」模式下
+                // 点回首页时守卫仍以为已登录，白跑一次请求才被后端弹回 /login。
+                if (this.$resetSession) {
+                    this.$resetSession();
+                }
+                this.$store.commit("clear_user");
+            };
+            this.$backend('/user/sign_out').then(clear, clear);
         }
     },
 }

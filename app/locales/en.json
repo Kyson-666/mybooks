@@ -642,6 +642,7 @@
     "access_code": "Access Code",
     "invite_message": "Invite Message",
     "user_settings": "User Settings",
+    "require_login": "Require login to access (guest permissions below stop working and access-code mode is overridden; share links, public book lists and OPDS also need login)",
     "allow_guest_read": "Allow guests to read online (no registration or login required)",
     "allow_guest_download": "Allow unrestricted downloads (no registration or login required)",
     "allow_guest_push": "Allow unrestricted book pushing (no registration or login required)",

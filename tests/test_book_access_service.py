@@ -44,6 +44,31 @@ class TestBookAccessService(unittest.TestCase):
         self.assertTrue(self.check(conf, BookAccessService.guest_read_allowed))
         self.assertFalse(self.check(conf, BookAccessService.guest_download_allowed))
 
+    def test_require_login_closes_global_guest_gate(self):
+        conf = {"REQUIRE_LOGIN": True, "ALLOW_GUEST_READ": True, "ALLOW_GUEST_DOWNLOAD": True}
+        self.assertFalse(self.check(conf, BookAccessService.guest_read_allowed, 1))
+        self.assertFalse(self.check(conf, BookAccessService.guest_read_allowed))
+        self.assertFalse(self.check(conf, BookAccessService.guest_download_allowed, 1))
+        # 整站关闸：连显式分享/公开书单的逐个授权也一并失效（私人图书馆下任何账号都能读全库）
+        with mock.patch.dict(book_access_service.CONF, conf, clear=False), \
+                mock.patch.object(BookAccessService, "_share_allows", return_value=True), \
+                mock.patch.object(BookAccessService, "_booklist_allows_read", return_value=True):
+            self.assertIsNone(BookAccessService.guest_read_source(NoCookieHandler(), 1))
+            self.assertFalse(BookAccessService.guest_download_allowed(NoCookieHandler(), 1))
+            # 分享授权在 HTTP 层的快捷判定也要一并失效（否则被禁用账号拿 share 仍可读）
+            self.assertFalse(BookAccessService.share_read_granted(NoCookieHandler(), 1))
+            self.assertFalse(BookAccessService.share_download_granted(NoCookieHandler(), 1))
+
+    def test_require_login_disables_guest_upload_and_push(self):
+        # handlers 里"访客上传/推送开着就跳过 can_upload()/can_push()"的分支必须读这两个总开关，
+        # 否则开了必须登录、遗留 ALLOW_GUEST_UPLOAD=True 时，没有权限的登录用户照样能上传。
+        with mock.patch.dict(book_access_service.CONF, {"REQUIRE_LOGIN": True, "ALLOW_GUEST_UPLOAD": True, "ALLOW_GUEST_PUSH": True}, clear=False):
+            self.assertFalse(BookAccessService.guest_upload_allowed())
+            self.assertFalse(BookAccessService.guest_push_allowed())
+        with mock.patch.dict(book_access_service.CONF, {"REQUIRE_LOGIN": False, "ALLOW_GUEST_UPLOAD": True, "ALLOW_GUEST_PUSH": False}, clear=False):
+            self.assertTrue(BookAccessService.guest_upload_allowed())
+            self.assertFalse(BookAccessService.guest_push_allowed())
+
     def test_handlers_do_not_read_guest_flags_directly(self):
         offenders = []
         for path in WEBSERVER.rglob("*.py"):
@@ -51,7 +76,10 @@ class TestBookAccessService(unittest.TestCase):
             if rel in ALLOWED_DIRECT_USERS or rel.startswith("epub_to_audio/"):
                 continue
             text = path.read_text(encoding="utf-8", errors="ignore")
-            if "ALLOW_GUEST_READ" in text or "ALLOW_GUEST_DOWNLOAD" in text:
+            if any(
+                flag in text
+                for flag in ("ALLOW_GUEST_READ", "ALLOW_GUEST_DOWNLOAD", "ALLOW_GUEST_UPLOAD", "ALLOW_GUEST_PUSH")
+            ):
                 offenders.append(rel)
         self.assertEqual(offenders, [])
 

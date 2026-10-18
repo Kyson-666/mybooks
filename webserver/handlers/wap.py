@@ -12,7 +12,7 @@ catch-all so they take precedence over the Vue SPA assets at /wap/*.
 """
 
 import math
-from urllib.parse import quote_plus, unquote_plus
+from urllib.parse import quote_plus, unquote_plus, urlsplit
 
 from webserver.handlers.base import BaseHandler
 from webserver.models import Reader
@@ -29,6 +29,23 @@ _LOGIN_ERRORS = {
     "inactive": "账号未激活，请先激活后登录",
     "noperm": "账号暂无登录权限，请联系管理员",
 }
+
+
+def safe_next_path(raw, default="/wap"):
+    """校验 next 回跳目标，只接受站内路径。
+
+    挡 `//host`、`/\\host`（浏览器把反斜杠当斜杠，会变成 //host）以及带 scheme/netloc
+    的绝对地址 —— WAP 登录页和访问码页都把登录后的跳转交给它。
+    """
+    if not raw:
+        return default
+    decoded = unquote_plus(str(raw)).strip()
+    if not decoded.startswith("/") or decoded.startswith("//") or "\\" in decoded:
+        return default
+    parts = urlsplit(decoded)
+    if parts.scheme or parts.netloc:
+        return default
+    return decoded
 
 
 class WapBaseHandler(BaseHandler):
@@ -299,16 +316,8 @@ class WapWelcome(WapBaseHandler):
         self.redirect(next_url)
 
     def _safe_next(self):
-        """
-        Return a validated redirect destination from the ``next`` query param.
-        Only paths starting with ``/`` (not ``//``) are accepted.
-        Falls back to ``/wap``.
-        """
-        raw = self.get_argument("next", "/wap").strip()
-        decoded = unquote_plus(raw)
-        if decoded.startswith("/") and not decoded.startswith("//"):
-            return decoded
-        return "/wap"
+        """Return a validated same-site redirect destination from ``next``."""
+        return safe_next_path(self.get_argument("next", "/wap"))
 
 
 class WapLogin(WapBaseHandler):
@@ -355,16 +364,8 @@ class WapLogin(WapBaseHandler):
         self.redirect(next_url)
 
     def _safe_next(self):
-        """
-        Return a validated redirect destination from the ``next`` query param.
-        Only paths that start with ``/`` (and not ``//``) are accepted to
-        prevent open-redirect attacks.  Falls back to ``/wap``.
-        """
-        raw = self.get_argument("next", "/wap").strip()
-        decoded = unquote_plus(raw)
-        if decoded.startswith("/") and not decoded.startswith("//"):
-            return decoded
-        return "/wap"
+        """Return a validated same-site redirect destination from ``next``."""
+        return safe_next_path(self.get_argument("next", "/wap"))
 
 
 class WapLogout(WapBaseHandler):

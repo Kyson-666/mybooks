@@ -10,10 +10,11 @@ import hmac
 import logging
 import os
 import random
+import re
 import time
 import traceback
 from collections import defaultdict
-from urllib.parse import urlparse
+from urllib.parse import quote, urlparse
 from jinja2 import Environment, FileSystemLoader
 from sqlalchemy import func as sql_func
 from sqlalchemy import inspect as sa_inspect
@@ -37,6 +38,94 @@ from webserver.constants import UPGRABLE_REVISION
 messages = defaultdict(list)
 CONF = loader.get_settings()
 AUDIO_OUTPUT_FOLDER = CONF.get("audio_output_folder", "/data/books/audios/")
+
+# 「必须登录才能访问」(REQUIRE_LOGIN) 开启后，仍然允许匿名访问的路径。
+# 原则：只放行"没有登录就进不来"的必需品（登录/注册/激活/安装、登录页静态资源），
+# 以及带自己凭据、网页登录没法覆盖的设备协议入口（播客 token、MCP token、WebDAV Basic）。
+# 分享链接 / 公开书单不在此列：私人图书馆下"任何账号都能读全库"，分享没有意义，
+# 且要放行就得在门禁里重做一遍逐本授权判定，见 docs/mybooks-require-login-plan-20261018.md。
+LOGIN_GATE_ALLOW_EXACT = frozenset({
+    "/login",
+    "/logout",
+    "/signup",
+    "/welcome",
+    "/install",
+    "/starting",
+    "/api/user/info",
+    "/api/user/sign_in",
+    "/api/user/sign_up",
+    "/api/user/reset",
+    "/api/user/sign_out",
+    "/api/done",           # 社交登录 OAuth 回调（回调里才建立会话，必须先放行）
+    "/api/access",
+    "/api/admin/install",
+    "/wap/login",
+    "/wap/welcome",
+    "/favicon.ico",
+    "/robots.txt",
+    "/site.webmanifest",
+    "/apple-touch-icon.png",
+})
+
+LOGIN_GATE_ALLOW_PREFIX = (
+    "/api/active/",        # 邮箱激活链接（实际路由 /api/active/<username>/<code>）
+    "/api/mcp/",           # MCP 工具调用自带 AI_MCP_TOKEN
+    "/api/favicon/",       # 站点图标（登录页标签页要显示）
+    "/books",              # WebDAV：裸 RequestHandler，不走本门禁；自带 Basic 认证
+    "/_nuxt/",             # SPA 资源，登录页自身要能渲染
+    "/logo/",
+    "/avatar/",
+    "/favicon",
+    "/manifest",
+)
+
+
+LOGIN_GATE_ALLOW_SUFFIX = (
+    ".js", ".mjs", ".css", ".map", ".json",
+    ".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp", ".ico",
+    ".woff", ".woff2", ".ttf", ".eot",
+)
+
+# 播客路由里只有「路径带用户 podcast_token」的那几条才能在匿名下工作：
+#   /podcast/<token>、/podcast/<token>/book/<id>、/podcast/audio/<id>/<token>/<file>
+# 其余（/podcast/all、/podcast/book/<id>、/podcast/category|tag|author/...）是公开目录，
+# 会把有声书的书名/作者/简介匿名暴露，必须按普通页面拦掉。
+_PODCAST_PUBLIC_SEGMENTS = frozenset({"all", "book", "category", "tag", "author"})
+_PODCAST_TOKEN_RE = re.compile(r"^[A-Za-z0-9]+$")
+
+
+def _podcast_token_path(path):
+    parts = [p for p in path.split("/") if p]
+    if len(parts) < 2 or parts[0] != "podcast":
+        return False
+    if parts[1] == "audio":
+        # /podcast/audio/<book_id>/<token>/<filename>
+        return len(parts) >= 5 and parts[3].isalnum()
+    seg = parts[1]
+    if seg in _PODCAST_PUBLIC_SEGMENTS:
+        return False
+    return bool(_PODCAST_TOKEN_RE.match(seg))
+
+
+def login_gate_allowed(path):
+    """REQUIRE_LOGIN 开启时，这个路径是否允许匿名访问。"""
+    if not path:
+        return False
+    # 尾斜杠归一化：/login/ 与 /login 是同一个页面（StaticFileHandler 还会把 /login 301 到
+    # /login/ 并丢掉 ?next=），不放行会让用户登完停在登录页。
+    path = path.rstrip("/") or "/"
+    if path in LOGIN_GATE_ALLOW_EXACT:
+        return True
+    if path.startswith(LOGIN_GATE_ALLOW_PREFIX):
+        return True
+    if path.startswith("/podcast"):
+        return _podcast_token_path(path)
+    # /api/* 与 /get/*（封面、书籍文件、EPUB 解包）只认白名单，绝不按扩展名放行。
+    if path.startswith(("/api/", "/get/")):
+        return False
+    # 前端构建产物（_nuxt/*、logo、图标、字体）登录页自身要用。
+    # 严格说这些由 SpaStaticHandler 直出、根本不经过本门禁，这里只是兜底。
+    return path.endswith(LOGIN_GATE_ALLOW_SUFFIX)
 
 
 def day_format(value, format="%Y-%m-%d"):
@@ -290,7 +379,40 @@ class BaseHandler(web.RequestHandler):
     def mark_invited(self):
         self.set_secure_cookie("invited", str(int(time.time())))
 
+    def require_login_enabled(self):
+        """站点是否开启了「必须登录才能访问」（私人图书馆标准模式）。"""
+        return bool(CONF.get("REQUIRE_LOGIN", False))
+
+    def allow_flags(self):
+        """下发给前端的站点开关（sys.allow）。
+
+        必须登录时访客四项一律上报 False：前端有大量 "allow.read / allow.download"
+        分支（详情页访客可读、"访客可读"徽章、顶栏入口…），只靠后端拦会把 UI
+        留在"访客还能读"的错误状态。
+        """
+        require_login = self.require_login_enabled()
+        return {
+            "register": CONF["ALLOW_REGISTER"],
+            "require_login": require_login,
+            "download": False if require_login else CONF["ALLOW_GUEST_DOWNLOAD"],
+            "push": False if require_login else CONF["ALLOW_GUEST_PUSH"],
+            "read": False if require_login else CONF["ALLOW_GUEST_READ"],
+            "upload": False if require_login else CONF.get("ALLOW_GUEST_UPLOAD", False),
+            "physical_books": CONF.get("ENABLE_PHYSICAL_BOOKS", True),
+            "folder": CONF.get("ENABLE_FOLDER_BROWSE", False),
+            "download_quota": CONF.get("ENABLE_DOWNLOAD_QUOTA", False),
+            "server_import": CONF.get("ENABLE_SERVER_FILE_IMPORT", False),
+            "sync": CONF.get("ENABLE_DATA_SYNC", False),
+            "book_review": CONF.get("ENABLE_BOOK_REVIEW", True),
+            "book_recommend": CONF.get("ENABLE_BOOK_RECOMMEND_TO_OTHERS", True),
+            "shared_notes": CONF.get("ENABLE_SHARED_NOTES", True),
+        }
+
     def need_invited(self):
+        # 必须登录是比访问码更强的门：开启后访问码检查整体让位，
+        # 否则会变成「先输访问码、再登录」的两段式，且 /login 自身会被访问码拦住。
+        if self.require_login_enabled():
+            return False
         if not CONF.get("INVITE_MODE", False):
             return False
         if CONF.get("INVITE_CODE", ""):
@@ -307,10 +429,16 @@ class BaseHandler(web.RequestHandler):
         auth_header = self.request.headers.get("Authorization", "")
         if not auth_header.startswith("Basic "):
             return False
-        auth_decoded = base64.decodebytes(auth_header[6:].encode("ascii")).decode(
-            "UTF-8"
-        )
-        username, password = auth_decoded.split(":", 2)
+        # 凭据是客户端可控的：base64 非法、非 UTF-8、缺冒号都会抛异常。
+        # 这里必须当成"认证失败"，否则畸形头会变成 500，OPDS 客户端也拿不到 401 挑战。
+        try:
+            auth_decoded = base64.decodebytes(auth_header[6:].encode("ascii")).decode(
+                "UTF-8"
+            )
+            username, password = auth_decoded.split(":", 1)
+        except (ValueError, UnicodeDecodeError):
+            logging.info("Malformed Basic authorization header ignored")
+            return False
         user = (
             self.sqlite_session.query(Reader)
             .filter(Reader.username == username)
@@ -340,14 +468,28 @@ class BaseHandler(web.RequestHandler):
             .filter(Reader.podcast_token == token)
             .first()
         )
-        if not user:
+        if not user or not user.active:
             logging.warning("Not login yet")
+            return False
+        # 用 user_id()（只读 cookie）判断"是否已有网页会话"，不能读 self.current_user：
+        # 那会触发 Tornado 的 _current_user 缓存，在 login 之前缓存成 None，
+        # 导致整个 handler 里 current_user 变成匿名（播客目录页会因此丢掉 token 链接）。
+        # 先看有没有 user_id cookie 再解析：没有 cookie 时不必走 user_id() 的过期判定。
+        cookie_uid = self.user_id() if self.get_secure_cookie("user_id") else None
+        if cookie_uid and str(cookie_uid) != str(user.id):
+            # 已登录 A 又拿来 B 的 token：会让"授权按 A、数据归属按 B"分裂，直接忽略
+            logging.info("Ignore podcast token of another user for the current session")
             return False
         now = time.time()
         recent = BaseHandler._token_login_at.get(user.id, 0) > now - self.TOKEN_LOGIN_SAVE_INTERVAL
         if not recent:
             BaseHandler._token_login_at[user.id] = now
-        self.login_user(user, persist=not recent)
+        self._login_via_token = not cookie_uid
+        # token 身份不种 cookie（否则一次 curl 就能换到 7 天整站会话），
+        # 但仍保留原有的"同一用户 5 分钟内只落一次库"的节流语义。
+        self.login_user(user, persist=not recent, set_cookie=False)
+        # 让 Tornado 的缓存与本次身份一致（login_user 不会动 current_user）
+        self.current_user = user
         return True
 
     DOWNLOAD_SIGN_MAX_AGE_SECONDS = 10
@@ -384,6 +526,58 @@ class BaseHandler(web.RequestHandler):
         if self.need_invited():
             if not self.invited_code_is_ok():
                 return self.send_error_of_not_invited()
+
+    def should_be_logged_in(self):
+        """REQUIRE_LOGIN 开启时的登录门禁：未登录且路径不在放行名单 → 一律拦下。
+
+        - /api/* 回 200 {"err": "user.need_login"}：前端 $backend 有该错误的统一跳转；
+        - /get/* 回 401：消费者是 <img>、EPUB 解包器、下载器，200 JSON 会被当成资源解析；
+        - OPDS 回 401 + WWW-Authenticate：客户端靠这个头弹 Basic 认证，配了账号即可通过
+          （process_auth_header 已把 Basic 凭据换成 current_user），否则必须登录；
+        - 其它页面（WAP 等）跳登录页，带上 next 便于回跳。
+        放行时返回 False；拦下时不返回（写响应后 raise web.Finish）。
+        """
+        if not self.require_login_enabled():
+            return False
+        path = (self.request.path or "/").rstrip("/") or "/"
+        # 只有 cookie 会话算"已登录"：?token=/X-MYBOOKS-TOKEN 走的是长期 podcast_token，
+        # 它出现在 RSS URL、日志、Referer 里，不能当整站通行证用；但播客自己的页面/目录
+        # 允许它（订阅页要把"我的收藏/待读"渲染出来，且链接里带的就是这个 token）。
+        if self.current_user:
+            if not getattr(self, "_login_via_token", False):
+                return False
+            if path.startswith("/podcast"):
+                return False
+        if login_gate_allowed(path):
+            return False
+        # 带下载签名的书籍直链（formatter 给登录用户生成、10 秒有效、绑定用户+书+格式）：
+        # 下载器(aria2/IDM)没有 cookie，但签名本身就是凭据，交给 BookDownload 自己校验。
+        if path.startswith("/api/book/"):
+            filename = path.rsplit("/", 1)[-1]
+            if "." in filename and self.get_argument("dl", ""):
+                bid, fmt = filename.split(".", 1)
+                if self.parse_download_sign(self.get_argument("dl", ""), bid, fmt):
+                    return False
+        if path.startswith("/opds"):
+            self.set_header("WWW-Authenticate", 'Basic realm="MyBooks"')
+            self.set_status(401)
+            raise web.Finish()
+        if path.startswith("/api/"):
+            self.write({"err": "user.need_login", "msg": _("请先登录")})
+            self.set_status(200)
+            raise web.Finish()
+        if path.startswith("/get/"):
+            self.set_status(401)
+            raise web.Finish()
+        # path 上面已归一化尾斜杠：/wap/ 会变成 /wap，所以必须同时覆盖无斜杠入口，
+        # 否则 WAP 首页会掉到下面的 /login/（Nuxt SPA 登录页，老设备跑不动）。
+        if path == "/wap" or path.startswith("/wap/"):
+            self.redirect("/wap/login?next=" + quote(self.request.uri, safe=""))
+            raise web.Finish()
+        # 用 /login/（带尾斜杠）而不是 /login：后者会先被 StaticFileHandler 301 到 /login/，
+        # 那个 301 只带路径、会把 ?next= 丢掉，用户登录后回不到原页面。
+        self.redirect("/login/?next=" + quote(self.request.uri, safe=""))
+        raise web.Finish()
 
     def should_be_installed(self):
         if CONF.get("installed", None) is False:
@@ -436,6 +630,7 @@ class BaseHandler(web.RequestHandler):
         self.process_auth_token()
         self.should_be_installed()
         self.should_be_invited()
+        self.should_be_logged_in()
 
     def set_i18n(self):
         accept = self.request.headers.get("Accept-Language", "")
@@ -455,6 +650,7 @@ class BaseHandler(web.RequestHandler):
         self.cookies_cache = {}
         self._cached_user_id = None
         self._cached_username = None
+        self._login_via_token = False  # 身份是否来自 ?token=/X-MYBOOKS-TOKEN（见 should_be_logged_in）
         self._request_start_time = None  # 用于性能分析
 
     def on_finish(self):
@@ -543,9 +739,12 @@ class BaseHandler(web.RequestHandler):
             return False
         return self.current_user.is_admin()
 
-    def login_user(self, user, persist=True):
-        self.set_secure_cookie("user_id", str(user.id))
-        self.set_secure_cookie("lt", str(int(time.time())))
+    def login_user(self, user, persist=True, set_cookie=True):
+        # set_cookie=False 用于 ?token= 这类"凭据即身份"的场景：token 会出现在 RSS URL、
+        # 日志、Referer 里，绝不能因为它给客户端种下 7 天有效的整站会话 cookie。
+        if set_cookie:
+            self.set_secure_cookie("user_id", str(user.id))
+            self.set_secure_cookie("lt", str(int(time.time())))
         if not persist:
             return
         logging.info(
@@ -1615,21 +1814,7 @@ class BaseHandler(web.RequestHandler):
                 "footer": CONF["FOOTER"] if "FOOTER" in CONF else "",
                 "footer_watermark": CONF.get("FOOTER_WATERMARK", ""),
                 "header": CONF["HEADER"] if "HEADER" in CONF else "",
-                "allow": {
-                    "register": CONF["ALLOW_REGISTER"],
-                    "download": CONF["ALLOW_GUEST_DOWNLOAD"],
-                    "push": CONF["ALLOW_GUEST_PUSH"],
-                    "read": CONF["ALLOW_GUEST_READ"],
-                    "physical_books": CONF.get("ENABLE_PHYSICAL_BOOKS", True),
-                    "folder": CONF.get("ENABLE_FOLDER_BROWSE", False),
-                    "download_quota": CONF.get("ENABLE_DOWNLOAD_QUOTA", False),
-                    "upload": CONF.get("ALLOW_GUEST_UPLOAD", False),
-                    "server_import": CONF.get("ENABLE_SERVER_FILE_IMPORT", False),
-                    "sync": CONF.get("ENABLE_DATA_SYNC", False),
-                    "book_review": CONF.get("ENABLE_BOOK_REVIEW", True),
-                    "book_recommend": CONF.get("ENABLE_BOOK_RECOMMEND_TO_OTHERS", True),
-                    "shared_notes": CONF.get("ENABLE_SHARED_NOTES", True),
-                },
+                "allow": self.allow_flags(),
                 "indexPage": CONF.get("INDEX_PAGE_TYPE", "index"),
                 "epub_viewer": CONF.get("EPUB_VIEWER", "MyReader"),
                 "defaultPageSize": CONF.get("DEFAULT_PAGE_SIZE", 60),

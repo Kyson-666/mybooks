@@ -64,6 +64,7 @@
 
 <script>
 import { isLightBackground, resolveBrandColor } from "~/utils/appearance";
+import safeNext from "~/utils/safeNext";
 
 export default {
     data: () => ({
@@ -71,6 +72,7 @@ export default {
         password: "",
         email: "",
         show_login: true,
+        submitting: false,
         alert: {
             type: "error",
             msg: "",
@@ -113,7 +115,11 @@ export default {
 
         // API调用放在最后，确保状态管理稳定
         this.$backend("/user/info").then((rsp) => {
-            this.$store.commit("login", rsp);
+            // 这个响应属于"登录页首屏的匿名快照"：如果用户已经在它返回前登录成功，
+            // 不能再拿它把 store 里的新会话覆盖回匿名。
+            if (!(this.$store.state.user && this.$store.state.user.is_login)) {
+                this.$store.commit("login", rsp);
+            }
             // 更新页面标题模板
             if (rsp.sys && rsp.sys.title) {
                 this.$store.state.site_title_template = "%s | " + rsp.sys.title;
@@ -139,9 +145,31 @@ export default {
         navIsDark() {
             return !isLightBackground(this.navBgColor);
         },
+        // 登录后回跳：safeNext 保证同源站内（挡 //evil.com、/\evil.com 这类），
+        // 再排除登录/退出等"回去没意义或会自我注销"的目标。
+        nextTarget() {
+            const target = safeNext(this.$route.query.next, "/");
+            const path = target.split(/[?#]/)[0].replace(/\/+$/, "");
+            // /api/* 是接口不是页面：整页跳过去只会看到一个 JSON，直接回首页
+            if (/^\/(login|logout|signup|welcome)(\/|$)/.test(path) || path.startsWith("/api/")) {
+                return "/";
+            }
+            return target;
+        },
     },
     methods: {
+        // 这些是后端路由（阅读器 / 文件 / OPDS 等），前端没有对应页面，
+        // 用 router.push 会渲染空白或 404，必须整页跳转交给后端。
+        // 注意 /opds 本身（不带子路径）也是后端路由，边界要匹配路径结束。
+        needsFullLoad(target) {
+            return /^\/(read|get|opds|books|podcast)(\/|$|\?)/.test(target);
+        },
         do_login: function () {
+            // 防双击：两次 sign_in 会连着触发 resetSession/ensureSession/导航
+            if (this.submitting) {
+                return;
+            }
+            this.submitting = true;
             var data = new URLSearchParams();
             data.append("username", this.username);
             data.append("password", this.password);
@@ -150,12 +178,45 @@ export default {
                 body: data,
             }).then((rsp) => {
                 if (rsp.err != "ok") {
+                    this.submitting = false;
                     this.alert.type = "error";
                     this.alert.msg = rsp.msg;
-                } else {
-                    this.$store.commit("navbar", true);
-                    this.$router.push("/");
+                    return;
                 }
+                this.$store.commit("navbar", true);
+                // 登录接口只回 {err:"ok"}，store 里的 user.is_login 还没更新；
+                // 全站守卫靠它判断放行，所以先作废旧的"未登录"快照、重新拉一次会话，
+                // 再跳回被拦下的原页面，否则会刚登录就被守卫弹回 /login。
+                if (this.$resetSession) {
+                    this.$resetSession();
+                }
+                const go = (info) => {
+                    this.submitting = false;
+                    const user = (info && info.user) || this.$store.state.user || {};
+                    if (!user.is_login) {
+                        // cookie 没被接受（禁用 cookie / 反代丢 Set-Cookie）：留在登录页提示，
+                        // 别跳到深链再被守卫弹回来，变成没有提示的死循环。
+                        this.alert.type = "error";
+                        this.alert.msg = "登录状态未生效，请检查浏览器是否允许本站 Cookie 后重试。";
+                        return;
+                    }
+                    const target = this.nextTarget;
+                    if (this.needsFullLoad(target)) {
+                        window.location.assign(target);
+                    } else {
+                        this.$router.push(target).catch(() => {});
+                    }
+                };
+                if (this.$ensureSession) {
+                    this.$ensureSession().then(go, () => go());
+                } else {
+                    go();
+                }
+            }, () => {
+                // $backend 对 5xx/网络错误会 reject，不能让按钮一直"点了没反应"
+                this.submitting = false;
+                this.alert.type = "error";
+                this.alert.msg = "登录请求失败，请稍后重试。";
             });
         },
         do_reset: function () {

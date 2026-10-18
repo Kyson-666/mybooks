@@ -795,8 +795,15 @@ export default {
         this.$backend("/user/info").then((rsp) => {
             this.err = rsp.err;
             this.sys = rsp.sys;
-            this.user = rsp.user;
-            this.$store.commit("login", rsp);
+            // 迟到的"匿名快照"不能覆盖已建立的登录会话（登录成功后 header 的响应才回来）
+            const storeUser = this.$store.state.user;
+            const stale = storeUser && storeUser.is_login && !(rsp.user && rsp.user.is_login);
+            if (!stale) {
+                this.user = rsp.user;
+                this.$store.commit("login", rsp);
+            } else {
+                this.user = storeUser;
+            }
             this.$store.commit("set_title", rsp.sys.title);
             this.$store.state.site_title_template = "%s | " + rsp.sys.title;
             this.$store.state.ai_enabled = rsp.sys.aiEnabled;

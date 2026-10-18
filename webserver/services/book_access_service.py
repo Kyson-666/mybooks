@@ -23,6 +23,11 @@ class BookAccessService:
 
     @staticmethod
     def guest_read_source(handler, book_id: Optional[int] = None) -> Optional[str]:
+        # REQUIRE_LOGIN（必须登录才能访问）是"整站关闸"：全站访客可读、分享授权、
+        # 公开书单的 guest_read 一律失效。私人图书馆下任何账号都能读全库，分享链接
+        # 保留读权限只会变成绕过登录的后门（见 docs/mybooks-require-login-plan-20261018.md）。
+        if CONF.get("REQUIRE_LOGIN", False):
+            return None
         if CONF.get("ALLOW_GUEST_READ", False):
             return "global"
         if BookAccessService._share_allows(handler, book_id, "allow_read"):
@@ -40,10 +45,16 @@ class BookAccessService:
 
     @staticmethod
     def share_read_granted(handler, book_id) -> bool:
+        # REQUIRE_LOGIN 下分享链接整体失效：否则被禁用/无 read 权限的账号拿着 share
+        # 仍可读，等于绕过"必须登录 + 账号权限"。
+        if CONF.get("REQUIRE_LOGIN", False):
+            return False
         return book_id is not None and BookAccessService._share_allows(handler, book_id, "allow_read")
 
     @staticmethod
     def share_download_granted(handler, book_id) -> bool:
+        if CONF.get("REQUIRE_LOGIN", False):
+            return False
         return book_id is not None and BookAccessService._share_allows(handler, book_id, "allow_download")
 
     @staticmethod
@@ -60,6 +71,27 @@ class BookAccessService:
 
     @staticmethod
     def guest_download_allowed(handler, book_id: Optional[int] = None) -> bool:
+        if CONF.get("REQUIRE_LOGIN", False):
+            return False
         if CONF.get("ALLOW_GUEST_DOWNLOAD", False):
             return True
         return BookAccessService._share_allows(handler, book_id, "allow_download")
+
+    @staticmethod
+    def guest_upload_allowed() -> bool:
+        """访客上传的总开关（REQUIRE_LOGIN 下恒 False）。
+
+        handlers 里"ALLOW_GUEST_UPLOAD 为真就跳过 can_upload() 检查"的分支必须读这里，
+        否则开了必须登录、但遗留 ALLOW_GUEST_UPLOAD=True 时，登录用户即使没有上传权限
+        也能上传。
+        """
+        if CONF.get("REQUIRE_LOGIN", False):
+            return False
+        return bool(CONF.get("ALLOW_GUEST_UPLOAD", False))
+
+    @staticmethod
+    def guest_push_allowed() -> bool:
+        """访客推送的总开关（REQUIRE_LOGIN 下恒 False），语义同 guest_upload_allowed。"""
+        if CONF.get("REQUIRE_LOGIN", False):
+            return False
+        return bool(CONF.get("ALLOW_GUEST_PUSH", False))
