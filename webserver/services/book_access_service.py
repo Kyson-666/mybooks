@@ -23,9 +23,12 @@ class BookAccessService:
 
     @staticmethod
     def guest_read_source(handler, book_id: Optional[int] = None) -> Optional[str]:
-        # REQUIRE_LOGIN（必须登录才能访问）会关掉"全站访客可读"这条总闸，
-        # 但保留显式分享与公开书单的 guest_read —— 那是管理员逐个授权过的出口。
-        if not CONF.get("REQUIRE_LOGIN", False) and CONF.get("ALLOW_GUEST_READ", False):
+        # REQUIRE_LOGIN（必须登录才能访问）是"整站关闸"：全站访客可读、分享授权、
+        # 公开书单的 guest_read 一律失效。私人图书馆下任何账号都能读全库，分享链接
+        # 保留读权限只会变成绕过登录的后门（见 docs/mybooks-require-login-plan-20261018.md）。
+        if CONF.get("REQUIRE_LOGIN", False):
+            return None
+        if CONF.get("ALLOW_GUEST_READ", False):
             return "global"
         if BookAccessService._share_allows(handler, book_id, "allow_read"):
             return "share"
@@ -62,6 +65,8 @@ class BookAccessService:
 
     @staticmethod
     def guest_download_allowed(handler, book_id: Optional[int] = None) -> bool:
-        if not CONF.get("REQUIRE_LOGIN", False) and CONF.get("ALLOW_GUEST_DOWNLOAD", False):
+        if CONF.get("REQUIRE_LOGIN", False):
+            return False
+        if CONF.get("ALLOW_GUEST_DOWNLOAD", False):
             return True
         return BookAccessService._share_allows(handler, book_id, "allow_download")

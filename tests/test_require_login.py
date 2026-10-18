@@ -23,10 +23,13 @@ def _bare_handler(path="/api/index", uri=None):
     handler.current_user = None
     handler.written = []
     handler.status = None
+    handler.headers = {}
     handler.redirects = []
     handler.write = lambda data: handler.written.append(data)
     handler.set_status = lambda code: setattr(handler, "status", code)
+    handler.set_header = lambda k, v: handler.headers.__setitem__(k, v)
     handler.redirect = lambda url, **kw: handler.redirects.append(url)
+    handler.get_argument = lambda name, default=None: default
     return handler
 
 
@@ -48,11 +51,18 @@ class TestLoginGateAllowList(unittest.TestCase):
         ):
             self.assertFalse(login_gate_allowed(path), path)
 
+    def test_shares_and_opds_are_not_open_doors(self):
+        # 私人图书馆下"任何账号都能读全库"，分享没有意义；放行它们等于留后门（见方案文档 §2.2）
+        for path in ("/s/abc123", "/api/share/abc123", "/api/share/abc123/verify", "/opds", "/opds/nav/new"):
+            self.assertFalse(login_gate_allowed(path), path)
+
     def test_login_and_install_surfaces_allowed(self):
         for path in (
             "/login",
-            "/logout",
+            "/login/",          # 尾斜杠：StaticFileHandler 会把 /login 301 到 /login/
             "/signup",
+            "/signup/",
+            "/logout",
             "/welcome",
             "/install",
             "/starting",
@@ -60,7 +70,8 @@ class TestLoginGateAllowList(unittest.TestCase):
             "/api/user/sign_in",
             "/api/user/sign_up",
             "/api/user/reset",
-            "/api/user/active/abc/def",
+            "/api/user/sign_out",
+            "/api/active/alice/3f2b1c",   # 邮件里的真实激活链接
             "/api/access",
             "/api/admin/install",
             "/api/favicon/1",
@@ -68,15 +79,12 @@ class TestLoginGateAllowList(unittest.TestCase):
             "/wap/welcome",
         ):
             self.assertTrue(login_gate_allowed(path), path)
+        # 激活接口的真实路由是 /api/active/...，不是 /api/user/active/...
+        self.assertFalse(login_gate_allowed("/api/user/active/alice/3f2b1c"))
 
     def test_credential_bearing_surfaces_allowed(self):
         # 这些入口各自带 token / Basic 认证，设备端无法走网页登录
         for path in (
-            "/s/abc123",
-            "/api/share/abc123",
-            "/api/share/abc123/verify",
-            "/opds",
-            "/opds/nav/new",
             "/podcast/all",
             "/podcast/book/1",
             "/books/dav/",
@@ -152,6 +160,42 @@ class TestShouldBeLoggedIn(unittest.TestCase):
         handler = _bare_handler("/api/user/info")
         self.assertFalse(handler.should_be_logged_in())
         self.assertEqual(handler.written, [])
+
+    def test_book_file_returns_401_not_json(self):
+        # /get/* 的消费者是 <img>/下载器，200 JSON 会被当成资源解析
+        CONF["REQUIRE_LOGIN"] = True
+        handler = _bare_handler("/get/cover/1.jpg")
+        with self.assertRaises(web.Finish):
+            handler.should_be_logged_in()
+        self.assertEqual(handler.written, [])
+        self.assertEqual(handler.status, 401)
+
+    def test_opds_returns_401_with_basic_challenge(self):
+        # OPDS 客户端靠 WWW-Authenticate 弹认证；配了账号即可通过（Basic → current_user）
+        CONF["REQUIRE_LOGIN"] = True
+        handler = _bare_handler("/opds/nav/new")
+        with self.assertRaises(web.Finish):
+            handler.should_be_logged_in()
+        self.assertEqual(handler.status, 401)
+        self.assertIn("Basic", handler.headers.get("WWW-Authenticate", ""))
+
+    def test_valid_download_sign_passes(self):
+        # formatter 给登录用户生成的 ?dl= 直链（10 秒、绑定用户+书+格式）：下载器没 cookie 也能用
+        CONF["REQUIRE_LOGIN"] = True
+        handler = _bare_handler("/api/book/12.epub")
+        handler.get_argument = lambda name, default=None: "1.1792300490.deadbeef" if name == "dl" else default
+        handler.parse_download_sign = lambda sign, bid, fmt: 3 if (bid, fmt) == ("12", "epub") else None
+        self.assertFalse(handler.should_be_logged_in())
+        self.assertEqual(handler.written, [])
+
+    def test_invalid_or_expired_download_sign_is_blocked(self):
+        CONF["REQUIRE_LOGIN"] = True
+        handler = _bare_handler("/api/book/12.epub")
+        handler.get_argument = lambda name, default=None: "bad" if name == "dl" else default
+        handler.parse_download_sign = lambda sign, bid, fmt: None
+        with self.assertRaises(web.Finish):
+            handler.should_be_logged_in()
+        self.assertEqual(handler.written[0]["err"], "user.need_login")
 
 
 class TestInviteModeInteraction(unittest.TestCase):

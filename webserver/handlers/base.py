@@ -39,8 +39,10 @@ CONF = loader.get_settings()
 AUDIO_OUTPUT_FOLDER = CONF.get("audio_output_folder", "/data/books/audios/")
 
 # 「必须登录才能访问」(REQUIRE_LOGIN) 开启后，仍然允许匿名访问的路径。
-# 精确匹配用于页面路由（避免 /login 前缀误放行 /login-xxx 这类未来路由），
-# 前缀匹配用于登录/安装必需接口、静态资源，以及自带凭据的设备协议入口。
+# 原则：只放行"没有登录就进不来"的必需品（登录/注册/激活/安装、登录页静态资源），
+# 以及带自己凭据、网页登录没法覆盖的设备协议入口（播客 token、MCP token、WebDAV Basic）。
+# 分享链接 / 公开书单不在此列：私人图书馆下"任何账号都能读全库"，分享没有意义，
+# 且要放行就得在门禁里重做一遍逐本授权判定，见 docs/mybooks-require-login-plan-20261018.md。
 LOGIN_GATE_ALLOW_EXACT = frozenset({
     "/login",
     "/logout",
@@ -52,6 +54,7 @@ LOGIN_GATE_ALLOW_EXACT = frozenset({
     "/api/user/sign_in",
     "/api/user/sign_up",
     "/api/user/reset",
+    "/api/user/sign_out",
     "/api/access",
     "/api/admin/install",
     "/wap/login",
@@ -63,16 +66,11 @@ LOGIN_GATE_ALLOW_EXACT = frozenset({
 })
 
 LOGIN_GATE_ALLOW_PREFIX = (
-    "/api/user/active/",   # 邮箱激活链接
-    "/api/share/",         # 显式创建的分享（自带有效期/密码/次数）
-    "/api/mcp/",           # MCP 由 AI_MCP_TOKEN 鉴权
+    "/api/active/",        # 邮箱激活链接（实际路由 /api/active/<username>/<code>）
+    "/api/mcp/",           # MCP 工具调用自带 AI_MCP_TOKEN
     "/api/favicon/",       # 站点图标（登录页标签页要显示）
-    "/s/",                 # 分享落地页（前端 SPA）
-    "/opds",               # OPDS 由 ENABLE_OPDS_AUTH 的 Basic 认证守护
     "/podcast/",           # 播客 RSS，路径内含用户 podcast_token
-    "/books",              # WebDAV，自带 Basic 认证（且不走 BaseHandler）
-    "/wap/login",
-    "/wap/welcome",
+    "/books",              # WebDAV：裸 RequestHandler，不走本门禁；自带 Basic 认证
     "/_nuxt/",             # SPA 资源，登录页自身要能渲染
     "/logo/",
     "/avatar/",
@@ -92,6 +90,9 @@ def login_gate_allowed(path):
     """REQUIRE_LOGIN 开启时，这个路径是否允许匿名访问。"""
     if not path:
         return False
+    # 尾斜杠归一化：/login/ 与 /login 是同一个页面（StaticFileHandler 还会把 /login 301 到
+    # /login/ 并丢掉 ?next=），不放行会让用户登完停在登录页。
+    path = path.rstrip("/") or "/"
     if path in LOGIN_GATE_ALLOW_EXACT:
         return True
     if path.startswith(LOGIN_GATE_ALLOW_PREFIX):
@@ -99,7 +100,8 @@ def login_gate_allowed(path):
     # /api/* 与 /get/*（封面、书籍文件、EPUB 解包）只认白名单，绝不按扩展名放行。
     if path.startswith(("/api/", "/get/")):
         return False
-    # 前端构建产物（Nuxt generate 后的 _nuxt/*、logo、图标、字体）登录页自身要用。
+    # 前端构建产物（_nuxt/*、logo、图标、字体）登录页自身要用。
+    # 严格说这些由 SpaStaticHandler 直出、根本不经过本门禁，这里只是兜底。
     return path.endswith(LOGIN_GATE_ALLOW_SUFFIX)
 
 
@@ -485,23 +487,39 @@ class BaseHandler(web.RequestHandler):
     def should_be_logged_in(self):
         """REQUIRE_LOGIN 开启时的登录门禁：未登录且路径不在放行名单 → 一律拦下。
 
-        - /api/*（以及 /get/* 这类由 BaseHandler 提供的资源接口）返回 user.need_login，
-          前端 $backend 已有该错误的统一跳转，故这里只回 JSON、不回 302；
-        - 其它路径（WAP 页面等）按用户看到的界面跳登录页，带上 next 便于回跳。
+        - /api/* 回 200 {"err": "user.need_login"}：前端 $backend 有该错误的统一跳转；
+        - /get/* 回 401：消费者是 <img>、EPUB 解包器、下载器，200 JSON 会被当成资源解析；
+        - OPDS 回 401 + WWW-Authenticate：客户端靠这个头弹 Basic 认证，配了账号即可通过
+          （process_auth_header 已把 Basic 凭据换成 current_user），否则必须登录；
+        - 其它页面（WAP 等）跳登录页，带上 next 便于回跳。
         放行时返回 False；拦下时不返回（写响应后 raise web.Finish）。
         """
         if not self.require_login_enabled() or self.current_user:
             return False
-        path = self.request.path or "/"
+        path = (self.request.path or "/").rstrip("/") or "/"
         if login_gate_allowed(path):
             return False
-        if path.startswith("/api/") or path.startswith("/get/"):
+        # 带下载签名的书籍直链（formatter 给登录用户生成、10 秒有效、绑定用户+书+格式）：
+        # 下载器(aria2/IDM)没有 cookie，但签名本身就是凭据，交给 BookDownload 自己校验。
+        if path.startswith("/api/book/"):
+            filename = path.rsplit("/", 1)[-1]
+            if "." in filename and self.get_argument("dl", ""):
+                bid, fmt = filename.split(".", 1)
+                if self.parse_download_sign(self.get_argument("dl", ""), bid, fmt):
+                    return False
+        if path.startswith("/opds"):
+            self.set_header("WWW-Authenticate", 'Basic realm="MyBooks"')
+            self.set_status(401)
+            raise web.Finish()
+        if path.startswith("/api/"):
             self.write({"err": "user.need_login", "msg": _("请先登录")})
             self.set_status(200)
             raise web.Finish()
+        if path.startswith("/get/"):
+            self.set_status(401)
+            raise web.Finish()
         if path.startswith("/wap/"):
-            next_url = self.request.uri
-            self.redirect("/wap/login?next=" + quote(next_url, safe=""))
+            self.redirect("/wap/login?next=" + quote(self.request.uri, safe=""))
             raise web.Finish()
         self.redirect("/login?next=" + quote(self.request.uri, safe=""))
         raise web.Finish()

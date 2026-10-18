@@ -49,12 +49,12 @@ class TestBookAccessService(unittest.TestCase):
         self.assertFalse(self.check(conf, BookAccessService.guest_read_allowed, 1))
         self.assertFalse(self.check(conf, BookAccessService.guest_read_allowed))
         self.assertFalse(self.check(conf, BookAccessService.guest_download_allowed, 1))
-        # 显式分享仍然按各自授权放行（分享链接是受控出口，不随总闸关闭）
+        # 整站关闸：连显式分享/公开书单的逐个授权也一并失效（私人图书馆下任何账号都能读全库）
         with mock.patch.dict(book_access_service.CONF, conf, clear=False), \
                 mock.patch.object(BookAccessService, "_share_allows", return_value=True), \
-                mock.patch.object(BookAccessService, "_booklist_allows_read", return_value=False):
-            self.assertEqual(BookAccessService.guest_read_source(NoCookieHandler(), 1), "share")
-            self.assertTrue(BookAccessService.guest_download_allowed(NoCookieHandler(), 1))
+                mock.patch.object(BookAccessService, "_booklist_allows_read", return_value=True):
+            self.assertIsNone(BookAccessService.guest_read_source(NoCookieHandler(), 1))
+            self.assertFalse(BookAccessService.guest_download_allowed(NoCookieHandler(), 1))
 
     def test_handlers_do_not_read_guest_flags_directly(self):
         offenders = []

@@ -102,10 +102,25 @@ export default ({ app }, inject) => {
                         redirect(301, "/welcome" + next);
                     }
                 } else if (rsp.err === 'user.need_login') {
-                    // 「必须登录才能访问」开启后，任何页面/接口都可能返回它；
-                    // 带上 next，登录成功后回到原页面（登录页自己不再重复跳）。
-                    if (route.path !== "/login") {
-                        redirect(301, "/login?next=" + encodeURIComponent(route.fullPath));
+                    // 「必须登录才能访问」开启后，任何页面/接口都可能返回它。
+                    // 会话可能已过期：作废会话快照，让路由守卫下次重新判定。
+                    if (app.$resetSession) {
+                        app.$resetSession();
+                    }
+                    // 登录页/退出页/注册页自己不再重复跳，避免环。
+                    if (!/^\/(login|logout|signup)/.test(route.path)) {
+                        const to = "/login?next=" + encodeURIComponent(route.fullPath);
+                        // 302 而不是 301：登录跳转不该被浏览器/代理长期缓存。
+                        redirect(302, to);
+                        // 页面 mounted 里发的请求（导航已结束）在 Nuxt 2 客户端里
+                        // redirect 是空操作，兜底整页跳转，避免停在半空页面。
+                        if (process.client) {
+                            setTimeout(() => {
+                                if (!window.location.pathname.startsWith("/login")) {
+                                    window.location.assign(to);
+                                }
+                            }, 300);
+                        }
                     }
                 } else if (rsp.err === 'exception') {
                     if (res !== undefined) {

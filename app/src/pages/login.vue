@@ -139,16 +139,26 @@ export default {
         navIsDark() {
             return !isLightBackground(this.navBgColor);
         },
-        // 登录后回跳：只接受站内绝对路径，避免 ?next=//evil.com 变成开放重定向
+        // 登录后回跳：只接受站内绝对路径（挡 ?next=//evil.com 这类开放重定向），
+        // 并排除登录/退出页自身——否则 next=/logout 会在登录后立刻把自己退掉。
         nextTarget() {
             const next = this.$route.query.next;
-            if (typeof next === "string" && next.startsWith("/") && !next.startsWith("//")) {
-                return next;
+            if (typeof next !== "string" || !next.startsWith("/") || next.startsWith("//")) {
+                return "/";
             }
-            return "/";
+            const path = next.split("?")[0].replace(/\/+$/, "");
+            if (/^\/(login|logout|signup|welcome)/.test(path)) {
+                return "/";
+            }
+            return next;
         },
     },
     methods: {
+        // 这些是后端路由（阅读器 / 文件 / OPDS 等），前端没有对应页面，
+        // 用 router.push 会渲染空白或 404，必须整页跳转交给后端。
+        needsFullLoad(target) {
+            return /^\/(read|get|api|opds|books|podcast)\//.test(target);
+        },
         do_login: function () {
             var data = new URLSearchParams();
             data.append("username", this.username);
@@ -168,7 +178,14 @@ export default {
                     if (this.$resetSession) {
                         this.$resetSession();
                     }
-                    const go = () => this.$router.push(this.nextTarget);
+                    const go = () => {
+                        const target = this.nextTarget;
+                        if (this.needsFullLoad(target)) {
+                            window.location.assign(target);
+                        } else {
+                            this.$router.push(target).catch(() => {});
+                        }
+                    };
                     if (this.$ensureSession) {
                         this.$ensureSession().then(go, go);
                     } else {
