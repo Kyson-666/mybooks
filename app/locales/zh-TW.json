@@ -1069,6 +1069,7 @@
     "ai_model_description": "選擇 AI 模型，部分功能可能需要特定模型支持",
     "mynexus_title": "MyNexus 書籍解析與 AI 伴讀",
     "mynexus_description": "設定 MyNexus 服務後，管理員可提交書籍解析，讀者可在解析完成後使用 AI 伴讀。",
+    "mynexus_enabled": "啟用 MyNexus 書籍解析",
     "mynexus_url": "MyNexus 服務 URL",
     "mynexus_url_hint": "例如：http://localhost:3000",
     "mynexus_token": "MyNexus API Token",

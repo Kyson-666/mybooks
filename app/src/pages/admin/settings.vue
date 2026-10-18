@@ -706,8 +706,19 @@
               <v-divider class="my-4"></v-divider>
               <h3 class="text-subtitle-1 mb-2">{{ $t("settings.mynexus_title") }}</h3>
               <p class="text-caption">{{ $t("settings.mynexus_description") }}</p>
+              <div id="f-ENABLE_MYNEXUS">
+              <v-checkbox
+                small
+                hide-details
+                v-model="settings['ENABLE_MYNEXUS']"
+                :key="'ENABLE_MYNEXUS'"
+                :label="$t('settings.mynexus_enabled')"
+                class="mb-2"
+              ></v-checkbox>
+              </div>
               <div id="f-MYNEXUS_URL">
               <v-text-field
+                :disabled="!settings['ENABLE_MYNEXUS']"
                 v-model="settings['MYNEXUS_URL']"
                 prepend-icon="mdi-link"
                 :label="$t('settings.mynexus_url')"
@@ -717,6 +728,7 @@
               </div>
               <div id="f-MYNEXUS_TOKEN">
               <v-text-field
+                :disabled="!settings['ENABLE_MYNEXUS']"
                 v-model="settings['MYNEXUS_TOKEN']"
                 prepend-icon="mdi-key"
                 :label="$t('settings.mynexus_token')"
@@ -726,7 +738,7 @@
               ></v-text-field>
               </div>
               <v-btn
-                :disabled="testingMynexus"
+                :disabled="!settings['ENABLE_MYNEXUS'] || testingMynexus"
                 color="primary"
                 class="mt-2"
                 @click="testMyNexusConnection"
@@ -1099,6 +1111,7 @@ const SPECIAL_BLOCKS = [
   { key: "AI_MODEL", label: "settings.ai_model", icon: "mdi-function", gid: "services", sid: "svc-ai" },
   { key: "AI_MCP_TOKEN", label: "settings.ai_mcp_token", icon: "mdi-key", gid: "services", sid: "svc-ai" },
   { key: "AI_ALLOW_SET_CATEGORY", label: "settings.ai_allow_set_category", icon: "mdi-scatter-plot-outline", gid: "services", sid: "svc-ai" },
+  { key: "ENABLE_MYNEXUS", label: "settings.mynexus_enabled", icon: "mdi-book-search", gid: "services", sid: "svc-ai", al: ["mynexus", "nexus"] },
   { key: "MYNEXUS_URL", label: "settings.mynexus_url", icon: "mdi-link", gid: "services", sid: "svc-ai", al: ["mynexus", "nexus"] },
   { key: "MYNEXUS_TOKEN", label: "settings.mynexus_token", icon: "mdi-key", gid: "services", sid: "svc-ai", al: ["mynexus", "nexus"] },
   { key: "SSL", label: "settings.ssl_certificate_management", icon: "mdi-lock", gid: "protocols", sid: "proto-net", al: ["证书", "https"] },

@@ -88,6 +88,7 @@ settings = {
     "AI_DEEPSEEK_API_KEY": "",
     "AI_API_URL": "https://api.deepseek.com",
     "AI_ALLOW_SET_CATEGORY": True,
+    "ENABLE_MYNEXUS": False,
     "MYNEXUS_URL": "",
     "MYNEXUS_TOKEN": "",
     "MAIN_PAGE_RANDOM_COUNT": 12,

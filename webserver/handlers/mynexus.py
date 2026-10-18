@@ -426,7 +426,8 @@ class MyNexusTestConnectionHandler(BaseHandler):
             client = MyNexusClient(data.get("url"), data.get("token") or None)
             await utils.run_in_threadpool(client.test_connection)
         except MyNexusError as exc:
-            return {"err": "mynexus.error", "msg": exc.message}
+            logging.error(f"MyNexus test connection failed: {exc}")
+            return {"err": "mynexus.error"}
         return {"err": "ok", "msg": _("MyNexus连接成功")}
 
 

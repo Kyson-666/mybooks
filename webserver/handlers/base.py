@@ -1639,6 +1639,7 @@ class BaseHandler(web.RequestHandler):
                 "sidebar_items": CONF.get("SIDEBAR_ITEMS", []),
                 "invited_enabled": self.need_invited(),
                 "showUserInfo": CONF.get("ENABLE_AUTHOR_INFO", False),
+                "mynexus_enabled": CONF.get("ENABLE_MYNEXUS", False),
             }
         )
         return info

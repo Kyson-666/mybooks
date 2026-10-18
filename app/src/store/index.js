@@ -21,6 +21,7 @@ export const state = () => ({
             guest_register: false,
             book_review: false
         },
+        mynexus_enabled: false
     },
     site_title: "首页",
     site_title_template: "%s | MyBooks",

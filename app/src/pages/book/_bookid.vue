@@ -605,7 +605,7 @@
                                     {{ $t('share.manageShare') }}
                                 </v-chip>
                                 <v-chip
-                                    v-if="isAdmin && !book.ai_companion_available"
+                                    v-if="isAdmin && mynexusEnabled && !book.ai_companion_available"
                                     rounded
                                     color="deep-purple"
                                     class="white--text"
@@ -618,7 +618,7 @@
                                     {{ $t('book.mynexusAnalyze') }}
                                 </v-chip>
                                 <v-chip
-                                    v-if="book.ai_companion_available"
+                                    v-if="mynexusEnabled && book.ai_companion_available"
                                     rounded
                                     color="teal"
                                     class="white--text"
@@ -723,7 +723,7 @@
                         <v-card-text v-if="isAdmin && book.mynexus_error" class="pt-0 error--text">
                             {{ book.mynexus_error }}
                         </v-card-text>
-                        <v-card-text v-if="isAdmin && (mynexusIsActive || mynexusStatus === 'failed')" class="pt-0">
+                        <v-card-text v-if="isAdmin && mynexusEnabled && (mynexusIsActive || mynexusStatus === 'failed')" class="pt-0">
                             <div class="d-flex align-center mb-2">
                                 <v-icon small class="mr-2" :color="mynexusStatus === 'failed' ? 'error' : 'primary'">mdi-book-search</v-icon>
                                 <span>{{ mynexusStatusLabel }}</span>
@@ -1308,6 +1308,9 @@ export default {
         mynexusHasSupportedFormat: function () {
             return (this.book.files || []).some((file) => ["epub", "txt"].includes(file.format.toLowerCase()));
         },
+        mynexusEnabled: function () {
+            return this.$store.state.sys?.mynexus_enabled === true;
+        },
         canReview: function () {
             // 评价功能总开关（管理员在"浏览与阅读"里关闭时，整个评论区都不展示）
             return this.$store.state.sys?.allow?.book_review !== false;
@@ -1877,7 +1880,7 @@ export default {
     methods: {
         toStars,
         async loadMyNexusAnalysis() {
-            if (!this.isAdmin || !this.book.id || !this.book.mynexus_configured) return;
+            if (!this.isAdmin || !this.mynexusEnabled || !this.book.id || !this.book.mynexus_configured) return;
             try {
                 const response = await this.$backend(`/book/${this.book.id}/mynexus/analysis`);
                 if (response.err !== "ok") {
@@ -1903,7 +1906,7 @@ export default {
             }
         },
         async loadMyNexusAvailability() {
-            if (this.isAdmin || this.$store.state.user?.is_login !== true || !this.book.id || this.book.ai_companion_available) return;
+            if (this.isAdmin || !this.mynexusEnabled || this.$store.state.user?.is_login !== true || !this.book.id || this.book.ai_companion_available) return;
             try {
                 const response = await this.$backend(`/book/${this.book.id}/mynexus/availability`);
                 if (response.err === "ok" && response.available) {
@@ -1915,6 +1918,7 @@ export default {
             }
         },
         async startMyNexusAnalysis() {
+            if (!this.mynexusEnabled) return;
             if (!this.book.mynexus_configured) {
                 this.$alert("warning", this.$t("book.mynexusNotConfigured"));
                 return;

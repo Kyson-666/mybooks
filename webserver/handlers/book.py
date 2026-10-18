@@ -296,7 +296,7 @@ class BookDetail(BaseHandler):
         formated_book["ai_companion_available"] = bool(self.current_user and analysis and analysis.status == "completed")
         formated_book["ai_reading_guide"] = analysis.reading_guide if can_read_ai_data and analysis and analysis.status == "completed" else ""
         if self.is_admin():
-            formated_book["mynexus_configured"] = bool(CONF.get("MYNEXUS_URL") and CONF.get("MYNEXUS_TOKEN"))
+            formated_book["mynexus_configured"] = bool(CONF.get("ENABLE_MYNEXUS") and CONF.get("MYNEXUS_URL") and CONF.get("MYNEXUS_TOKEN"))
             formated_book["mynexus_analysis"] = {
                 "status": analysis.status,
                 "progress": analysis.progress,

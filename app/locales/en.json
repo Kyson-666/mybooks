@@ -777,6 +777,7 @@
     "ai_model_description": "Select the AI model, some features may require specific model support",
     "mynexus_title": "MyNexus Book Analysis and AI Companion",
     "mynexus_description": "Configure MyNexus to let administrators submit books for analysis and readers use AI Companion when analysis is complete.",
+    "mynexus_enabled": "Enable MyNexus book analysis",
     "mynexus_url": "MyNexus service URL",
     "mynexus_url_hint": "For example: http://localhost:3000",
     "mynexus_token": "MyNexus API Token",
