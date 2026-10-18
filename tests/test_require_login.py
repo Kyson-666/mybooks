@@ -174,12 +174,15 @@ class TestShouldBeLoggedIn(unittest.TestCase):
 
     def test_anonymous_wap_redirects_to_wap_login(self):
         CONF["REQUIRE_LOGIN"] = True
-        handler = _bare_handler("/wap/categories")
-        with self.assertRaises(web.Finish):
-            handler.should_be_logged_in()
-        self.assertEqual(len(handler.redirects), 1)
-        self.assertTrue(handler.redirects[0].startswith("/wap/login?next="))
-        self.assertEqual(handler.status, 302)
+        # 尾斜杠归一化会把 /wap/ 变成 /wap：入口的两种写法都必须进 WAP 登录页，
+        # 否则 WAP 首页会掉到 /login/（Nuxt SPA 登录页，老设备跑不动）。
+        for path in ("/wap", "/wap/", "/wap/categories"):
+            handler = _bare_handler(path)
+            with self.assertRaises(web.Finish, msg=path):
+                handler.should_be_logged_in()
+            self.assertEqual(len(handler.redirects), 1, path)
+            self.assertTrue(handler.redirects[0].startswith("/wap/login?next="), path)
+            self.assertEqual(handler.status, 302, path)
 
     def test_allowlisted_api_passes(self):
         CONF["REQUIRE_LOGIN"] = True

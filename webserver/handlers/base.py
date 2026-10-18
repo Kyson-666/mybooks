@@ -569,7 +569,9 @@ class BaseHandler(web.RequestHandler):
         if path.startswith("/get/"):
             self.set_status(401)
             raise web.Finish()
-        if path.startswith("/wap/"):
+        # path 上面已归一化尾斜杠：/wap/ 会变成 /wap，所以必须同时覆盖无斜杠入口，
+        # 否则 WAP 首页会掉到下面的 /login/（Nuxt SPA 登录页，老设备跑不动）。
+        if path == "/wap" or path.startswith("/wap/"):
             self.redirect("/wap/login?next=" + quote(self.request.uri, safe=""))
             raise web.Finish()
         # 用 /login/（带尾斜杠）而不是 /login：后者会先被 StaticFileHandler 301 到 /login/，
