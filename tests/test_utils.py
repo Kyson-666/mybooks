@@ -46,3 +46,12 @@ class TestNormalizeSiteUrl(unittest.TestCase):
     def test_invalid_values_fall_back_to_empty(self):
         for raw in ("books.example.com", "ftp://books.example.com", "//books.example.com", "https://", "https://books.example.com/ /x", "javascript:alert(1)", "https://例 子.com"):
             self.assertEqual("", normalize_site_url(raw), raw)
+
+    def test_query_or_fragment_rejected(self):
+        # 基地址会直接追加 /opds、/podcast 等路由；查询串/片段会让追加内容失效
+        for raw in (
+            "https://books.example.com/books?x=1",
+            "https://books.example.com/books#read",
+            "https://books.example.com?x=1",
+        ):
+            self.assertEqual("", normalize_site_url(raw), raw)

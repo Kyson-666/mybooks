@@ -230,16 +230,19 @@ def super_strip(s):
     return ''.join(c for c in s.strip() if c.isprintable())
 
 
-# 「网站默认访问链接」（SITE_URL）：只接受带主机名的 http/https 绝对地址
-_SITE_URL_RE = re.compile(r"^https?://[^\s/?#]+(?:/\S*)?$")
+# 「网站默认访问链接」（SITE_URL）：只接受带主机名的 http/https 绝对地址，
+# 路径部分不接受查询串/片段——调用方会直接在末尾追加 /opds、/podcast 等路由。
+_SITE_URL_RE = re.compile(r"^https?://[^\s/?#]+(?:/[^\s?#]*)?$")
 
 
 def normalize_site_url(value):
     """规范化管理员配置的「网站默认访问链接」。
 
     去首尾空白与结尾斜杠（多个一并剥掉），否则会拼出 ``https://host//s/token``
-    这类重复斜杠。既不是合法地址也不是空串时一律返回 ""（视为未配置），调用方
-    据此决定是报错还是当作清空。
+    这类重复斜杠。查询串和片段也会被拒绝：它们是基地址，追加路由后 ``?``/``#``
+    之后的内容会变成查询或片段，链接到不了目标页面。
+    既不是合法地址也不是空串时一律返回 ""（视为未配置），调用方据此决定是报错
+    还是当作清空。
     """
     text = str(value or "").strip()
     if not text or not _SITE_URL_RE.match(text):
