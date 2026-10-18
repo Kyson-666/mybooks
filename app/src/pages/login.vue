@@ -139,25 +139,39 @@ export default {
         navIsDark() {
             return !isLightBackground(this.navBgColor);
         },
-        // 登录后回跳：只接受站内绝对路径（挡 ?next=//evil.com 这类开放重定向），
-        // 并排除登录/退出页自身——否则 next=/logout 会在登录后立刻把自己退掉。
+        // 登录后回跳：只接受同源路径（挡 //evil.com、/\evil.com 这类开放重定向——
+        // 浏览器把反斜杠当斜杠，光判 "//" 前缀会被绕过），并排除登录/退出页自身，
+        // 否则 next=/logout 会在登录后立刻把自己退掉。
         nextTarget() {
             const next = this.$route.query.next;
             if (typeof next !== "string" || !next.startsWith("/") || next.startsWith("//")) {
                 return "/";
             }
-            const path = next.split("?")[0].replace(/\/+$/, "");
+            if (next.indexOf("\\") !== -1) {
+                return "/";
+            }
+            let url;
+            try {
+                url = new URL(next, window.location.origin);
+            } catch (e) {
+                return "/";
+            }
+            if (url.origin !== window.location.origin) {
+                return "/";
+            }
+            const path = url.pathname.replace(/\/+$/, "");
             if (/^\/(login|logout|signup|welcome)/.test(path)) {
                 return "/";
             }
-            return next;
+            return url.pathname + url.search + url.hash;
         },
     },
     methods: {
         // 这些是后端路由（阅读器 / 文件 / OPDS 等），前端没有对应页面，
         // 用 router.push 会渲染空白或 404，必须整页跳转交给后端。
+        // 注意 /opds 本身（不带子路径）也是后端路由，边界要匹配路径结束。
         needsFullLoad(target) {
-            return /^\/(read|get|api|opds|books|podcast)\//.test(target);
+            return /^\/(read|get|api|opds|books|podcast)(\/|$|\?)/.test(target);
         },
         do_login: function () {
             var data = new URLSearchParams();

@@ -70,3 +70,22 @@ class BookAccessService:
         if CONF.get("ALLOW_GUEST_DOWNLOAD", False):
             return True
         return BookAccessService._share_allows(handler, book_id, "allow_download")
+
+    @staticmethod
+    def guest_upload_allowed() -> bool:
+        """访客上传的总开关（REQUIRE_LOGIN 下恒 False）。
+
+        handlers 里"ALLOW_GUEST_UPLOAD 为真就跳过 can_upload() 检查"的分支必须读这里，
+        否则开了必须登录、但遗留 ALLOW_GUEST_UPLOAD=True 时，登录用户即使没有上传权限
+        也能上传。
+        """
+        if CONF.get("REQUIRE_LOGIN", False):
+            return False
+        return bool(CONF.get("ALLOW_GUEST_UPLOAD", False))
+
+    @staticmethod
+    def guest_push_allowed() -> bool:
+        """访客推送的总开关（REQUIRE_LOGIN 下恒 False），语义同 guest_upload_allowed。"""
+        if CONF.get("REQUIRE_LOGIN", False):
+            return False
+        return bool(CONF.get("ALLOW_GUEST_PUSH", False))

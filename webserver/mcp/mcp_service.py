@@ -764,8 +764,11 @@ class MCPService:
             if not user:
                 return [TextContent(type="text", text=json.dumps({"status": "error", "message": "User not found"}))]
 
-            # 检查是否允许上传
-            if CONF["ALLOW_GUEST_UPLOAD"] is False:
+            # 检查是否允许上传（必须读"有效"访客开关：REQUIRE_LOGIN 下恒为 False，
+            # 否则遗留的访客上传开关为真时，没有上传权限的账号也能上传）
+            from webserver.services.book_access_service import BookAccessService
+
+            if not BookAccessService.guest_upload_allowed():
                 if user.is_guest():
                     return [TextContent(type="text", text=json.dumps({
                         "status": "error",

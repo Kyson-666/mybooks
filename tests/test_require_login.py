@@ -28,7 +28,13 @@ def _bare_handler(path="/api/index", uri=None):
     handler.write = lambda data: handler.written.append(data)
     handler.set_status = lambda code: setattr(handler, "status", code)
     handler.set_header = lambda k, v: handler.headers.__setitem__(k, v)
-    handler.redirect = lambda url, **kw: handler.redirects.append(url)
+
+    def _redirect(url, **kw):
+        # tornado 的 redirect() 自带 302，这里复刻一下，测试才能断言状态码
+        handler.redirects.append(url)
+        handler.status = kw.get("status", 302)
+
+    handler.redirect = _redirect
     handler.get_argument = lambda name, default=None: default
     return handler
 
@@ -85,13 +91,29 @@ class TestLoginGateAllowList(unittest.TestCase):
     def test_credential_bearing_surfaces_allowed(self):
         # 这些入口各自带 token / Basic 认证，设备端无法走网页登录
         for path in (
-            "/podcast/all",
-            "/podcast/book/1",
+            "/podcast/abc123token",              # 用户自己的 feed（路径即 token）
+            "/podcast/abc123token/",
+            "/podcast/abc123token/book/12",
+            "/podcast/audio/12/abc123token/ep1.mp3",
             "/books/dav/",
             "/api/mcp/health",
             "/api/mcp/stream",
         ):
             self.assertTrue(login_gate_allowed(path), path)
+
+    def test_podcast_public_catalog_is_blocked(self):
+        # 公开目录会把有声书书名/作者/简介匿名暴露，必须按普通页面拦掉
+        for path in (
+            "/podcast",
+            "/podcast/",
+            "/podcast/all",
+            "/podcast/book/1",
+            "/podcast/book/1/opml",
+            "/podcast/category/novel",
+            "/podcast/tag/x",
+            "/podcast/author/alice",
+        ):
+            self.assertFalse(login_gate_allowed(path), path)
 
     def test_static_assets_allowed_but_not_book_files(self):
         self.assertTrue(login_gate_allowed("/_nuxt/abc.js"))
@@ -136,6 +158,7 @@ class TestShouldBeLoggedIn(unittest.TestCase):
         self.assertEqual(len(handler.written), 1)
         self.assertEqual(handler.written[0]["err"], "user.need_login")
         self.assertIn("msg", handler.written[0])
+        self.assertEqual(handler.status, 200)
 
     def test_anonymous_page_redirects_to_login_with_next(self):
         CONF["REQUIRE_LOGIN"] = True
@@ -144,7 +167,8 @@ class TestShouldBeLoggedIn(unittest.TestCase):
             handler.should_be_logged_in()
         self.assertEqual(handler.written, [])
         self.assertEqual(len(handler.redirects), 1)
-        self.assertTrue(handler.redirects[0].startswith("/login?next="))
+        self.assertTrue(handler.redirects[0].startswith("/login/?next="), handler.redirects[0])
+        self.assertEqual(handler.status, 302)
         self.assertIn("%2Fbook%2F12%3Ftab%3Dmeta", handler.redirects[0])
 
     def test_anonymous_wap_redirects_to_wap_login(self):
@@ -154,6 +178,7 @@ class TestShouldBeLoggedIn(unittest.TestCase):
             handler.should_be_logged_in()
         self.assertEqual(len(handler.redirects), 1)
         self.assertTrue(handler.redirects[0].startswith("/wap/login?next="))
+        self.assertEqual(handler.status, 302)
 
     def test_allowlisted_api_passes(self):
         CONF["REQUIRE_LOGIN"] = True
@@ -177,7 +202,7 @@ class TestShouldBeLoggedIn(unittest.TestCase):
         with self.assertRaises(web.Finish):
             handler.should_be_logged_in()
         self.assertEqual(handler.status, 401)
-        self.assertIn("Basic", handler.headers.get("WWW-Authenticate", ""))
+        self.assertTrue(handler.headers.get("WWW-Authenticate", "").startswith("Basic "))
 
     def test_valid_download_sign_passes(self):
         # formatter 给登录用户生成的 ?dl= 直链（10 秒、绑定用户+书+格式）：下载器没 cookie 也能用
@@ -196,6 +221,31 @@ class TestShouldBeLoggedIn(unittest.TestCase):
         with self.assertRaises(web.Finish):
             handler.should_be_logged_in()
         self.assertEqual(handler.written[0]["err"], "user.need_login")
+
+    def test_podcast_token_is_not_a_web_session(self):
+        # ?token=<podcast_token> 会出现在 RSS URL/日志/Referer 里，不能当整站通行证
+        CONF["REQUIRE_LOGIN"] = True
+        handler = _bare_handler("/api/index")
+        handler.current_user = SimpleNamespace(id=2)
+        handler._login_via_token = True
+        with self.assertRaises(web.Finish):
+            handler.should_be_logged_in()
+        self.assertEqual(handler.written[0]["err"], "user.need_login")
+
+    def test_cookie_session_still_passes(self):
+        CONF["REQUIRE_LOGIN"] = True
+        handler = _bare_handler("/api/index")
+        handler.current_user = SimpleNamespace(id=2)
+        handler._login_via_token = False
+        self.assertFalse(handler.should_be_logged_in())
+
+    def test_podcast_token_endpoint_still_works(self):
+        # token 自身的播客路径在白名单里，不受"token≠会话"影响
+        CONF["REQUIRE_LOGIN"] = True
+        handler = _bare_handler("/podcast/abc123token/book/12")
+        handler.current_user = SimpleNamespace(id=2)
+        handler._login_via_token = True
+        self.assertFalse(handler.should_be_logged_in())
 
 
 class TestInviteModeInteraction(unittest.TestCase):

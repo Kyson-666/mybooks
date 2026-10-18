@@ -10,6 +10,7 @@ import hmac
 import logging
 import os
 import random
+import re
 import time
 import traceback
 from collections import defaultdict
@@ -69,7 +70,6 @@ LOGIN_GATE_ALLOW_PREFIX = (
     "/api/active/",        # 邮箱激活链接（实际路由 /api/active/<username>/<code>）
     "/api/mcp/",           # MCP 工具调用自带 AI_MCP_TOKEN
     "/api/favicon/",       # 站点图标（登录页标签页要显示）
-    "/podcast/",           # 播客 RSS，路径内含用户 podcast_token
     "/books",              # WebDAV：裸 RequestHandler，不走本门禁；自带 Basic 认证
     "/_nuxt/",             # SPA 资源，登录页自身要能渲染
     "/logo/",
@@ -85,6 +85,26 @@ LOGIN_GATE_ALLOW_SUFFIX = (
     ".woff", ".woff2", ".ttf", ".eot",
 )
 
+# 播客路由里只有「路径带用户 podcast_token」的那几条才能在匿名下工作：
+#   /podcast/<token>、/podcast/<token>/book/<id>、/podcast/audio/<id>/<token>/<file>
+# 其余（/podcast/all、/podcast/book/<id>、/podcast/category|tag|author/...）是公开目录，
+# 会把有声书的书名/作者/简介匿名暴露，必须按普通页面拦掉。
+_PODCAST_PUBLIC_SEGMENTS = frozenset({"all", "book", "category", "tag", "author"})
+_PODCAST_TOKEN_RE = re.compile(r"^[A-Za-z0-9]+$")
+
+
+def _podcast_token_path(path):
+    parts = [p for p in path.split("/") if p]
+    if len(parts) < 2 or parts[0] != "podcast":
+        return False
+    if parts[1] == "audio":
+        # /podcast/audio/<book_id>/<token>/<filename>
+        return len(parts) >= 5 and parts[3].isalnum()
+    seg = parts[1]
+    if seg in _PODCAST_PUBLIC_SEGMENTS:
+        return False
+    return bool(_PODCAST_TOKEN_RE.match(seg))
+
 
 def login_gate_allowed(path):
     """REQUIRE_LOGIN 开启时，这个路径是否允许匿名访问。"""
@@ -97,6 +117,8 @@ def login_gate_allowed(path):
         return True
     if path.startswith(LOGIN_GATE_ALLOW_PREFIX):
         return True
+    if path.startswith("/podcast"):
+        return _podcast_token_path(path)
     # /api/* 与 /get/*（封面、书籍文件、EPUB 解包）只认白名单，绝不按扩展名放行。
     if path.startswith(("/api/", "/get/")):
         return False
@@ -406,10 +428,16 @@ class BaseHandler(web.RequestHandler):
         auth_header = self.request.headers.get("Authorization", "")
         if not auth_header.startswith("Basic "):
             return False
-        auth_decoded = base64.decodebytes(auth_header[6:].encode("ascii")).decode(
-            "UTF-8"
-        )
-        username, password = auth_decoded.split(":", 2)
+        # 凭据是客户端可控的：base64 非法、非 UTF-8、缺冒号都会抛异常。
+        # 这里必须当成"认证失败"，否则畸形头会变成 500，OPDS 客户端也拿不到 401 挑战。
+        try:
+            auth_decoded = base64.decodebytes(auth_header[6:].encode("ascii")).decode(
+                "UTF-8"
+            )
+            username, password = auth_decoded.split(":", 1)
+        except (ValueError, UnicodeDecodeError):
+            logging.info("Malformed Basic authorization header ignored")
+            return False
         user = (
             self.sqlite_session.query(Reader)
             .filter(Reader.username == username)
@@ -446,6 +474,11 @@ class BaseHandler(web.RequestHandler):
         recent = BaseHandler._token_login_at.get(user.id, 0) > now - self.TOKEN_LOGIN_SAVE_INTERVAL
         if not recent:
             BaseHandler._token_login_at[user.id] = now
+        # 记下"这次身份来自长期 token"：podcast_token 会出现在 RSS URL/日志/Referer 里，
+        # 不能让它在 REQUIRE_LOGIN 模式下当成网页登录态去读整站（见 should_be_logged_in）。
+        # 已经有 cookie 会话时维持"真实登录"判定，避免正常用户被误伤。
+        if not self.current_user:
+            self._login_via_token = True
         self.login_user(user, persist=not recent)
         return True
 
@@ -494,7 +527,11 @@ class BaseHandler(web.RequestHandler):
         - 其它页面（WAP 等）跳登录页，带上 next 便于回跳。
         放行时返回 False；拦下时不返回（写响应后 raise web.Finish）。
         """
-        if not self.require_login_enabled() or self.current_user:
+        if not self.require_login_enabled():
+            return False
+        # 只有 cookie 会话算"已登录"：?token=/X-MYBOOKS-TOKEN 走的是长期 podcast_token，
+        # 它出现在 RSS URL、日志、Referer 里，不能当整站通行证用（播客路径本身在白名单里）。
+        if self.current_user and not getattr(self, "_login_via_token", False):
             return False
         path = (self.request.path or "/").rstrip("/") or "/"
         if login_gate_allowed(path):
@@ -521,7 +558,9 @@ class BaseHandler(web.RequestHandler):
         if path.startswith("/wap/"):
             self.redirect("/wap/login?next=" + quote(self.request.uri, safe=""))
             raise web.Finish()
-        self.redirect("/login?next=" + quote(self.request.uri, safe=""))
+        # 用 /login/（带尾斜杠）而不是 /login：后者会先被 StaticFileHandler 301 到 /login/，
+        # 那个 301 只带路径、会把 ?next= 丢掉，用户登录后回不到原页面。
+        self.redirect("/login/?next=" + quote(self.request.uri, safe=""))
         raise web.Finish()
 
     def should_be_installed(self):
@@ -595,6 +634,7 @@ class BaseHandler(web.RequestHandler):
         self.cookies_cache = {}
         self._cached_user_id = None
         self._cached_username = None
+        self._login_via_token = False  # 身份是否来自 ?token=/X-MYBOOKS-TOKEN（见 should_be_logged_in）
         self._request_start_time = None  # 用于性能分析
 
     def on_finish(self):

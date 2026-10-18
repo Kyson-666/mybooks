@@ -45,9 +45,7 @@ export default {
                 if (this.$resetSession) {
                     this.$resetSession();
                 }
-                this.$store.commit("login", {
-                    user: { is_login: false, is_admin: false, nickname: "", kindle_email: "", avatar: "" },
-                });
+                this.$store.commit("clear_user");
             });
         }
     },

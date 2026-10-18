@@ -11,6 +11,9 @@ export default ({ app }, inject) => {
     let pending = null;
     let cached = null;
     let cachedAt = 0;
+    // 每次 reset 递增：reset 之前发出的请求即使在 reset 之后才回来，也必须丢弃，
+    // 否则它会把"旧用户已登录"重新写回 store 和缓存（登录/退出/换账号时都会踩到）。
+    let epoch = 0;
 
     const isFresh = () => cached !== null && Date.now() - cachedAt < TTL_MS;
 
@@ -23,12 +26,16 @@ export default ({ app }, inject) => {
             return Promise.resolve(cached);
         }
         if (!pending) {
+            const requestEpoch = epoch;
             let timer = null;
             const timeout = new Promise((resolve) => {
                 timer = setTimeout(() => resolve({ err: "timeout" }), TIMEOUT_MS);
             });
             pending = Promise.race([app.$backend("/user/info"), timeout])
                 .then((rsp) => {
+                    if (requestEpoch !== epoch) {
+                        return {};
+                    }
                     if (rsp && rsp.sys) {
                         app.store.commit("login", rsp);
                         cached = rsp;
@@ -41,7 +48,9 @@ export default ({ app }, inject) => {
                     if (timer) {
                         clearTimeout(timer);
                     }
-                    pending = null;
+                    if (requestEpoch === epoch) {
+                        pending = null;
+                    }
                     return rsp;
                 });
         }
@@ -49,6 +58,7 @@ export default ({ app }, inject) => {
     });
 
     inject("resetSession", function () {
+        epoch += 1;
         pending = null;
         cached = null;
         cachedAt = 0;

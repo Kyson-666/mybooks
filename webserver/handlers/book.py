@@ -3066,7 +3066,7 @@ class BookUpload(BaseHandler):
 
     @js
     async def post(self):
-        if CONF["ALLOW_GUEST_UPLOAD"] is False:
+        if not BookAccessService.guest_upload_allowed():
             if self.is_guest():
                 return {"err": "permission", "msg": _("无权操作，请先登录")}
             if not self.current_user.can_upload():
@@ -3306,7 +3306,7 @@ class BookUploadChunk(BaseHandler):
     @js
     def post(self):
         """Handle chunked upload POST requests"""
-        if CONF["ALLOW_GUEST_UPLOAD"] is False:
+        if not BookAccessService.guest_upload_allowed():
             if self.is_guest():
                 return {"err": "permission", "msg": _("无权操作，请先登录")}
             if not self.current_user.can_upload():
@@ -3526,7 +3526,7 @@ class BookUploadBatch(BaseHandler):
 
     @js
     def post(self):
-        if CONF["ALLOW_GUEST_UPLOAD"] is False:
+        if not BookAccessService.guest_upload_allowed():
             if self.is_guest():
                 return {"err": "permission", "msg": _("无权操作，请先登录")}
             if not self.current_user.can_upload():
@@ -4047,7 +4047,7 @@ class BookSendToDevice(BaseHandler):
             return {"err": "book.not_found", "msg": _("书籍已不存在")}
 
         # 检查用户权限
-        if not CONF["ALLOW_GUEST_PUSH"]:
+        if not BookAccessService.guest_push_allowed():
             if not self.current_user:
                 return {"err": "user.need_login", "msg": _("请先登录")}
             else:
@@ -4302,7 +4302,7 @@ class BookSendToMail(BaseHandler):
         if not book:
             return {"err": "book.not_found", "msg": _("书籍已不存在")}
 
-        if not CONF["ALLOW_GUEST_PUSH"]:
+        if not BookAccessService.guest_push_allowed():
             if not self.current_user:
                 return {"err": "user.need_login", "msg": _("请先登录")}
             else:

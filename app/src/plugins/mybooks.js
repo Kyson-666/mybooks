@@ -103,7 +103,9 @@ export default ({ app }, inject) => {
                     }
                 } else if (rsp.err === 'user.need_login') {
                     // 「必须登录才能访问」开启后，任何页面/接口都可能返回它。
-                    // 会话可能已过期：作废会话快照，让路由守卫下次重新判定。
+                    // 会话可能已过期：store 里的 is_login 和守卫的会话快照都要作废，
+                    // 只清缓存不清 store 的话，守卫会一直走"已登录"快路径。
+                    app.store.commit("clear_user");
                     if (app.$resetSession) {
                         app.$resetSession();
                     }

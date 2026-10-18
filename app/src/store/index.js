@@ -65,6 +65,16 @@ export const mutations = {
         state.alert.show = true;
     }, close_alert(state) {
         state.alert.show = false;
+    }, clear_user(state) {
+        // 退出登录 / 会话过期（user.need_login）时统一走这里：
+        // 全站守卫靠 user.is_login 走快路径，只清插件缓存不清 store 会让过期会话继续放行。
+        state.user = {
+            is_admin: false,
+            is_login: false,
+            nickname: "",
+            kindle_email: "",
+            avatar: "",
+        };
     }, settings_title(state, v) {
         state.site_title_template = ' %s | ' + v;
     }
