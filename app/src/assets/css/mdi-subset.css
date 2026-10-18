@@ -406,6 +406,10 @@
   content: "\F0493";
 }
 
+.mdi-cog-outline::before {
+  content: "\F08BB";
+}
+
 .mdi-cog-refresh::before {
   content: "\F145E";
 }

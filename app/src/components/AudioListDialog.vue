@@ -12,7 +12,7 @@
             </v-toolbar>
             <div style="height: 16px;"></div>
             <v-card-text v-if="audios.status === audioStatus.PROCESSING">
-                <p style="color: orange; font-weight: bold;">{{ $t('book.conversionInProgress') }}</p>
+                <p style="color: orange darken-4; font-weight: bold;">{{ $t('book.conversionInProgress') }}</p>
                 <v-progress-linear
                     v-if="audios.progress && audios.progress.total_chapters > 0"
                     :value="(audios.progress.converted_chapters / audios.progress.total_chapters) * 100"

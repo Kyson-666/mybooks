@@ -520,7 +520,7 @@
             v-model="exchange_type_dialog"
             type="confirm"
             :title="$t('admin.books.reminderTitle')"
-            color="orange"
+            color="orange darken-4"
             confirm-dark
             width="500"
             transition="dialog-bottom-transition"
@@ -536,7 +536,7 @@
             v-model="clear_rare_tags_dialog"
             type="confirm"
             :title="$t('admin.books.reminderTitle')"
-            color="orange"
+            color="orange darken-4"
             confirm-dark
             width="500"
             transition="dialog-bottom-transition"
@@ -612,7 +612,7 @@
             v-model="clear_invalid_items_dialog"
             type="confirm"
             :title="$t('admin.books.reminderTitle')"
-            color="orange"
+            color="orange darken-4"
             confirm-dark
             width="500"
             transition="dialog-bottom-transition"

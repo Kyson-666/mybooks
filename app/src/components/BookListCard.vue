@@ -4,7 +4,7 @@
         :style="{ borderLeftColor: borderColor }"
         :to="clickable ? `/booklist/${booklist.id}` : undefined"
     >
-        <v-chip v-if="showRecommendBadge && booklist.is_sticky" x-small color="orange" text-color="white" class="booklist-recommend-badge">
+        <v-chip v-if="showRecommendBadge && booklist.is_sticky" x-small color="orange darken-4" text-color="white" class="booklist-recommend-badge">
             {{ $t('booklist.recommendedBadge') }}
         </v-chip>
 
@@ -39,7 +39,7 @@
 
                 <v-spacer></v-spacer>
 
-                <v-btn v-if="isAdmin" x-small text :color="booklist.is_sticky ? 'orange' : undefined" @click.stop.prevent="$emit('toggle-sticky', booklist)">
+                <v-btn v-if="isAdmin" x-small text :color="booklist.is_sticky ? 'orange darken-4' : undefined" @click.stop.prevent="$emit('toggle-sticky', booklist)">
                     <v-icon x-small left>mdi-pin</v-icon>{{ booklist.is_sticky ? $t('booklist.unpin') : $t('booklist.pin') }}
                 </v-btn>
 

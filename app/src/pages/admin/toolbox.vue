@@ -257,7 +257,7 @@
       :persistent="false"
       type="confirm"
       :title="$t('toolbox.restartRequiredTitle')"
-      color="orange"
+      color="orange darken-4"
       confirm-dark
       max-width="420"
       :dismiss-label="$t('toolbox.restartLater')"

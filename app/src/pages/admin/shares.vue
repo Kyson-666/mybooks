@@ -133,7 +133,7 @@ export default {
     stateColor(state) {
       if (state === 'active') return 'success';
       if (state === 'cancelled') return 'grey';
-      return 'orange';
+      return 'orange darken-4';
     },
     fetchItems() {
       this.loading = true;

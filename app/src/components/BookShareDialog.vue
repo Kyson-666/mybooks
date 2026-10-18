@@ -33,7 +33,7 @@
                             ></v-text-field>
                             <div class="mb-4 text-caption grey--text">
                                 {{ viewsText }}
-                                <v-chip v-if="share.state !== 'active'" x-small color="orange" text-color="white" class="ml-2">{{ $t('share.state.' + share.state) }}</v-chip>
+                                <v-chip v-if="share.state !== 'active'" x-small color="orange darken-4" text-color="white" class="ml-2">{{ $t('share.state.' + share.state) }}</v-chip>
                             </div>
                         </template>
 

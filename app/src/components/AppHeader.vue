@@ -283,7 +283,7 @@
                             width="3"
                             class="mr-2"
                         ></v-progress-circular>
-                        <v-btn v-if="isAiFeatureEnabled" :color="isFocused ? (ai_enabled ? 'orange' : 'grey') : 'transparent'" class="black--text" rounded @click="toggleAi">AI</v-btn>
+                        <v-btn v-if="isAiFeatureEnabled" :color="isFocused ? (ai_enabled ? 'orange darken-4' : 'grey') : 'transparent'" class="black--text" rounded @click="toggleAi">AI</v-btn>
                     </template>
                 </v-text-field>
                 <v-spacer></v-spacer>
@@ -1311,7 +1311,7 @@ export default {
 }
 
 .v-application .v-navigation-drawer.app-navigation-drawer {
-    border-radius: 10px !important;
+    border-radius: 0 10px 10px 0 !important;
 }
 
 /* 抽屉背景由 <html data-appearance-dark> 驱动（app.html 首帧同步写入，applyAppearance 后续维护），

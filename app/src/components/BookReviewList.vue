@@ -42,7 +42,7 @@
                                         <v-chip
                                             v-if="r.status === 'pending'"
                                             x-small
-                                            color="orange"
+                                            color="orange darken-4"
                                             text-color="white"
                                             class="ml-2"
                                         >{{ $t('book.reviewPending') }}</v-chip>

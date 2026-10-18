@@ -1018,7 +1018,7 @@
       v-model="restartConfirmDialog"
       type="confirm"
       :title="$t('settings.restart_confirm_title')"
-      color="orange"
+      color="orange darken-4"
       confirm-dark
       max-width="400"
       :confirm-text="$t('settings.restart_confirm_button')"
@@ -1031,7 +1031,7 @@
       v-model="unsavedLeaveDialog"
       type="confirm"
       :title="$t('settings.unsaved_leave_title')"
-      color="orange"
+      color="orange darken-4"
       confirm-dark
       max-width="420"
       :confirm-text="$t('settings.unsaved_leave_confirm_button')"
@@ -1063,17 +1063,18 @@
         }}
       </span>
       <span class="text-caption grey--text ml-4 hidden-sm-and-down">{{ $t("settings.save_hints") }}</span>
-      <v-spacer></v-spacer>
-      <v-btn
-        color="primary"
-        :disabled="dirtyCount === 0"
-        @click="saveSettings"
-      >
-        <v-icon left>mdi-content-save</v-icon>{{ $t("settings.save") }}
-      </v-btn>
-      <v-btn color="orange" dark @click="restartConfirmDialog = true" class="ml-3">
-        <v-icon left>mdi-restart</v-icon>{{ $t("settings.restart_server") }}
-      </v-btn>
+      <div class="settings-savebar-actions">
+        <v-btn
+          color="primary"
+          :disabled="dirtyCount === 0"
+          @click="saveSettings"
+        >
+          <v-icon left>mdi-content-save</v-icon>{{ $t("settings.save") }}
+        </v-btn>
+        <v-btn color="orange darken-4" dark @click="restartConfirmDialog = true" class="ml-8">
+          <v-icon left>mdi-restart</v-icon>{{ $t("settings.restart_server") }}
+        </v-btn>
+      </div>
     </div>
   </div>
 </template>
@@ -2141,67 +2142,6 @@ export default {
         ],
       },
       {
-        id: "push",
-        icon: "mdi-email-send",
-        title: "settings.group_push",
-        sections: [
-          {
-            id: "push-smtp",
-            icon: "mdi-email",
-            title: "settings.email_service",
-            desc: "settings.email_service_description",
-            fields: [
-              { icon: "mdi-email", key: "smtp_server", label: "settings.smtp_server" },
-              {
-                icon: "mdi-account",
-                key: "smtp_username",
-                label: "settings.smtp_username",
-              },
-              {
-                icon: "mdi-lock",
-                key: "smtp_password",
-                label: "settings.smtp_password",
-              },
-              {
-                icon: "mdi-information",
-                key: "smtp_encryption",
-                label: "settings.smtp_encryption",
-                type: "select",
-                items: [
-                  { text: "SSL", value: "SSL" },
-                  { text: "TLS", value: "TLS" },
-                ],
-              },
-            ],
-            actions: [
-              { icon: "mdi-email", label: "settings.test_email", action: "testEmail" },
-            ],
-          },
-          {
-            id: "push-tpl",
-            icon: "mdi-email-send",
-            title: "settings.sec_push_tpl",
-            fields: [
-              { icon: "mdi-information", key: "push_title", label: "settings.push_title" },
-              { icon: "mdi-information", key: "push_content", label: "settings.push_content" },
-              {
-                icon: "mdi-email-send",
-                key: "SEND_MAIL_FOR_NEW_BOOKS",
-                label: "settings.send_mail_for_new_books",
-                type: "checkbox",
-              },
-            ],
-          },
-          {
-            id: "push-devices",
-            icon: "mdi-tablet-cellphone",
-            title: "settings.device_mgt",
-            desc: "settings.device_mgt_description",
-            special: "devices",
-          },
-        ],
-      },
-      {
         id: "services",
         icon: "mdi-source-branch",
         title: "settings.group_services",
@@ -2344,8 +2284,69 @@ export default {
         ],
       },
       {
+        id: "push",
+        icon: "mdi-email-send",
+        title: "settings.group_push",
+        sections: [
+          {
+            id: "push-smtp",
+            icon: "mdi-email",
+            title: "settings.email_service",
+            desc: "settings.email_service_description",
+            fields: [
+              { icon: "mdi-email", key: "smtp_server", label: "settings.smtp_server" },
+              {
+                icon: "mdi-account",
+                key: "smtp_username",
+                label: "settings.smtp_username",
+              },
+              {
+                icon: "mdi-lock",
+                key: "smtp_password",
+                label: "settings.smtp_password",
+              },
+              {
+                icon: "mdi-information",
+                key: "smtp_encryption",
+                label: "settings.smtp_encryption",
+                type: "select",
+                items: [
+                  { text: "SSL", value: "SSL" },
+                  { text: "TLS", value: "TLS" },
+                ],
+              },
+            ],
+            actions: [
+              { icon: "mdi-email", label: "settings.test_email", action: "testEmail" },
+            ],
+          },
+          {
+            id: "push-tpl",
+            icon: "mdi-email-send",
+            title: "settings.sec_push_tpl",
+            fields: [
+              { icon: "mdi-information", key: "push_title", label: "settings.push_title" },
+              { icon: "mdi-information", key: "push_content", label: "settings.push_content" },
+              {
+                icon: "mdi-email-send",
+                key: "SEND_MAIL_FOR_NEW_BOOKS",
+                label: "settings.send_mail_for_new_books",
+                type: "checkbox",
+              },
+            ],
+          },
+          {
+            id: "push-devices",
+            icon: "mdi-tablet-cellphone",
+            title: "settings.device_mgt",
+            desc: "settings.device_mgt_description",
+            special: "devices",
+          },
+        ],
+      },
+      {
         id: "ops",
-        icon: "mdi-restart",
+        icon: "mdi-cog-outline",
         title: "settings.group_ops",
         sections: [
           {
@@ -3609,6 +3610,13 @@ export default {
   padding: 8px 24px;
   background: #fff;
   border-top: 1px solid #e0e0e0;
+}
+.settings-savebar-actions {
+  flex: 0 0 100%;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 .theme--dark .settings-savebar {
   background: #1e1e1e;

@@ -126,7 +126,7 @@ export default {
     getTypeColor(type) {
       if (type === 0) return 'blue';
       if (type === 1) return 'purple';
-      if (type === 2) return 'orange';
+      if (type === 2) return 'orange darken-4';
       return 'grey';
     },
     getTypeFontColor(type) {

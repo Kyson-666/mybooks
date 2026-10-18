@@ -30,7 +30,7 @@
             <v-btn
               v-if="!isPaid && audioFiles.length > 0"
               small
-              color="orange"
+              color="orange darken-4"
               @click="showPurchaseDialogWithVipInfo"
               class="purchase-btn"
               :loading="purchaseLoading"
@@ -280,7 +280,7 @@
       :persistent="false"
       type="confirm"
       :title="$t('audio.confirmPurchase')"
-      color="orange"
+      color="orange darken-4"
       confirm-dark
       max-width="400px"
       :confirm-text="$t('audio.confirmPurchase')"
@@ -621,7 +621,7 @@ export default {
       if (!this.isDragging && this.$refs.audioPlayer) {
         const audio = this.currentAudio;
         const playerTime = this.$refs.audioPlayer.currentTime;
-        
+
         if (audio && audio.end_time !== undefined) {
           if (playerTime >= audio.end_time) {
             this.onTrackEnded();
@@ -631,7 +631,7 @@ export default {
         } else {
           this.currentTime = playerTime;
         }
-        
+
         if (this.duration > 0) {
           this.progress = (this.currentTime / this.duration) * 100;
         }
