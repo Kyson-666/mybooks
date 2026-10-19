@@ -517,6 +517,17 @@ class TestBook(TestWithUserLogin):
                 rsp = self.fetch("/read/%s" % bid, follow_redirects=False)
                 self.assertEqual(rsp.code, 302 if bid == BID_PDF or bid == BID_TXT else 200)
 
+    def test_read_txt_redirects_without_conversion(self):
+        """TXT-only 书的 /read/<id> 必须直跳专用阅读器，不能先转 EPUB。"""
+        with mock.patch.dict(webserver.handlers.book.CONF, {"EPUB_VIEWER": "epubjs.html"}):
+            with mock.patch(
+                "webserver.services.converter.ConverterService.convert_and_save", return_value="Yo"
+            ) as convert:
+                rsp = self.fetch("/read/%s" % BID_TXT, follow_redirects=False)
+                self.assertEqual(rsp.code, 302)
+                self.assertEqual(rsp.headers["Location"], "/read/txt/%s" % BID_TXT)
+                convert.assert_not_called()
+
     def test_read_myreader_engine_epub(self):
         with mock_permission() as user:
             user.extra["reader_engine"] = "myreader"

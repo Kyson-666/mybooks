@@ -3788,6 +3788,11 @@ class BookRead(BaseHandler):
             if not fpath:
                 continue
 
+            if fmt == "txt":
+                # TXT 有专用阅读器，不能走下面的 EPUB 转换；否则这个循环会先
+                # 返回 EPUB 阅读器，令后面的 fmt_txt 兜底永远不可达。
+                return self.redirect(f"/read/txt/{book_id}")
+
             if fmt != 'epub':
                 service = ConverterService()
                 if not service.is_book_converting(book):
