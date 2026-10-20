@@ -586,6 +586,7 @@
     "search_results": "{n} settings found",
     "search_no_results": "No matching settings, try other keywords",
     "unsaved_changes": "{n} unsaved",
+    "unsaved_jump_tip": "Jump to an unsaved setting ({n} total; click again for the next one)",
     "unsaved_leave_title": "Unsaved Changes",
     "unsaved_leave_confirm": "You have {n} unsaved changes. Leaving this page will discard them.",
     "unsaved_leave_confirm_button": "Leave Without Saving",

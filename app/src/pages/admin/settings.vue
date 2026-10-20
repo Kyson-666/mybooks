@@ -48,7 +48,19 @@
         <div class="settings-bar-right d-flex align-center">
           <!-- 稳定的 live region：chips 是 v-if/v-else 互换的节点，直接挂 aria-live 不保证播报 -->
           <span v-if="dirtyCount > 0" class="settings-status-chip-wrap" role="status" aria-live="polite">
-            <v-chip color="orange" text-color="white" small class="settings-status-chip">
+            <v-chip
+              color="orange"
+              text-color="white"
+              small
+              class="settings-status-chip settings-status-chip-clickable"
+              role="button"
+              tabindex="0"
+              :title="$t('settings.unsaved_jump_tip', { n: dirtyCount })"
+              :aria-label="$t('settings.unsaved_jump_tip', { n: dirtyCount })"
+              @click="jumpToNextDirty"
+              @keydown.enter.prevent="jumpToNextDirty"
+              @keydown.space.prevent="jumpToNextDirty"
+            >
               {{ $t('settings.unsaved_changes', { n: dirtyCount }) }}
             </v-chip>
           </span>
@@ -1058,19 +1070,30 @@
     ></reading-range-dialog>
 
     <div class="settings-savebar">
-      <v-icon small :color="dirtyCount > 0 ? 'orange' : 'green'" class="mr-2">
-        {{ dirtyCount > 0 ? "mdi-pencil-box-outline" : "mdi-check-circle" }}
-      </v-icon>
-      <span
-        class="text-caption"
-        :class="dirtyCount > 0 ? 'orange--text font-weight-bold' : 'grey--text'"
+      <button
+        type="button"
+        class="settings-savebar-status"
+        :class="{ 'is-clickable': dirtyCount > 0 }"
+        :tabindex="dirtyCount > 0 ? 0 : -1"
+        :aria-disabled="dirtyCount > 0 ? null : 'true'"
+        :title="dirtyCount > 0 ? $t('settings.unsaved_jump_tip', { n: dirtyCount }) : null"
+        :aria-label="dirtyCount > 0 ? $t('settings.unsaved_jump_tip', { n: dirtyCount }) : null"
+        @click="jumpToNextDirty"
       >
-        {{
-          dirtyCount > 0
-            ? $t("settings.savebar_unsaved", { n: dirtyCount })
-            : $t("settings.all_saved")
-        }}
-      </span>
+        <v-icon small :color="dirtyCount > 0 ? 'orange' : 'green'" class="mr-2">
+          {{ dirtyCount > 0 ? "mdi-pencil-box-outline" : "mdi-check-circle" }}
+        </v-icon>
+        <span
+          class="text-caption"
+          :class="dirtyCount > 0 ? 'orange--text font-weight-bold' : 'grey--text'"
+        >
+          {{
+            dirtyCount > 0
+              ? $t("settings.savebar_unsaved", { n: dirtyCount })
+              : $t("settings.all_saved")
+          }}
+        </span>
+      </button>
       <span class="text-caption grey--text ml-4 hidden-sm-and-down">{{ $t("settings.save_hints") }}</span>
       <div class="settings-savebar-actions">
         <v-btn
@@ -1141,6 +1164,17 @@ const SPECIAL_BLOCKS = [
 
 // 值型字段（可安全用空串补默认值的那些；数组/特殊块类型不在此列，缺 key 时保持原样）
 const SETTING_TEXT_TYPES = ["text", "textarea", "select", "number"];
+
+// READER_MYDICTS 元素上的 showToken 只是显隐 token 的视图状态，
+// 点眼睛图标不应算作未保存修改，比较前先剥掉
+function settingsValueForCompare(key, value) {
+  if (key !== "READER_MYDICTS" || !Array.isArray(value)) return value;
+  return value.map((d) => {
+    const e = { ...d };
+    delete e.showToken;
+    return e;
+  });
+}
 
 // 激活分组下色条 + 组标题竖条：默认跟随站点主色 accent（外观菜单里的「主色」），
 // 换主色即时跟随
@@ -2550,6 +2584,8 @@ export default {
     searchOpen: false,
     // 搜索跳转的视图层展开状态（key = 嵌套开关 grp.key），不触碰真实设置值
     forceOpen: {},
+    // 上一次「跳转到未保存项」的目标 key，供多次点击循环推进
+    dirtyJumpKey: "",
     bookNavList: [],
     thanksToNames: [],
     thanksToShow: false,
@@ -2595,22 +2631,61 @@ export default {
       if (!this.settingsLoaded) return 0;
       const before = this.snapshot;
       const now = this.settings;
-      // READER_MYDICTS 元素上的 showToken 只是显隐 token 的视图状态，
-      // 点眼睛图标不应算作未保存修改，比较前先剥掉
-      const stripView = (k, v) =>
-        k === "READER_MYDICTS" && Array.isArray(v)
-          ? v.map((d) => {
-              const e = { ...d };
-              delete e.showToken;
-              return e;
-            })
-          : v;
       let n = 0;
       Object.keys(now).forEach((k) => {
-        if (JSON.stringify(stripView(k, before[k])) !== JSON.stringify(stripView(k, now[k]))) n++;
+        if (
+          JSON.stringify(settingsValueForCompare(k, before[k])) !==
+          JSON.stringify(settingsValueForCompare(k, now[k]))
+        ) {
+          n++;
+        }
       });
       if (JSON.stringify(this.bookNavSnapshot) !== JSON.stringify(this.bookNavList)) n++;
       return n;
+    },
+    // 未保存项按页面出现顺序排列，供顶栏 chip / 保存栏状态逐项跳转。
+    // flatIndex 里特殊块统一追加在末尾，这里按 gid/sid 重新归位到它所在的小节。
+    dirtyItems() {
+      if (!this.settingsLoaded) return [];
+      const before = this.snapshot;
+      const now = this.settings;
+      const dirtyKeys = {};
+      Object.keys(now).forEach((k) => {
+        if (
+          JSON.stringify(settingsValueForCompare(k, before[k])) !==
+          JSON.stringify(settingsValueForCompare(k, now[k]))
+        ) {
+          dirtyKeys[k] = true;
+        }
+      });
+      const items = [];
+      const seen = {};
+      this.flatIndex.forEach((r) => {
+        if (dirtyKeys[r.key] && !seen[r.key]) {
+          items.push(r);
+          seen[r.key] = true;
+        }
+      });
+      // BookNavEditor 改的是 bookNavList，settings.BOOK_NAV 要到保存时才序列化回去，
+      // 所以分类编辑不体现在上面的 key 对比里，单独补到「书籍分类」卡片
+      if (
+        JSON.stringify(this.bookNavSnapshot) !== JSON.stringify(this.bookNavList) &&
+        !seen["BOOK_NAV"]
+      ) {
+        const nav = this.flatIndex.find((r) => r.key === "BOOK_NAV");
+        if (nav) items.push(nav);
+      }
+      const order = {};
+      this.groups.forEach((g, gi) => {
+        g.sections.forEach((s, si) => {
+          order[g.id + "/" + s.id] = gi * 1000 + si;
+        });
+      });
+      items.sort(
+        (a, b) =>
+          (order[a.gid + "/" + a.sid] || 0) - (order[b.gid + "/" + b.sid] || 0)
+      );
+      return items;
     },
     flatIndex() {
       const idx = [];
@@ -3022,6 +3097,16 @@ export default {
         }, 100);
       });
     },
+    // 顶栏 chip 与保存栏状态共用同一个游标：每次点击跳到下一个未保存项，
+    // 走到末项后回到第一项；只有一项时就地重跳（再闪一次）
+    jumpToNextDirty() {
+      const items = this.dirtyItems;
+      if (!items.length) return;
+      const idx = items.findIndex((r) => r.key === this.dirtyJumpKey);
+      const next = items[(idx + 1) % items.length];
+      this.dirtyJumpKey = next.key;
+      this.jumpTo(next);
+    },
     scrollToRouteHash() {
       const hash = this.$route && this.$route.hash;
       const matched = hash && hash.match(/^#sec-([^-]+)-(.+)$/);
@@ -3181,6 +3266,8 @@ export default {
         }
         this.snapshot = savedSnapshot;
         this.bookNavSnapshot = savedNav;
+        // 全部保存后游标归零，下次产生未保存项时从第一项开始跳
+        this.dirtyJumpKey = "";
         this.$alert("success", rsp.msg || this.$t("settings.save_success"));
       });
     },
@@ -3562,6 +3649,20 @@ export default {
   transform: none;
   flex: 0 0 auto;
 }
+/* 未保存计数可点击：逐项跳到未保存字段 */
+.settings-status-chip-clickable {
+  cursor: pointer;
+}
+.settings-status-chip-clickable:hover {
+  filter: brightness(1.08);
+}
+.settings-status-chip-clickable:focus-visible {
+  outline: 2px solid #ef6c00;
+  outline-offset: 2px;
+}
+.theme--dark .settings-status-chip-clickable:focus-visible {
+  outline-color: #90caf9;
+}
 /* 状态 chip 的 live region 外壳（保持与原来一致的 flex 占位） */
 .settings-status-chip-wrap {
   display: inline-flex;
@@ -3661,6 +3762,32 @@ export default {
   padding: 8px 24px;
   background: #fff;
   border-top: 1px solid #e0e0e0;
+}
+.settings-savebar-status {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  margin-left: -6px;
+  padding: 4px 6px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+}
+.settings-savebar-status.is-clickable {
+  cursor: pointer;
+}
+.settings-savebar-status.is-clickable:hover {
+  background: rgba(255, 152, 0, 0.12);
+}
+.settings-savebar-status:focus-visible {
+  outline: 2px solid #1976d2;
+  outline-offset: 2px;
+}
+.theme--dark .settings-savebar-status:focus-visible {
+  outline-color: #90caf9;
 }
 .settings-savebar-actions {
   flex: 0 0 100%;
