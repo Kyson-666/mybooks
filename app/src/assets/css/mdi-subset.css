@@ -790,6 +790,10 @@
   content: "\F0341";
 }
 
+.mdi-login-variant::before {
+  content: "\F05FC";
+}
+
 .mdi-logout::before {
   content: "\F0343";
 }
