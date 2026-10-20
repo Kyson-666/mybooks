@@ -175,12 +175,14 @@
                       sm="6"
                     >
                       <v-checkbox
-                        v-model="settings[f.key]"
+                        :input-value="checkboxListInputValue(f)"
                         :value="opt.value"
+                        :disabled="isCheckboxOptionLocked(f, opt)"
                         :label="$t(opt.text)"
                         dense
                         hide-details
                         class="mt-0"
+                        @change="onCheckboxListChange(f, $event)"
                       ></v-checkbox>
                     </v-col>
                   </v-row>
@@ -1784,14 +1786,16 @@ export default {
                 items: [
                   { value: "audiobooks", text: "appHeader.audioBooks" },
                   { value: "printbooks", text: "appHeader.physicalBooks" },
+                  { value: "authors", text: "appHeader.authors" },
                   { value: "publishers", text: "appHeader.publishers" },
-                  { value: "folders", text: "appHeader.folders" },
+                  { value: "folders", text: "appHeader.folders", requires: "ENABLE_FOLDER_BROWSE" },
                   { value: "categories", text: "nav.categories" },
                   { value: "tags", text: "appHeader.tags" },
                   { value: "series", text: "appHeader.series" },
                   { value: "languages", text: "appHeader.languages" },
                   { value: "rating", text: "appHeader.rating" },
                   { value: "memo", text: "appHeader.memo" },
+                  { value: "friends", text: "appHeader.friendLinks" },
                 ],
               },
             ],
@@ -2863,7 +2867,7 @@ export default {
       }
     }
   },
-  methods: {
+methods: {
     // lockOn 指定的总开关开启后，该字段失去意义：显示为已勾选且不可取消，
     // 但不回写 settings，保留用户原先保存的访客权限值，关掉总开关后原样恢复。
     isFieldLockedBy(f) {
@@ -2875,6 +2879,22 @@ export default {
     onCheckboxChange(f, value) {
       if (this.isFieldLockedBy(f)) return;
       this.$set(this.settings, f.key, value);
+    },
+    // checkbox_list 里带 requires 的选项：依赖的总开关关闭时置灰且显示为未勾选。
+    // 锁定本身不改写 settings，重新打开总开关后按原勾选恢复；用户若在此期间改过列表，
+    // 则以当时看到的勾选状态为准。
+    isCheckboxOptionLocked(f, opt) {
+      return !!(opt && opt.requires && this.settings && !this.settings[opt.requires]);
+    },
+    checkboxListInputValue(f) {
+      const stored = Array.isArray(this.settings[f.key]) ? this.settings[f.key] : [];
+      return stored.filter(
+        (value) => !(f.items || []).some((opt) => opt.value === value && this.isCheckboxOptionLocked(f, opt))
+      );
+    },
+    onCheckboxListChange(f, value) {
+      // 与显示保持一致：锁定项不在可编辑数组里，用户改动列表时按当前所见保存
+      this.$set(this.settings, f.key, Array.isArray(value) ? value : []);
     },
     // rsp.settings 里没有的 key 拿不到响应式 getter（服务端 CONF 没给默认值的项，
     // 如 ENABLE_BOOKS_TYPE_CONVERT_DIRECT、微信的 SOCIAL_AUTH_*_KEY/_SECRET）。

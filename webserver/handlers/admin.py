@@ -458,7 +458,7 @@ class AdminSettings(BaseHandler):
             CONF["DEFAULT_PAGE_SIZE"] = 60  # 默认每页显示60本书
 
         if not CONF.get("SIDEBAR_ITEMS", []):
-            CONF["SIDEBAR_ITEMS"] = ["audiobooks", "printbooks", "publishers", "folders", "tags", "series", "languages", "rating", "memo", "categories"]
+            CONF["SIDEBAR_ITEMS"] = ["audiobooks", "printbooks", "publishers", "folders", "tags", "series", "languages", "rating", "memo", "categories", "authors", "friends"]
 
         # 与首页渲染共用同一套归一化：auto.py 被手改成非 dict/空值时也会回退旧开关，
         # 否则设置页显示"全部可见"，管理员保存任意设置就会被静默改写首页行为。
