@@ -1784,6 +1784,8 @@ export default {
                 label: "settings.sidebar_items",
                 type: "checkbox_list",
                 tips: "settings.sidebar_items_tips",
+                // 全不勾选时写入 "none"：空数组表示「全部显示」，无法表达「全部隐藏」
+                emptyValue: "none",
                 items: [
                   { value: "audiobooks", text: "appHeader.audioBooks" },
                   { value: "printbooks", text: "appHeader.physicalBooks" },
@@ -2895,8 +2897,13 @@ methods: {
       );
     },
     onCheckboxListChange(f, value) {
-      // 与显示保持一致：锁定项不在可编辑数组里，用户改动列表时按当前所见保存
-      this.$set(this.settings, f.key, Array.isArray(value) ? value : []);
+      // 与显示保持一致：锁定项不在可编辑数组里，用户改动列表时按当前所见保存。
+      // SIDEBAR_ITEMS 的空数组历史上表示「全部显示」，全不勾选时写 emptyValue 哨兵，
+      // 让「全部隐藏」也能保存生效，同时不影响旧配置的空数组语义。
+      const sentinel = f.emptyValue;
+      let next = (Array.isArray(value) ? value : []).filter((item) => item !== sentinel);
+      if (sentinel && next.length === 0) next = [sentinel];
+      this.$set(this.settings, f.key, next);
     },
     // rsp.settings 里没有的 key 拿不到响应式 getter（服务端 CONF 没给默认值的项，
     // 如 ENABLE_BOOKS_TYPE_CONVERT_DIRECT、微信的 SOCIAL_AUTH_*_KEY/_SECRET）。

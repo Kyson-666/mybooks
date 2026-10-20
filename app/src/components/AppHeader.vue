@@ -732,7 +732,8 @@ export default {
                 }
             ];
 
-            // 管理员配置的侧边栏显示项，为空表示全部显示
+            // 管理员配置的侧边栏显示项：空数组表示全部显示（旧配置），
+            // 仅含 "none" 表示全部隐藏（设置页全不勾选时写入的哨兵值）
             const showItem = (key) => !this.sys.sidebar_items || this.sys.sidebar_items.length === 0 || this.sys.sidebar_items.includes(key);
             const navLinks = [
                 ...(showItem("folders") && this.sys.allow.folder ? [{ icon: "mdi-folder-multiple-outline", href: "/folder", text: "appHeader.folders", count: this.sys.folders, color: "amber darken-2" }] : []),
