@@ -414,11 +414,13 @@
             </div>
 
             <template v-if="s.special === 'homepage_cards'">
-              <homepage-cards-editor v-if="settingsLoaded" v-model="settings.HOMEPAGE_CONFIG"></homepage-cards-editor>
+              <div id="f-HOMEPAGE_CONFIG">
+                <homepage-cards-editor v-if="settingsLoaded" v-model="settings.HOMEPAGE_CONFIG"></homepage-cards-editor>
+              </div>
             </template>
 
             <template v-if="s.special === 'friends'">
-              <div class="pl-6">
+              <div id="f-FRIENDS" class="pl-6">
               <v-row
                 v-for="(friend, idx) in settings.FRIENDS"
                 :key="'friend-' + friend.href"
@@ -461,15 +463,17 @@
             </template>
 
             <template v-if="s.special === 'reader_dicts'">
-              <reader-dict-editor
-                v-model="settings.READER_MYDICTS"
-                :mybooks-enabled.sync="settings.READER_DICT_MYBOOKS_ENABLED"
-                :baike-enabled.sync="settings.READER_DICT_BAIKE_ENABLED"
-              ></reader-dict-editor>
+              <div id="f-READER_MYDICTS">
+                <reader-dict-editor
+                  v-model="settings.READER_MYDICTS"
+                  :mybooks-enabled.sync="settings.READER_DICT_MYBOOKS_ENABLED"
+                  :baike-enabled.sync="settings.READER_DICT_BAIKE_ENABLED"
+                ></reader-dict-editor>
+              </div>
             </template>
 
             <template v-if="s.special === 'devices'">
-              <div class="pl-6">
+              <div id="f-DEVICES" class="pl-6">
               <template v-for="(device, idx) in settings.DEVICES">
                 <div :key="'device-' + idx" class="device-item mb-3">
                   <v-row>
@@ -634,6 +638,7 @@
             <template v-if="s.special === 'bookbarn'">
               <p>{{ $t("settings.book_barn_description") }}</p>
               <div class="pl-6">
+              <div id="f-ENABLE_BOOKBARN">
               <v-checkbox
                 small
                 hide-details
@@ -641,6 +646,8 @@
                 :key="'ENABLE_BOOKBARN'"
                 :label="$t('settings.bookbarn_enable')"
               ></v-checkbox>
+              </div>
+              <div id="f-BOOKBARN_TOKEN">
               <v-text-field
                 flat
                 small
@@ -649,6 +656,7 @@
                 type="text"
                 :disabled="true"
               ></v-text-field>
+              </div>
               <v-btn
                 color="primary"
                 :disabled="!settings['ENABLE_BOOKBARN'] || appliedToken"
@@ -663,6 +671,7 @@
             <template v-if="s.special === 'ai_capabilities'">
               <p>{{ $t("settings.ai_capabilities_description") }}</p>
               <div class="pl-6">
+              <div id="f-AI_ENABLED">
               <v-checkbox
                 small
                 hide-details
@@ -670,6 +679,8 @@
                 :key="'AI_ENABLED'"
                 :label="$t('settings.ai_enabled')"
               ></v-checkbox>
+              </div>
+              <div id="f-AI_DEEPSEEK_API_KEY">
               <v-text-field
                 :disabled="!settings['AI_ENABLED']"
                 :prepend-icon="'mdi-key'"
@@ -680,6 +691,8 @@
                 :rules="apiKeyRules"
                 :maxlength="128"
               ></v-text-field>
+              </div>
+              <div id="f-AI_API_URL">
               <v-text-field
                 :disabled="!settings['AI_ENABLED']"
                 :prepend-icon="'mdi-link'"
@@ -690,6 +703,8 @@
                 :rules="[urlRule]"
                 :maxlength="512"
               ></v-text-field>
+              </div>
+              <div id="f-AI_MODEL">
               <v-text-field
                 :disabled="!settings['AI_ENABLED']"
                 :prepend-icon="'mdi-function'"
@@ -700,6 +715,8 @@
                 :rules="[modelNameRule]"
                 :maxlength="128"
               ></v-text-field>
+              </div>
+              <div id="f-AI_MCP_TOKEN">
               <v-text-field
                 :prepend-icon="'mdi-key'"
                 v-model="settings['AI_MCP_TOKEN']"
@@ -709,6 +726,7 @@
                 @click:append="generateMCPToken"
                 readonly
               ></v-text-field>
+              </div>
               <v-btn
                 :disabled="!settings['AI_ENABLED'] || testingAI"
                 color="green"
@@ -765,6 +783,7 @@
                 <span v-else>{{ $t("settings.mynexus_test") }}</span>
               </v-btn>
               <v-divider class="my-2"></v-divider>
+              <div id="f-AI_ALLOW_SET_CATEGORY">
               <v-checkbox
                 small
                 hide-details
@@ -776,11 +795,12 @@
                 prepend-icon="mdi-scatter-plot-outline"
               ></v-checkbox>
               </div>
+              </div>
             </template>
 
             <template v-if="s.special === 'socials'">
               <p>{{ $t("settings.socials_description") }}</p>
-              <div class="pl-6">
+              <div id="f-SOCIALS" class="pl-6">
               <v-combobox
                 v-model="settings.SOCIALS"
                 :items="sns_items"
@@ -788,6 +808,7 @@
                 hide-selected
                 multiple
                 small-chips
+                @change="ensureSettingKeysReactive"
               >
                 <template v-slot:selection="{ attrs, item, parent, selected }">
                   <v-chip
@@ -817,6 +838,7 @@
                   </v-subheader>
                 </v-col>
                 <v-col class="py-0" cols="12" sm="3">
+                  <div :id="'f-SOCIAL_AUTH_' + s2.value.toUpperCase() + '_KEY'">
                   <v-text-field
                     small
                     hide-details
@@ -828,8 +850,10 @@
                     placeholder="Key/AppID"
                     type="text"
                   ></v-text-field>
+                  </div>
                 </v-col>
                 <v-col class="py-0" cols="12" sm="7">
+                  <div :id="'f-SOCIAL_AUTH_' + s2.value.toUpperCase() + '_SECRET'">
                   <v-text-field
                     small
                     hide-details
@@ -843,6 +867,7 @@
                     placeholder="Secret"
                     type="text"
                   ></v-text-field>
+                  </div>
                 </v-col>
               </v-row>
               </div>
@@ -884,6 +909,7 @@
 
             <template v-if="s.special === 'perf'">
               <div class="pl-6">
+                <div id="f-PERFORMANCE_MODE">
                 <v-checkbox
                   small
                   v-model="liteMode"
@@ -891,19 +917,22 @@
                   :label="$t('settings.perf_mode_lite')"
                   :hint="$t('settings.perf_mode_hint')"
                   persistent-hint
+                  @change="forceLiteGroups = false"
                 ></v-checkbox>
-                <div v-if="liteMode" style="padding-left: 32px">
-                  <v-checkbox
-                    v-for="key in liteGroups"
-                    :key="key"
-                    small
-                    dense
-                    v-model="settings[key]"
-                    :label="$t('settings.' + key.toLowerCase())"
-                    :hint="$t('settings.' + key.toLowerCase() + '_hint')"
-                    persistent-hint
-                  ></v-checkbox>
                 </div>
+                <div v-if="liteMode || forceLiteGroups" style="padding-left: 32px">
+                  <div v-for="key in liteGroups" :key="key" :id="'f-' + key">
+                    <v-checkbox
+                      small
+                      dense
+                      v-model="settings[key]"
+                      :label="$t('settings.' + key.toLowerCase())"
+                      :hint="$t('settings.' + key.toLowerCase() + '_hint')"
+                      persistent-hint
+                    ></v-checkbox>
+                  </div>
+                </div>
+                <div id="f-THUMB_CACHE">
                 <v-checkbox
                   small
                   v-model="thumbCache"
@@ -911,8 +940,11 @@
                   :label="$t('settings.thumb_cache')"
                   :hint="$t('settings.thumb_cache_hint')"
                   persistent-hint
+                  @change="forceCacheSize = false"
                 ></v-checkbox>
-                <div v-if="thumbCache" style="padding-left: 32px; padding-top: 14px">
+                </div>
+                <div v-if="thumbCache || forceCacheSize" style="padding-left: 32px; padding-top: 14px">
+                  <div id="f-CACHE_MAX_MB">
                   <v-select
                     v-model="cacheMaxMb"
                     :items="cacheSizeItems"
@@ -920,12 +952,14 @@
                     dense
                     style="max-width: 240px"
                   ></v-select>
+                  </div>
                 </div>
               </div>
             </template>
 
             <template v-if="s.special === 'stamp'">
               <div class="pl-6">
+              <div id="f-ENABLE_STAMP_FEATURE">
               <v-checkbox
                 small
                 hide-details
@@ -933,6 +967,7 @@
                 :label="$t('settings.enable_stamp_feature')"
                 prepend-icon="mdi-picture-in-picture-bottom-right-outline"
               ></v-checkbox>
+              </div>
               <div v-if="settings['ENABLE_STAMP_FEATURE']" style="margin-top: 16px; margin-left: 16px;">
                 <v-row align="top">
                   <v-col cols="12" sm="6">
@@ -1133,9 +1168,9 @@ const LITE_GROUPS = [
 const SPECIAL_BLOCKS = [
   { key: "HOMEPAGE_CONFIG", label: "settings.sec_site_home_cards", icon: "mdi-view-grid-plus-outline", gid: "site", sid: "site-home-cards", al: ["首页卡片", "自定义卡片", "homepage cards", "首頁卡片"] },
   { key: "FRIENDS", label: "settings.friend_links", icon: "mdi-link-variant", gid: "site", sid: "site-friends" },
-  { key: "READER_MYDICTS", label: "settings.sec_reader_dict", icon: "mdi-book-alphabet", gid: "reading", sid: "reader-dict", al: ["翻译"] },
   { key: "READER_DICT_MYBOOKS_ENABLED", label: "settings.reader_dict_mybooks", icon: "mdi-book-alphabet", gid: "reading", sid: "reader-dict" },
   { key: "READER_DICT_BAIKE_ENABLED", label: "settings.reader_dict_baike", icon: "mdi-book-alphabet", gid: "reading", sid: "reader-dict" },
+  { key: "READER_MYDICTS", label: "settings.sec_reader_dict", icon: "mdi-book-alphabet", gid: "reading", sid: "reader-dict", al: ["翻译"] },
   { key: "ENABLE_STAMP_FEATURE", label: "settings.enable_stamp_feature", icon: "mdi-picture-in-picture-bottom-right-outline", gid: "reading", sid: "reader-physical" },
   { key: "SOCIALS", label: "settings.select_socials", icon: "mdi-at", gid: "users", sid: "users-social", al: ["qq", "微信", "微博", "github", "oauth"] },
   { key: "DEVICES", label: "settings.device_mgt", icon: "mdi-tablet-cellphone", gid: "push", sid: "push-devices", al: ["kindle", "文石", "掌阅", "汉王", "当当", "koreader", "duokan", "ireader", "boox", "ftp"] },
@@ -1146,10 +1181,10 @@ const SPECIAL_BLOCKS = [
   { key: "AI_API_URL", label: "settings.ai_api_url", icon: "mdi-link", gid: "services", sid: "svc-ai" },
   { key: "AI_MODEL", label: "settings.ai_model", icon: "mdi-function", gid: "services", sid: "svc-ai" },
   { key: "AI_MCP_TOKEN", label: "settings.ai_mcp_token", icon: "mdi-key", gid: "services", sid: "svc-ai" },
-  { key: "AI_ALLOW_SET_CATEGORY", label: "settings.ai_allow_set_category", icon: "mdi-scatter-plot-outline", gid: "services", sid: "svc-ai" },
   { key: "ENABLE_MYNEXUS", label: "settings.mynexus_enabled", icon: "mdi-book-search", gid: "services", sid: "svc-ai", al: ["mynexus", "nexus"] },
   { key: "MYNEXUS_URL", label: "settings.mynexus_url", icon: "mdi-link", gid: "services", sid: "svc-ai", al: ["mynexus", "nexus"] },
   { key: "MYNEXUS_TOKEN", label: "settings.mynexus_token", icon: "mdi-key", gid: "services", sid: "svc-ai", al: ["mynexus", "nexus"] },
+  { key: "AI_ALLOW_SET_CATEGORY", label: "settings.ai_allow_set_category", icon: "mdi-scatter-plot-outline", gid: "services", sid: "svc-ai" },
   { key: "SSL", label: "settings.ssl_certificate_management", icon: "mdi-lock", gid: "protocols", sid: "proto-net", al: ["证书", "https"] },
   { key: "PERFORMANCE_MODE", label: "settings.perf_mode_lite", icon: "mdi-speedometer", gid: "ops", sid: "ops-perf", al: ["性能", "速度"] },
   { key: "LITE_GROUP_LISTING", label: "settings.lite_group_listing", icon: "mdi-speedometer", gid: "ops", sid: "ops-perf" },
@@ -1175,6 +1210,12 @@ function settingsValueForCompare(key, value) {
     return e;
   });
 }
+
+// 由子组件统一渲染、没有各自独立 DOM 锚点的 key，跳转时落到同一个块
+const ANCHOR_ALIASES = {
+  READER_DICT_MYBOOKS_ENABLED: "READER_MYDICTS",
+  READER_DICT_BAIKE_ENABLED: "READER_MYDICTS",
+};
 
 // 激活分组下色条 + 组标题竖条：默认跟随站点主色 accent（外观菜单里的「主色」），
 // 换主色即时跟随
@@ -2586,6 +2627,9 @@ export default {
     forceOpen: {},
     // 上一次「跳转到未保存项」的目标 key，供多次点击循环推进
     dirtyJumpKey: "",
+    // 跳转到被模式开关隐藏的性能子项时只做视图层展开，不改真实设置值
+    forceLiteGroups: false,
+    forceCacheSize: false,
     bookNavList: [],
     thanksToNames: [],
     thanksToShow: false,
@@ -2665,6 +2709,48 @@ export default {
           items.push(r);
           seen[r.key] = true;
         }
+      });
+      // 社交登录的 KEY/SECRET 是 SOCIALS 动态拼键，不在 flatIndex 里；
+      // 逐个补目标，否则改了凭据后计数会增加但点跳转没有落点
+      (this.settings.SOCIALS || []).forEach((s) => {
+        const value = String(s.value || "").toUpperCase();
+        if (!value) return;
+        const provider = s.text || value;
+        ["KEY", "SECRET"].forEach((field) => {
+          const key = "SOCIAL_AUTH_" + value + "_" + field;
+          if (!dirtyKeys[key] || seen[key]) return;
+          items.push({
+            key,
+            label: provider + " " + field,
+            icon: "mdi-at",
+            red: false,
+            gid: "users",
+            sid: "users-social",
+            path: "",
+            al: [],
+            parentKey: "",
+          });
+          seen[key] = true;
+        });
+      });
+      // 已从 SOCIALS 移除的 provider 仍可能留下脏 key（保存时仍会提交），
+      // 没有独立控件可定位，至少落到社交登录卡片
+      Object.keys(dirtyKeys).forEach((k) => {
+        if (seen[k] || k.indexOf("SOCIAL_AUTH_") !== 0) return;
+        const matched = k.match(/^SOCIAL_AUTH_(.+)_(KEY|SECRET)$/);
+        if (!matched) return;
+        items.push({
+          key: k,
+          label: matched[1] + " " + matched[2],
+          icon: "mdi-at",
+          red: false,
+          gid: "users",
+          sid: "users-social",
+          path: "",
+          al: [],
+          parentKey: "",
+        });
+        seen[k] = true;
       });
       // BookNavEditor 改的是 bookNavList，settings.BOOK_NAV 要到保存时才序列化回去，
       // 所以分类编辑不体现在上面的 key 对比里，单独补到「书籍分类」卡片
@@ -3058,6 +3144,8 @@ export default {
     selectGroup(id) {
       this.searchQ = "";
       this.searchOpen = false;
+      this.forceLiteGroups = false;
+      this.forceCacheSize = false;
       this.activeGroup = id;
       if (process.client) window.scrollTo({ top: 0 });
     },
@@ -3076,6 +3164,9 @@ export default {
       this.searchQ = "";
       this.searchOpen = false;
       this.activeGroup = r.gid;
+      // 极速模式/缩略图缓存关闭后其子项被 v-if 隐藏；跳转只做视图层展开
+      if (r.key.indexOf("LITE_GROUP_") === 0) this.forceLiteGroups = true;
+      if (r.key === "CACHE_MAX_MB") this.forceCacheSize = true;
       if (r.parentKey) {
         // 只做视图层展开：写真实 settings 会静默开启 INVITE_MODE 等父开关并计入未保存数
         this.$set(this.forceOpen, r.parentKey, true);
@@ -3086,8 +3177,9 @@ export default {
         if (this._jumpTimer) clearTimeout(this._jumpTimer);
         this._jumpTimer = setTimeout(() => {
           this._jumpTimer = null;
+          const domKey = ANCHOR_ALIASES[r.key] || r.key;
           const el =
-            document.getElementById("f-" + r.key) ||
+            document.getElementById("f-" + domKey) ||
             document.getElementById("sec-" + r.gid + "-" + r.sid);
           if (!el) return;
           el.scrollIntoView({ behavior: "smooth", block: "center" });
@@ -3268,6 +3360,8 @@ export default {
         this.bookNavSnapshot = savedNav;
         // 全部保存后游标归零，下次产生未保存项时从第一项开始跳
         this.dirtyJumpKey = "";
+        this.forceLiteGroups = false;
+        this.forceCacheSize = false;
         this.$alert("success", rsp.msg || this.$t("settings.save_success"));
       });
     },
