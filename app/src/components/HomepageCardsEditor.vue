@@ -4,7 +4,7 @@
       <v-icon small class="mr-2">mdi-view-grid-outline</v-icon>
       <span class="text-body-1">{{ $t("settings.homepage_order_title") }}</span>
     </div>
-    <v-list dense class="homepage-section-list">
+    <v-list class="homepage-section-list">
       <v-list-item
         v-for="(section, idx) in local.order"
         :key="section"
@@ -37,7 +37,7 @@
           <v-icon small>{{ sectionIcon(section) }}</v-icon>
         </v-list-item-icon>
         <v-list-item-content>
-          <v-list-item-title>{{ sectionTitle(section) }}</v-list-item-title>
+          <v-list-item-title class="text--secondary">{{ sectionTitle(section) }}</v-list-item-title>
         </v-list-item-content>
         <v-list-item-action class="d-flex flex-row">
           <v-btn icon x-small :disabled="idx === 0" @click="moveSection(section, -1)">
