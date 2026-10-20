@@ -28,6 +28,7 @@ from webserver.startup_status import StartupState, substep
 from webserver.services import warmup
 from webserver.services.perf_monitor import PerfMonitor
 from webserver.base.setting_saver import SettingsSaver
+from webserver.base import db_diagnosis
 from webserver.services import AsyncService
 from webserver.services.book_barn import BookBarnService
 from webserver.services.item_sync import ItemSyncService
@@ -310,6 +311,9 @@ def make_app():
             except Exception as e:
                 logging.warning(f"Failed to set SQLite pragmas: {e}")
             cursor.close()
+
+        # 增加数据异常现场的日志输出
+        db_diagnosis.install(engine)
 
     ScopedSession = scoped_session(sessionmaker(bind=engine, autoflush=True, autocommit=False))
     try:
