@@ -680,6 +680,20 @@ class TestPools(unittest.TestCase):
         self.service.home(ctx(reader_id=1), 5, 5)
         self.assertEqual(set(self.service._pools), {0, 1})
 
+    def test_stale_pool_skips_books_removed_from_library(self):
+        self.service.home(ctx(reader_id=1), 8, 8)
+        stale = self.service._pools[1]
+        removed = {b.book_id for b, _ in stale.new_pool} | {b.book_id for b, _ in stale.random_pool}
+        self.service._schedule = lambda *_args: None
+        for book_id in removed:
+            del self.features[book_id]
+        self.service.index.refresh()
+        result = self.service.home(ctx(reader_id=1), 8, 8)
+        self.assertIsNotNone(result)
+        self.assertTrue(result.new_ids)
+        self.assertFalse(set(result.reasons) & removed)
+        self.assertTrue(set(result.reasons) <= set(self.features))
+
 
 class TestRefresh(unittest.TestCase):
     def service(self, count):

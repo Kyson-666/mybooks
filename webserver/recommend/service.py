@@ -150,7 +150,10 @@ class RecommendService:
         reasons: Dict[int, Reason] = {}
         for ids, scorer in ((new_ids, pool.new_scorer), (random_ids, pool.random_scorer)):
             for book_id in ids:
-                explanation = scorer.explain(library.books[book_id], ctx)
+                book = library.books.get(book_id)
+                if book is None:
+                    continue
+                explanation = scorer.explain(book, ctx)
                 if explanation:
                     reasons[book_id] = explanation[0]
         return HomeResult(random_ids=random_ids, new_ids=new_ids, reasons=reasons)
