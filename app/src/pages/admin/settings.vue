@@ -173,6 +173,7 @@
                       :key="f.key + '-' + opt.value"
                       cols="12"
                       sm="6"
+                      md="4"
                     >
                       <v-checkbox
                         :input-value="checkboxListInputValue(f)"
