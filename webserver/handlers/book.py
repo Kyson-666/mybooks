@@ -2,6 +2,7 @@
 # -*- coding: UTF-8 -*-
 
 import datetime
+import html
 import json
 import logging
 from venv import logger
@@ -3756,7 +3757,7 @@ class BookRead(BaseHandler):
 
         if fpath_arg:
             if fmt_arg == "txt":
-                return self.redirect(f'/read/txt/{book_id}')
+                return self.redirect(f'/book/{book_id}/readtxt')
 
             if fmt_arg == "pdf":
                 if self.current_user and not self.current_user.can_save():
@@ -3787,6 +3788,11 @@ class BookRead(BaseHandler):
             fpath = book.get("fmt_%s" % fmt, None)
             if not fpath:
                 continue
+
+            if fmt == "txt":
+                # TXT 有专用阅读器，不能走下面的 EPUB 转换；否则这个循环会先
+                # 返回 EPUB 阅读器，令后面的 fmt_txt 兜底永远不可达。
+                return self.redirect(f"/book/{book_id}/readtxt")
 
             if fmt != 'epub':
                 service = ConverterService()
@@ -3824,7 +3830,7 @@ class BookRead(BaseHandler):
 
         if 'fmt_txt' in book:
             # TXT有专门的阅读器
-            txt_reader_url = f'/read/txt/{book_id}'
+            txt_reader_url = f'/book/{book_id}/readtxt'
             return self.redirect(txt_reader_url)
 
         raise web.HTTPError(404, reason=_("抱歉，在线阅读器暂不支持该格式的书籍，可以转为epub或者pdf后阅读"))
@@ -3958,7 +3964,10 @@ class TxtRead(BaseHandler):
         if not content:
             return {"err": "format error", "msg": _("空文件")}
         encode = get_content_encoding(content)
-        content = content.decode(encoding=encode, errors='ignore').replace("\r", "").replace("\n", "<br>")
+        # 阅读器用 v-html 渲染；TXT 是纯文本，先转义再保留换行，避免正文里的
+        # HTML 事件处理器在读者浏览器执行。
+        content = html.escape(content.decode(encoding=encode, errors='ignore').replace("\r", ""), quote=False)
+        content = content.replace("\n", "<br>")
         return {"err": "ok", "content": content}
 
 

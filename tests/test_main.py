@@ -7,6 +7,7 @@ import logging
 import os
 import sys
 import shutil
+import tempfile
 import time
 import unittest
 import urllib
@@ -516,6 +517,45 @@ class TestBook(TestWithUserLogin):
             for bid in BIDS:
                 rsp = self.fetch("/read/%s" % bid, follow_redirects=False)
                 self.assertEqual(rsp.code, 302 if bid == BID_PDF or bid == BID_TXT else 200)
+
+    def test_read_txt_redirects_without_conversion(self):
+        """TXT-only 书的 /read/<id> 必须直跳专用阅读器，不能先转 EPUB。"""
+        with mock.patch.dict(webserver.handlers.book.CONF, {"EPUB_VIEWER": "epubjs.html"}):
+            with mock.patch(
+                "webserver.services.converter.ConverterService.convert_and_save", return_value="Yo"
+            ) as convert:
+                for url in ("/read/%s" % BID_TXT, "/read/%s?format=txt" % BID_TXT):
+                    rsp = self.fetch(url, follow_redirects=False)
+                    self.assertEqual(rsp.code, 302)
+                    self.assertEqual(rsp.headers["Location"], "/book/%s/readtxt" % BID_TXT)
+                convert.assert_not_called()
+
+    def test_read_txt_escapes_html(self):
+        """TXT 正文按纯文本转义后再交给 v-html 渲染。"""
+        payload = "<script>alert(1)</script>\n下一行"
+        with tempfile.NamedTemporaryFile("wb", suffix=".txt", delete=False) as f:
+            f.write(payload.encode("utf-8"))
+            path = f.name
+        try:
+            orig_get_book = BaseHandler.get_book
+
+            def fake_get_book(handler, book_id, *args, **kwargs):
+                book = orig_get_book(handler, book_id, *args, **kwargs)
+                if book and int(book_id) == BID_TXT:
+                    book = dict(book)
+                    book["fmt_txt"] = path
+                return book
+
+            with mock.patch.object(BaseHandler, "get_book", fake_get_book):
+                rsp = self.fetch("/api/read/txt/%s?start=0&end=-1" % BID_TXT)
+            data = json.loads(rsp.body)
+            self.assertEqual(data["err"], "ok")
+            self.assertNotIn("<script>", data["content"])
+            self.assertIn("&lt;script&gt;alert(1)&lt;/script&gt;", data["content"])
+            self.assertIn("下一行", data["content"])
+            self.assertIn("<br>", data["content"])
+        finally:
+            os.remove(path)
 
     def test_read_myreader_engine_epub(self):
         with mock_permission() as user:
