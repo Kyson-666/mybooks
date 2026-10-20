@@ -146,9 +146,11 @@
                 small
                 hide-details
                 v-if="f.type === 'checkbox'"
-                v-model="settings[f.key]"
+                :input-value="isCheckboxInputValue(f)"
+                :disabled="isFieldLockedBy(f)"
                 :key="f.key + '-checkbox'"
                 :label="$t(f.label)"
+                @change="onCheckboxChange(f, $event)"
               >
                 <template v-if="f.icon" v-slot:prepend>
                   <v-icon :color="f.color">{{ f.icon }}</v-icon>
@@ -1903,10 +1905,10 @@ export default {
             fields: [
               // 私人图书馆标准模式：开启后所有页面与接口都要求登录，下面四项访客权限随之失效
               { icon: "mdi-login-variant", key: "REQUIRE_LOGIN", label: "settings.require_login", type: "checkbox", al: ["必须登录", "私人图书馆", "需登录", "login required"] },
-              { icon: "mdi-read", key: "ALLOW_GUEST_READ", label: "settings.allow_guest_read", type: "checkbox" },
-              { icon: "mdi-download", key: "ALLOW_GUEST_DOWNLOAD", label: "settings.allow_guest_download", type: "checkbox" },
-              { icon: "mdi-upload", key: "ALLOW_GUEST_UPLOAD", label: "settings.allow_guest_upload", type: "checkbox" },
-              { icon: "mdi-send", key: "ALLOW_GUEST_PUSH", label: "settings.allow_guest_push", type: "checkbox" },
+              { icon: "mdi-read", key: "ALLOW_GUEST_READ", label: "settings.allow_guest_read", type: "checkbox", lockOn: "REQUIRE_LOGIN" },
+              { icon: "mdi-download", key: "ALLOW_GUEST_DOWNLOAD", label: "settings.allow_guest_download", type: "checkbox", lockOn: "REQUIRE_LOGIN" },
+              { icon: "mdi-upload", key: "ALLOW_GUEST_UPLOAD", label: "settings.allow_guest_upload", type: "checkbox", lockOn: "REQUIRE_LOGIN" },
+              { icon: "mdi-send", key: "ALLOW_GUEST_PUSH", label: "settings.allow_guest_push", type: "checkbox", lockOn: "REQUIRE_LOGIN" },
             ],
           },
           {
@@ -2862,6 +2864,18 @@ export default {
     }
   },
   methods: {
+    // lockOn 指定的总开关开启后，该字段失去意义：显示为已勾选且不可取消，
+    // 但不回写 settings，保留用户原先保存的访客权限值，关掉总开关后原样恢复。
+    isFieldLockedBy(f) {
+      return !!(f && f.lockOn && this.settings && this.settings[f.lockOn]);
+    },
+    isCheckboxInputValue(f) {
+      return this.isFieldLockedBy(f) ? true : this.settings[f.key];
+    },
+    onCheckboxChange(f, value) {
+      if (this.isFieldLockedBy(f)) return;
+      this.$set(this.settings, f.key, value);
+    },
     // rsp.settings 里没有的 key 拿不到响应式 getter（服务端 CONF 没给默认值的项，
     // 如 ENABLE_BOOKS_TYPE_CONVERT_DIRECT、微信的 SOCIAL_AUTH_*_KEY/_SECRET）。
     // Vue 2 下 v-model 的普通赋值不走 setter，dirtyCount 不会重算，「保存设置」就一直是
