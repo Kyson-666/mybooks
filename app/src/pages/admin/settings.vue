@@ -1794,6 +1794,7 @@ export default {
                   { value: "series", text: "appHeader.series" },
                   { value: "languages", text: "appHeader.languages" },
                   { value: "rating", text: "appHeader.rating" },
+                  { value: "booklists", text: "appHeader.booklists" },
                   { value: "memo", text: "appHeader.memo" },
                   { value: "friends", text: "appHeader.friendLinks" },
                 ],

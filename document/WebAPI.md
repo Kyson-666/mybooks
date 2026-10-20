@@ -252,6 +252,7 @@ sys中为基础系统信息，title为网站标题, books为在库书籍数量�
 | `series` | 丛书 | |
 | `languages` | 语言 | |
 | `rating` | 评分 | |
+| `booklists` | 阅读书单 | 仅登录用户显示 |
 | `memo` | 站内留言 | |
 | `friends` | 友情链接 | 还需已配置友情链接（`sys.friends` 非空） |
 

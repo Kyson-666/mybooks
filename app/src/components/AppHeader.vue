@@ -777,7 +777,7 @@ export default {
                 .concat(this.user.is_login ? userLinks : [])
                 .concat(this.user.is_admin ? adminLinks : [])
                 .concat(this.user.is_login ? readingLinks : [])
-                .concat(this.user.is_login ? booklistLinks: [])
+                .concat(this.user.is_login && showItem("booklists") ? booklistLinks: [])
                 .concat(navLinks)
                 .concat(showItem("memo") ? memoLink : [])
                 .concat(showItem("friends") && this.sys.friends.length > 0 ? friendLinks : [])
