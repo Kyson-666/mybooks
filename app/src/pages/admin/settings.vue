@@ -767,7 +767,6 @@
             </template>
 
             <template v-if="s.special === 'socials'">
-              <p>{{ $t("settings.socials_description") }}</p>
               <div class="pl-6">
               <v-combobox
                 v-model="settings.SOCIALS"
@@ -3431,7 +3430,7 @@ export default {
 .settings-group-bar {
   position: sticky;
   top: var(--settings-bar-top, 56px);
-  z-index: 5;
+  z-index: 1;
   padding: 10px 12px 8px;
   margin-bottom: 12px;
 }
@@ -3652,7 +3651,7 @@ export default {
 .settings-savebar {
   position: sticky;
   bottom: 0;
-  z-index: 200;
+  z-index: 1;
   display: flex;
   align-items: center;
   /* 窄屏计数位数大时允许换行，避免横排溢出 */
