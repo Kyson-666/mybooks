@@ -980,7 +980,10 @@
       </div>
     </template>
 
-    <v-card class="my-2 elevation-4" v-if="thanksToNames.length > 0">
+    <v-card
+      class="my-2 elevation-4"
+      v-if="!searchQuery && activeGroup === 'ops' && thanksToNames.length > 0"
+    >
       <v-card-title @click="thanksToShow = !thanksToShow">
         <v-btn @click.once="thanksToShow = !thanksToShow" icon>
           <v-icon>{{
