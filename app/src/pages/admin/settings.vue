@@ -3169,6 +3169,7 @@ methods: {
           this.$alert("error", rsp.msg || this.$t("settings.save_error"));
         } else {
           this.$alert("success", rsp.msg || this.$t("settings.save_success"));
+          this.$store.commit("refresh_sys");
         }
         // 服务端确认后才把规范化结果落到本地状态与 localStorage
         this.settings["BOOK_NAV"] = payload["BOOK_NAV"];

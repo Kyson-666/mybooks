@@ -872,7 +872,20 @@ export default {
         this.stopPolling();
         document.removeEventListener("visibilitychange", this.onVisibilityChange);
     },
+    watch: {
+        // 设置保存后重新拉取系统信息：侧边栏显示项、页脚开关等无需整页刷新即可生效
+        "$store.state.sysRefresh"() {
+            this.refreshUserInfo();
+        },
+    },
     methods: {
+        refreshUserInfo() {
+            this.$backend("/user/info").then((rsp) => {
+                if (!rsp || !rsp.sys) return;
+                this.sys = rsp.sys;
+                this.$store.commit("set_sys", rsp.sys);
+            });
+        },
         isExternalLink(url) {
             return url && (url.startsWith('http://') || url.startsWith('https://'));
         },
