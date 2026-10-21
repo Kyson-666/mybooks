@@ -1823,6 +1823,8 @@ class BaseHandler(web.RequestHandler):
                 "standalone": CONF.get("STANDALONE", False),
                 "hide_project_links": CONF.get("HIDE_PROJECT_LINKS", False),
                 "enable_podcast_service": CONF.get("ENABLE_PODCAST_SERVICE", False),
+                # 书单卡片封面条是否自动轮播（站长级总开关，默认开）
+                "booklist_cover_scroll": CONF.get("ENABLE_BOOKLIST_COVER_SCROLL", True),
                 "enable_opds_service": CONF.get("ENABLE_OPDS_SERVICE", True),
                 "enable_webdav_service": CONF.get("ENABLE_WEBDAV_SERVICE", True),
                 "sidebar_items": CONF.get("SIDEBAR_ITEMS", []),

@@ -157,6 +157,12 @@ export default {
         covers() {
             return (this.booklist.cover_books || []).slice(0, 15);
         },
+        // 站长级总开关（设置 › 首页 › 书单封面自动滚动）。sys 尚未加载时是空对象，
+        // 此时按开启处理，避免首屏误判成关闭
+        coverScrollEnabled() {
+            const sys = this.$store && this.$store.state && this.$store.state.sys;
+            return !sys || sys.booklist_cover_scroll !== false;
+        },
         // 需要滚动时把封面复制一份接在后面，形成无缝循环
         renderedCovers() {
             return this.marqueeActive ? this.covers.concat(this.covers) : this.covers;
@@ -174,6 +180,14 @@ export default {
         covers() {
             // 书单封面数量变化后重新判断要不要滚（el 尺寸没变，ResizeObserver 不会触发）
             this.$nextTick(this.updateMarquee);
+        },
+        coverScrollEnabled(enabled) {
+            // 站长在设置里关掉后，已挂载的卡片立即停下（不必刷新页面）
+            if (!enabled) {
+                this.marqueeActive = false;
+            } else {
+                this.$nextTick(this.updateMarquee);
+            }
         },
     },
     mounted() {
@@ -252,8 +266,8 @@ export default {
             if (!viewport) {
                 return;
             }
-            // 用户要求减少动效，或没有封面：保持原生横向滚动，不动
-            if (this.reducedMotion || !this.covers.length) {
+            // 站长关掉了滚动，或用户要求减少动效，或没有封面：保持原生横向滚动，不动
+            if (this.reducedMotion || !this.coverScrollEnabled || !this.covers.length) {
                 this.marqueeActive = false;
                 return;
             }
