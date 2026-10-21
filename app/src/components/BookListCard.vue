@@ -105,6 +105,8 @@
                         v-for="(c, i) in renderedCovers"
                         :key="'cover-' + i + '-' + c.book_id"
                         :src="c.thumb || c.img"
+                        eager
+                        :aria-hidden="i >= covers.length ? 'true' : null"
                         class="booklist-cover-item"
                         :aspect-ratio="11 / 15"
                     ></v-img>
@@ -136,11 +138,14 @@ export default {
     data() {
         return {
             colors: BOOKLIST_COLORS,
-            // 下面三个只在客户端 mounted 后才会被改写，SSR 与首次渲染都保持初始值，
+            // 下面四个只在客户端 mounted 后才会被改写，SSR 与首次渲染都保持初始值，
             // 避免 hydration 前后 DOM 不一致
             marqueeActive: false,
             inView: true,
             reducedMotion: false,
+            // 一份封面内容的实测宽度（px），只在 updateMarquee 里量到真实几何后改写，
+            // 0 表示尚未测量，marqueeDuration 会退回按 CSS 固定宽度估算
+            measuredCopyWidth: 0,
         };
     },
     computed: {
@@ -172,9 +177,14 @@ export default {
             if (!count) {
                 return '30s';
             }
+            // 优先用 updateMarquee 实测到的一份内容宽度，未测量时退回「CSS 固定宽 60 + 间距」估算，
+            // 保证首帧（mounted 前 / SSR）也有合理时长
+            const oneCopyWidth = this.measuredCopyWidth > 0
+                ? this.measuredCopyWidth
+                : count * (60 + COVER_GAP);
             // 纯按「一份内容的宽度 ÷ 线速度」算，不留 14s 之类的最小值：
             // 一旦夹了下限，短封面的书单就会滚得比设定的 26px/s 慢
-            const seconds = (count * (60 + COVER_GAP)) / MARQUEE_SPEED;
+            const seconds = oneCopyWidth / MARQUEE_SPEED;
             return Math.max(seconds, 1).toFixed(1) + 's';
         },
     },
@@ -219,6 +229,8 @@ export default {
                 this.reducedMotionQuery.removeListener(this.onReducedMotionChange);
             }
         }
+        this.reducedMotionQuery = null;
+        this.onReducedMotionChange = null;
     },
     methods: {
         detectReducedMotion() {
@@ -228,6 +240,10 @@ export default {
         },
         bindReducedMotion() {
             if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
+                return;
+            }
+            // 已绑定过就直接返回，避免 addEventListener 路径重复注册同一个 handler
+            if (this.reducedMotionQuery) {
                 return;
             }
             this.reducedMotionQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
@@ -287,10 +303,13 @@ export default {
                 return;
             }
             const itemWidth = item.getBoundingClientRect().width + COVER_GAP;
+            // 记住一份内容的实测宽度，marqueeDuration 用它换算时长（itemWidth 已含间距）
+            this.measuredCopyWidth = itemWidth * this.covers.length;
             // 必须"一份封面就铺满可视区"才滚：动画会把封面复制一份并把 track 平移一份宽，
             // 若一份比视口窄，平移到终点后视口右边界会越过第二份的末尾，露出空白条。
-            // 铺不满（书单只有几本）时保持静止，靠手动横滑查看
-            this.marqueeActive = itemWidth * this.covers.length > available + 2;
+            // 铺不满（书单只有几本）时保持静止，靠手动横滑查看。恰好铺满（相等）时接缝
+            // 不露空白，也应滚动，故用 >=；+2 是浮点取整的安全余量。
+            this.marqueeActive = itemWidth * this.covers.length >= available + 2;
         },
     },
 };
@@ -395,6 +414,11 @@ export default {
     }
     .booklist-cover-item:hover {
         transform: none;
+    }
+    /* 纯 CSS 兜底：脚本失效或 mounted 前也尊重用户的减少动效偏好，
+       直接停掉 track 的轮播动画（JS 侧 marqueeActive=false 时本就退回 overflow-x:auto，二者不冲突） */
+    .booklist-covers--marquee .booklist-covers-track {
+        animation: none;
     }
 }
 .booklist-covers-empty {
