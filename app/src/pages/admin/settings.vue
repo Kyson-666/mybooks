@@ -56,7 +56,7 @@
               role="button"
               tabindex="0"
               :title="$t('settings.unsaved_jump_tip', { n: dirtyCount })"
-              :aria-label="$t('settings.unsaved_jump_tip', { n: dirtyCount })"
+              aria-describedby="settings-dirty-jump-tip"
               @click="jumpToNextDirty"
               @keydown.enter.prevent="jumpToNextDirty"
               @keydown.space.prevent="jumpToNextDirty"
@@ -64,6 +64,17 @@
               {{ $t('settings.unsaved_changes', { n: dirtyCount }) }}
             </v-chip>
           </span>
+          <!--
+            跳转提示放这里而不是当 aria-label：
+            1) 覆盖可见文本的话，读屏播报的是操作指引而不是「N 项未保存」这个数字；
+            2) 它也不能落在上面那个 role="status" 里，否则每次计数变化都会重播一遍指引。
+            只做描述，播报仍以 visible text（含计数）为准。
+          -->
+          <span
+            v-if="dirtyCount > 0"
+            id="settings-dirty-jump-tip"
+            class="settings-sr-only"
+          >{{ $t('settings.unsaved_jump_tip', { n: dirtyCount }) }}</span>
           <v-btn
             v-if="!searchOpen"
             icon
@@ -354,8 +365,9 @@
 
             <div class="pl-6" v-if="s.groups && s.groups.length">
             <template v-for="grp in s.groups">
+              <!-- 父开关本身也能改脏，必须给出 f-<key> 锚点，否则逐项跳转会退回整张卡片 -->
+              <div :key="'w-' + grp.key" :id="'f-' + grp.key">
               <v-checkbox
-                :key="grp.key"
                 small
                 hide-details
                 v-model="settings[grp.key]"
@@ -364,6 +376,7 @@
                 @change="$delete(forceOpen, grp.key)"
               >
               </v-checkbox>
+              </div>
               <template v-if="settings[grp.key] || forceOpen[grp.key]">
                 <div class="pl-6" :key="grp.key + '-fields'">
                 <template v-for="f in grp.fields">
@@ -1112,7 +1125,7 @@
         :tabindex="dirtyCount > 0 ? 0 : -1"
         :aria-disabled="dirtyCount > 0 ? null : 'true'"
         :title="dirtyCount > 0 ? $t('settings.unsaved_jump_tip', { n: dirtyCount }) : null"
-        :aria-label="dirtyCount > 0 ? $t('settings.unsaved_jump_tip', { n: dirtyCount }) : null"
+        :aria-describedby="dirtyCount > 0 ? 'settings-dirty-jump-tip' : null"
         @click="jumpToNextDirty"
       >
         <v-icon small :color="dirtyCount > 0 ? 'orange' : 'green'" class="mr-2">
@@ -3164,9 +3177,11 @@ export default {
       this.searchQ = "";
       this.searchOpen = false;
       this.activeGroup = r.gid;
-      // 极速模式/缩略图缓存关闭后其子项被 v-if 隐藏；跳转只做视图层展开
-      if (r.key.indexOf("LITE_GROUP_") === 0) this.forceLiteGroups = true;
-      if (r.key === "CACHE_MAX_MB") this.forceCacheSize = true;
+      // 极速模式/缩略图缓存关闭后其子项被 v-if 隐藏；跳转只做视图层展开，
+      // 并且只在「本次跳转确实需要」时展开——否则跳完一次后隐藏子项会一直可见，
+      // 用户能在 PERFORMANCE_MODE=normal 下改到平时看不见的设置并保存掉
+      this.forceLiteGroups = r.key.indexOf("LITE_GROUP_") === 0;
+      this.forceCacheSize = r.key === "CACHE_MAX_MB";
       if (r.parentKey) {
         // 只做视图层展开：写真实 settings 会静默开启 INVITE_MODE 等父开关并计入未保存数
         this.$set(this.forceOpen, r.parentKey, true);
@@ -3762,6 +3777,18 @@ export default {
   display: inline-flex;
   align-items: center;
   flex: 0 0 auto;
+}
+/* 仅读屏可见（aria-describedby 的描述源）：不能 display:none，那样描述会丢失 */
+.settings-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 .settings-search-btn {
   flex: 0 0 auto;
