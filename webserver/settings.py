@@ -188,6 +188,7 @@ settings = {
     "ENABLE_WEBDAV_SERVICE": True,
     "WEBDAV_SYNC_FOLDER": False,
     "ENABLE_DATA_SYNC": True,
+    "ENABLE_KOREADER_SERVICE": True,
     "MYREADER_SYNC_PATH": "/data/sync/",
     "ENABLE_BOOK_REVIEW": True,            # 允许用户对书籍进行评论及评分
     "REVIEW_REQUIRES_APPROVAL": False,     # 评论需要审核后才能展示

@@ -2407,6 +2407,19 @@ export default {
             ],
           },
           {
+            id: "proto-koreader",
+            icon: "mdi-book-open-page-variant-outline",
+            title: "settings.sec_proto_koreader",
+            fields: [
+              {
+                icon: "mdi-book-open-page-variant-outline",
+                key: "ENABLE_KOREADER_SERVICE",
+                label: "settings.enable_koreader_service",
+                type: "checkbox",
+              },
+            ],
+          },
+          {
             id: "proto-podcast",
             icon: "mdi-podcast",
             title: "settings.sec_proto_podcast",

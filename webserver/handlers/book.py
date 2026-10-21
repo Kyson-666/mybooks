@@ -1665,7 +1665,8 @@ class BookReadDone(BaseHandler):
         total_cnt = query.count()
 
         start = self.get_argument_start()
-        delta = CONF.get("DEFAULT_PAGE_SIZE", 60)
+        page_size = CONF.get("DEFAULT_PAGE_SIZE", 60)
+        delta = max(min(int(self.get_argument("size", page_size)), 200), 10)
         reading_states = query.order_by(ReadingState.read_date.desc()).limit(delta).offset(start).all()
 
         # 批量获取所有书籍

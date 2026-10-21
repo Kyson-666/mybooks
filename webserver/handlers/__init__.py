@@ -16,6 +16,7 @@ def routes():
     from . import barcode
     from . import toolbox
     from . import tts
+    from . import koreader
 
     routes = []
     routes += assistant.routes()
@@ -30,5 +31,6 @@ def routes():
     routes += audio.routes()
     routes += toolbox.routes()
     routes += tts.routes()
+    routes += koreader.routes()
     routes += static_files.routes()
     return routes

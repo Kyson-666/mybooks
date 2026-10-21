@@ -618,6 +618,7 @@ class Reading(Base, SQLAlchemyMixin):
     PROTOCOL_WEBDAV = "webdav"    # action=download
     PROTOCOL_DEVICE = "device"    # action=push
     PROTOCOL_EMAIL = "email"      # action=push
+    PROTOCOL_KOREADER = "koreader"  # action=read | download
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     reader_id = Column(Integer, ForeignKey("readers.id"), nullable=False)
