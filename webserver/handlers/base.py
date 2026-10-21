@@ -1826,7 +1826,8 @@ class BaseHandler(web.RequestHandler):
                 "enable_podcast_service": CONF.get("ENABLE_PODCAST_SERVICE", False),
                 "enable_opds_service": CONF.get("ENABLE_OPDS_SERVICE", True),
                 "enable_webdav_service": CONF.get("ENABLE_WEBDAV_SERVICE", True),
-                # 旧默认列表缺 authors/friends/booklists：读取期补齐，不改用户存的配置
+                # 读取期下发：迁移标记未置位时补齐旧默认缺的 authors/friends/booklists，
+                # 置位后以 stored 为权威原样返回；两种情况都不改写用户存的配置（见 sidebar.py）
                 "sidebar_items": get_sidebar_items(CONF),
                 "invited_enabled": self.need_invited(),
                 "showUserInfo": CONF.get("ENABLE_AUTHOR_INFO", False),

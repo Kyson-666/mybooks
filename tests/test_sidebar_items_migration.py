@@ -17,6 +17,7 @@ from unittest import mock
 from webserver.base import sidebar as sidebar_module
 from webserver.base.sidebar import (
     SIDEBAR_DEFAULT_ITEMS,
+    SIDEBAR_ITEMS_MIGRATED_KEY,
     SIDEBAR_LEGACY_DEFAULTS,
     normalize_sidebar_items,
 )
@@ -107,6 +108,56 @@ class TestNormalizeSidebarItems(unittest.TestCase):
         with mock.patch("webserver.loader.get_settings", return_value={"SIDEBAR_ITEMS": ["none"]}):
             self.assertEqual(["none"], sidebar_module.get_sidebar_items())
 
+    def test_marker_absent_defaults_to_unmigrated_and_repairs(self):
+        """settings 没有标记键时按未迁移处理：仍补齐陈旧默认。"""
+        served = sidebar_module.get_sidebar_items({"SIDEBAR_ITEMS": list(LEGACY_ITEMS)})
+        self.assertEqual(list(SIDEBAR_DEFAULT_ITEMS), served)
+
+
+class TestSidebarMigrationMarkerUnit(unittest.TestCase):
+    """标记 SIDEBAR_ITEMS_MIGRATED 的读取语义：为真后 stored 列表即权威，不再补齐。
+
+    今天坏掉的正是「标记为真 + stored 恰等于旧默认集合」这一格——管理员有意关掉
+    作者/友情链接/阅读书单全部三项，存的正好是那 10 项旧默认集合，若继续补齐会被
+    还原成 13 项、三项永久无法隐藏。
+    """
+
+    def serve(self, stored, migrated):
+        settings = {
+            "SIDEBAR_ITEMS": list(stored),
+            SIDEBAR_ITEMS_MIGRATED_KEY: migrated,
+        }
+        return sidebar_module.get_sidebar_items(settings)
+
+    def test_marker_false_repairs_legacy_default(self):
+        served = self.serve(LEGACY_ITEMS, False)
+        self.assertEqual(list(SIDEBAR_DEFAULT_ITEMS), served)
+        for key in NEW_KEYS:
+            self.assertIn(key, served)
+
+    def test_marker_true_returns_legacy_stored_unchanged(self):
+        """标记为真 + stored 恰为旧默认集合 → 原样返回，三项保持隐藏。"""
+        served = self.serve(LEGACY_ITEMS, True)
+        self.assertEqual(list(LEGACY_ITEMS), served)
+        for key in NEW_KEYS:
+            self.assertNotIn(key, served)
+
+    def test_marker_true_never_mutates_stored(self):
+        """标记为真的分支同样只读，返回的是副本，用户存的列表一个字都不动。"""
+        stored = list(LEGACY_ITEMS)
+        served = self.serve(stored, True)
+        served.append("hacked")
+        self.assertEqual(list(LEGACY_ITEMS), stored)
+
+    def test_marker_true_keeps_empty_sentinel_and_custom(self):
+        self.assertEqual([], self.serve([], True))
+        self.assertEqual(["none"], self.serve(["none"], True))
+        self.assertEqual(["tags", "series"], self.serve(["tags", "series"], True))
+
+    def test_normalize_sidebar_items_stays_pure(self):
+        """门控只发生在 get_sidebar_items；normalize 本身不认标记，仍按旧默认补齐。"""
+        self.assertEqual(list(SIDEBAR_DEFAULT_ITEMS), normalize_sidebar_items(list(LEGACY_ITEMS)))
+
 
 class TestSidebarItemsServedToInfo(unittest.TestCase):
     """下发路径断言：/user/info 的 sys.sidebar_items 与设置页读到的必须是同一份归一化。"""
@@ -163,11 +214,26 @@ class TestSidebarItemsServedToInfo(unittest.TestCase):
         self.assertEqual(["none"], self.served(["none"]))
         self.assertEqual([], self.served([]))
 
+    def test_sync_and_async_with_marker_hide_all_three(self):
+        """标记为真：/user/info 下发以 stored 为权威，旧默认集合原样返回、三项仍隐藏。"""
+        from webserver.handlers import base as base_module
+
+        with mock.patch.dict(base_module.CONF, {
+            "SIDEBAR_ITEMS": list(LEGACY_ITEMS),
+            SIDEBAR_ITEMS_MIGRATED_KEY: True,
+        }):
+            sync_info = self.handler.get_sys_info()
+            async_info = asyncio.run(self.handler.get_sys_info_async())
+        self.assertEqual(sync_info["sidebar_items"], async_info["sidebar_items"])
+        self.assertEqual(list(LEGACY_ITEMS), sync_info["sidebar_items"])
+        for key in NEW_KEYS:
+            self.assertNotIn(key, sync_info["sidebar_items"])
+
 
 class TestAdminSettingsPageRead(unittest.TestCase):
     """设置页 GET 必须看到补齐后的列表，否则管理员保存任意设置就把陈旧缺项固化下来。"""
 
-    def load(self, stored):
+    def load(self, stored, migrated=False):
         """打开设置页，返回（页面看到的列表, 读完后 CONF 里仍存的列表）。"""
         from webserver.handlers import admin as admin_module
         from webserver.handlers.admin import AdminSettings
@@ -193,6 +259,7 @@ class TestAdminSettingsPageRead(unittest.TestCase):
         handler = FakeHandler()
         saved = dict(admin_module.CONF)
         admin_module.CONF["SIDEBAR_ITEMS"] = stored
+        admin_module.CONF[SIDEBAR_ITEMS_MIGRATED_KEY] = migrated
         try:
             with mock.patch.object(admin_module.BookSearch, "all_sources", return_value=[]):
                 asyncio.run(AdminSettings.get(handler))
@@ -222,6 +289,110 @@ class TestAdminSettingsPageRead(unittest.TestCase):
         shown, stored = self.load(["none"])
         self.assertEqual(["none"], shown)
         self.assertEqual(["none"], stored)
+
+    def test_marker_true_shows_stored_authoritatively(self):
+        """标记为真：设置页必须显示 stored 原样，否则管理员再次保存会把三项藏掉的意图洗掉。"""
+        shown, stored = self.load(list(LEGACY_ITEMS), migrated=True)
+        self.assertEqual(list(LEGACY_ITEMS), shown)
+        self.assertEqual(list(LEGACY_ITEMS), stored)
+        for key in NEW_KEYS:
+            self.assertNotIn(key, shown)
+
+
+class TestAdminSaveSetsAndPersistsMarker(unittest.TestCase):
+    """保存设置页 = 无条件置迁移标记并落盘；之后 stored 列表以权威返回，三项能真正藏住。"""
+
+    class PostHandler:
+        """只提供 AdminSettings.post 与 @js/@auth 需要的属性/方法。"""
+
+        def __init__(self, payload):
+            import json
+            self.current_user = object()
+            self.admin_user = True
+            self.request = mock.Mock()
+            self.request.body = json.dumps(payload).encode("utf-8")
+            self.request.headers = {}
+            self.written = None
+
+        def set_header(self, *args, **kwargs):
+            pass
+
+        def write(self, rsp):
+            self.written = rsp
+
+        def finish(self):
+            pass
+
+    def post(self, payload):
+        from webserver.handlers import admin as admin_module
+        from webserver.handlers.admin import AdminSettings
+
+        captured = {}
+
+        def fake_save(self, args):
+            # args 即 SettingsSaver.save_extra_settings 内 dumpfile() 落盘的对象，
+            # 捕获它 == 断言会写进 auto.py 的最终内容。
+            captured.update(args)
+            return {"err": "ok", "rsp": dict(args)}
+
+        handler = self.PostHandler(payload)
+        with mock.patch.object(admin_module.SettingsSaver, "save_extra_settings", fake_save):
+            asyncio.run(AdminSettings.post(handler))
+        return handler.written, captured
+
+    def test_first_save_marks_and_persists_marker(self):
+        _, captured = self.post({"SIDEBAR_ITEMS": list(LEGACY_ITEMS)})
+        self.assertIs(True, captured[SIDEBAR_ITEMS_MIGRATED_KEY])
+        self.assertEqual(list(LEGACY_ITEMS), captured["SIDEBAR_ITEMS"])
+
+    def test_hiding_all_three_survives_save_then_read(self):
+        """完整 save→read：取消勾选全部三项并保存后，下发值仍是这 10 项、三项保持隐藏。"""
+        _, captured = self.post({"SIDEBAR_ITEMS": list(LEGACY_ITEMS)})
+        served = sidebar_module.get_sidebar_items({
+            "SIDEBAR_ITEMS": captured["SIDEBAR_ITEMS"],
+            SIDEBAR_ITEMS_MIGRATED_KEY: captured[SIDEBAR_ITEMS_MIGRATED_KEY],
+        })
+        self.assertEqual(list(LEGACY_ITEMS), served)
+        for key in NEW_KEYS:
+            self.assertNotIn(key, served)
+
+    def test_marker_true_survives_second_unrelated_save(self):
+        """第二次保存只动别的字段：服务端仍重申标记为真，SIDEBAR_ITEMS 不被重新补齐。"""
+        _, captured = self.post({
+            "site_title": "新标题",
+            "SIDEBAR_ITEMS": list(LEGACY_ITEMS),
+            # 前端 payload 不可能带这个键（无 UI 控件），这里即便误传真意之外的假值，
+            # 服务端也必须覆盖回真——证明它不会被一次普通保存意外抹回假。
+            SIDEBAR_ITEMS_MIGRATED_KEY: False,
+        })
+        self.assertIs(True, captured[SIDEBAR_ITEMS_MIGRATED_KEY])
+        self.assertEqual("新标题", captured["site_title"])
+        self.assertEqual(list(LEGACY_ITEMS), captured["SIDEBAR_ITEMS"])
+        served = sidebar_module.get_sidebar_items({
+            "SIDEBAR_ITEMS": captured["SIDEBAR_ITEMS"],
+            SIDEBAR_ITEMS_MIGRATED_KEY: captured[SIDEBAR_ITEMS_MIGRATED_KEY],
+        })
+        self.assertEqual(list(LEGACY_ITEMS), served)
+        for key in NEW_KEYS:
+            self.assertNotIn(key, served)
+
+    def test_marker_survives_save_partial(self):
+        """别的工具用 save_partial 保存无关字段时，标记已在 PERSISTABLE_KEYS，会被带下去。"""
+        from webserver.base import setting_saver
+        from webserver.base.setting_saver import SettingsSaver
+
+        captured = {}
+
+        def fake_save(self, args):
+            captured.update(args)
+            return {"err": "ok"}
+
+        conf = {SIDEBAR_ITEMS_MIGRATED_KEY: True, "SIDEBAR_ITEMS": list(LEGACY_ITEMS)}
+        with mock.patch.dict(setting_saver.CONF, conf, clear=False), mock.patch.object(
+            SettingsSaver, "save_extra_settings", fake_save
+        ):
+            SettingsSaver().save_partial({"BOOKBARN_TOKEN": "t"})
+        self.assertIs(True, captured[SIDEBAR_ITEMS_MIGRATED_KEY])
 
 
 if __name__ == "__main__":

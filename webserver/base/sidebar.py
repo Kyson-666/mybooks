@@ -12,14 +12,26 @@
 于是 ``showItem`` 会把这三项判为「管理员取消勾选」而永久隐藏。缺席的键不可能是用户
 主动取消勾选的结果（它在旧版本根本不是合法值），所以这是可证明的配置陈旧，而非用户意图。
 
-处理方式与 ``webserver/base/homepage.py`` 一致：**只在读取期归一化，绝不回写配置**。
-- 存的列表与某一代旧默认列表**集合相同** → 视为新默认列表（补上三个新键）。
-- 集合不同（真·自定义子集，如 ``["tags","series"]``）→ 原样返回，用户意图必须继续生效。
-- 空列表 → 原样返回（历史语义「全部显示」）。
-- 仅含哨兵 ``none`` → 原样返回（「全部隐藏」；旧默认列表非空，永不与之冲突）。
+处理方式与 ``webserver/base/homepage.py`` 同源，但**补齐只在一次性迁移标记为假时介入**：
+- 标记 ``SIDEBAR_ITEMS_MIGRATED``（服务端内部键，设置页无对应控件）默认 ``False``。
+- ``False``（站点还没保存过设置页）：按「升级期陈旧默认」补齐——
+  - 存的列表与某一代旧默认列表**集合相同** → 视为新默认列表（补上三个新键）。
+  - 集合不同（真·自定义子集，如 ``["tags","series"]``）→ 原样返回，用户意图继续生效。
+  - 空列表 → 原样返回（历史语义「全部显示」）。
+  - 仅含哨兵 ``none`` → 原样返回（「全部隐藏」；旧默认列表非空，永不与之冲突）。
+- ``True``（管理员保存过设置页）：stored 列表即权威，**不再补齐**。管理员有意「关掉
+  作者 + 友情链接 + 阅读书单全部三项」时存的正好是那 10 项旧默认集合，若继续补齐会被
+  直接还原成 13 项、三项永久无法隐藏，故标记为真后原样返回。
+
+标记在 ``AdminSettings.post``（管理员保存设置页）处置 True 并落盘，先例见
+``SYNC_LEGACY_MIGRATION_DONE``。读取期仍只读不写：``normalize_sidebar_items`` 保持纯函数、
+绝不回写配置，门控发生在 ``get_sidebar_items``（读设置、看得见标记的唯一入口）。
 
 本模块只有纯函数与一个读设置的便捷入口：不碰 DB、不写配置，方便单测。
 """
+
+# 一次性迁移标记：管理员保存过设置页即置 True，之后 SIDEBAR_ITEMS 不再被读取期补齐改写。
+SIDEBAR_ITEMS_MIGRATED_KEY = "SIDEBAR_ITEMS_MIGRATED"
 
 # 「全部隐藏」哨兵：设置页全不勾选时由前端写入，它不是导航项，仅表示全部隐藏。
 SIDEBAR_NO_ITEM = "none"
@@ -70,9 +82,17 @@ def normalize_sidebar_items(raw):
 
 
 def get_sidebar_items(settings=None):
-    """读设置并归一化；入口与 ``get_homepage_config()`` 一致，两处调用方共用本函数。"""
+    """读设置并归一化；入口与 ``get_homepage_config()`` 一致，两处调用方共用本函数。
+
+    迁移标记 ``SIDEBAR_ITEMS_MIGRATED`` 为真时 stored 列表由管理员权威决定，原样返回，
+    不再做旧默认补齐（否则「关掉全部三项」会被还原成 13 项）；标记为假时才补齐陈旧默认。
+    只读、不回写配置。
+    """
     if settings is None:
         from webserver import loader
 
         settings = loader.get_settings()
-    return normalize_sidebar_items(settings.get("SIDEBAR_ITEMS", []))
+    raw = settings.get("SIDEBAR_ITEMS", [])
+    if settings.get(SIDEBAR_ITEMS_MIGRATED_KEY, False):
+        return list(raw) if isinstance(raw, (list, tuple)) else []
+    return normalize_sidebar_items(raw)
