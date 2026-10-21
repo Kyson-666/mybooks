@@ -2871,7 +2871,7 @@ export default {
       }
     }
   },
-methods: {
+  methods: {
     // lockOn 指定的总开关开启后，该字段失去意义：显示为已勾选且不可取消，
     // 但不回写 settings，保留用户原先保存的访客权限值，关掉总开关后原样恢复。
     isFieldLockedBy(f) {
@@ -2885,8 +2885,10 @@ methods: {
       this.$set(this.settings, f.key, value);
     },
     // checkbox_list 里带 requires 的选项：依赖的总开关关闭时置灰且显示为未勾选。
-    // 锁定本身不改写 settings，重新打开总开关后按原勾选恢复；用户若在此期间改过列表，
-    // 则以当时看到的勾选状态为准。
+    // 锁定只是显示层的判断，不改写 settings[f.key]：checkboxListInputValue 把锁定项从
+    // 展示数组里滤掉（所以它呈现为未勾选、也点不动），而 onCheckboxListChange 保存时会把
+    // 「已存储但当前锁定」的值补回去。于是重新打开总开关后原勾选照旧恢复，用户在锁定期间
+    // 改动其它选项也不会把该值永久删掉。
     isCheckboxOptionLocked(f, opt) {
       return !!(opt && opt.requires && this.settings && !this.settings[opt.requires]);
     },
@@ -2897,11 +2899,20 @@ methods: {
       );
     },
     onCheckboxListChange(f, value) {
-      // 与显示保持一致：锁定项不在可编辑数组里，用户改动列表时按当前所见保存。
+      // Vuetify 2 的 Selectable 用 input-value 播种 internalValue，勾选框 change 抛出的数组
+      // 必然不含当前锁定项，直接照原样保存就会永久删掉它（如关掉「文件夹浏览」期间改一次
+      // 列表就再也回不来）。所以先把「已存储且此刻锁定」的值按存储顺序补回，再落库。
+      // 补回必须在空值哨兵判断之前：只剩锁定项的列表不是「全不勾选」，不该写 "none"。
       // SIDEBAR_ITEMS 的空数组历史上表示「全部显示」，全不勾选时写 emptyValue 哨兵，
       // 让「全部隐藏」也能保存生效，同时不影响旧配置的空数组语义。
       const sentinel = f.emptyValue;
-      let next = (Array.isArray(value) ? value : []).filter((item) => item !== sentinel);
+      const emitted = (Array.isArray(value) ? value : []).filter((item) => item !== sentinel);
+      const stored = Array.isArray(this.settings[f.key]) ? this.settings[f.key] : [];
+      const locked = stored.filter(
+        (item) => item !== sentinel && (f.items || []).some((opt) => opt.value === item && this.isCheckboxOptionLocked(f, opt))
+      );
+      const missing = locked.filter((item) => emitted.indexOf(item) < 0);
+      let next = emitted.concat(missing);
       if (sentinel && next.length === 0) next = [sentinel];
       this.$set(this.settings, f.key, next);
     },
