@@ -172,8 +172,10 @@ export default {
             if (!count) {
                 return '30s';
             }
-            const seconds = Math.max(14, Math.round((count * (60 + COVER_GAP)) / MARQUEE_SPEED));
-            return seconds + 's';
+            // 纯按「一份内容的宽度 ÷ 线速度」算，不留 14s 之类的最小值：
+            // 一旦夹了下限，短封面的书单就会滚得比设定的 26px/s 慢
+            const seconds = (count * (60 + COVER_GAP)) / MARQUEE_SPEED;
+            return Math.max(seconds, 1).toFixed(1) + 's';
         },
     },
     watch: {
@@ -285,10 +287,10 @@ export default {
                 return;
             }
             const itemWidth = item.getBoundingClientRect().width + COVER_GAP;
-            // 动画里会把封面复制一份，所以判断依据是"两份能不能铺满可视区"：
-            // 铺得满就一直流动（大屏上一份本来就放得下，也让它慢慢滚，这才是书单封面的看点）；
-            // 铺不满（书单只有两三本）就静止，否则会露出大片空白
-            this.marqueeActive = itemWidth * this.covers.length * 2 > available + 2;
+            // 必须"一份封面就铺满可视区"才滚：动画会把封面复制一份并把 track 平移一份宽，
+            // 若一份比视口窄，平移到终点后视口右边界会越过第二份的末尾，露出空白条。
+            // 铺不满（书单只有几本）时保持静止，靠手动横滑查看
+            this.marqueeActive = itemWidth * this.covers.length > available + 2;
         },
     },
 };

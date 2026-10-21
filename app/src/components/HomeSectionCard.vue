@@ -111,6 +111,15 @@ export default {
     }
 }
 
+/* 减少动效时连阴影过渡也去掉。这条规则必须在本组件里：
+   index.vue 的 reduce 规则只覆盖了 .book-card / .book-img-hover / .library-stats-bar，
+   遗漏了 .home-section-card */
+@media (prefers-reduced-motion: reduce) {
+    .home-section-card {
+        transition: none;
+    }
+}
+
 .theme--dark .home-section-card {
     background: rgba(0, 0, 0, 0.8);
 }
