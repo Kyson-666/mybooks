@@ -231,6 +231,7 @@ export default {
     height: 100%;
     overflow: hidden;
     border-radius: 12px;
+    transition: transform 200ms cubic-bezier(0.22, 0.61, 0.36, 1), box-shadow 200ms ease;
 }
 .book-select-badge {
     position: absolute;
@@ -247,8 +248,23 @@ export default {
     box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25);
     cursor: pointer;
 }
-.book-list-card .v-card:hover {
-    transform: translateY(-1px);
+/* 与首页其它区块书卡（index.vue 的 .home-section-slot .book-card）保持同一套手感：
+   上浮 3px + 阴影，原来只有 1px 且没有过渡，和书单卡切换时会明显不一致 */
+@media (hover: hover) and (pointer: fine) {
+    .book-list-card .v-card:hover {
+        transform: translateY(-3px);
+        box-shadow: 0 8px 20px rgba(0, 0, 0, 0.14);
+    }
+
+    .theme--dark .book-list-card .v-card:hover {
+        box-shadow: 0 8px 20px rgba(0, 0, 0, 0.55);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .book-list-card .v-card {
+        transition: none;
+    }
 }
 .book-list-card .v-card > .row {
     flex: 1;

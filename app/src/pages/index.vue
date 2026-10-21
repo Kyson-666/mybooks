@@ -91,7 +91,7 @@
                             <div class="book-img-container reading-book-cover" :title="book.title">
                                 <v-img
                                     :src="book.thumb"
-                                    class="cover-fill-img"
+                                    class="cover-fill-img book-img-hover"
                                 ></v-img>
                                 <a
                                     class="reading-hover-overlay"
@@ -969,6 +969,60 @@ export default {
 /* Ensure close button text is also 16px */
 .release-notes-card .v-btn {
     font-size: 16px !important;
+}
+
+/* ── 首页卡片悬停反馈 ──────────────────────────────────────────────
+   整卡轻微上浮 + 阴影，和封面自身的放大叠在一起，让各区块手感一致。
+   时长/缓动/位移统一收在下面三个变量里，以后调手感只改这里。 */
+.home-sections-container {
+    --card-hover-lift: -3px;
+    --card-hover-duration: 200ms;
+    --card-hover-ease: cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+
+/* 前缀 .home-section-slot 不能省：本文件的样式是非 scoped 的全局样式，
+   而 .book-card 这个类 history.vue 也在用，不加前缀会波及那些页面 */
+.home-section-slot .book-card .v-card {
+    transition:
+        transform var(--card-hover-duration) var(--card-hover-ease),
+        box-shadow var(--card-hover-duration) ease;
+}
+
+.library-stats-bar {
+    transition: box-shadow var(--card-hover-duration) ease;
+}
+
+/* 只在真正有鼠标指针的设备上启用悬停位移，避免触屏上点完一直"粘"着 */
+@media (hover: hover) and (pointer: fine) {
+    .home-section-slot .book-card .v-card:hover {
+        transform: translateY(var(--card-hover-lift));
+        box-shadow: 0 8px 20px rgba(0, 0, 0, 0.14);
+    }
+
+    .theme--dark .home-section-slot .book-card .v-card:hover {
+        box-shadow: 0 8px 20px rgba(0, 0, 0, 0.55);
+    }
+
+    /* 在读卡片的封面上盖着 .reading-hover-overlay 圆形按钮，指针落在按钮上而不是图片上，
+       所以这里不能用 .book-img-hover:hover，必须跟着容器走。放大倍数也比其它卡小，
+       免得和按钮自己的弹出动画抢视线 */
+    .reading-book-cover:hover .book-img-hover {
+        transform: translateY(-50%) scale(1.08);
+    }
+
+    .library-stats-bar:hover {
+        box-shadow: 0 10px 18px rgba(0, 0, 0, 0.2);
+    }
+}
+
+/* 用户要求减少动效时只去掉过渡（瞬间切换终态），不改 transform 本身 ——
+   .cover-fill-img 靠 translateY(-50%) 做垂直居中，这里覆写成 none 会让封面错位 */
+@media (prefers-reduced-motion: reduce) {
+    .home-section-slot .book-card .v-card,
+    .book-img-hover,
+    .library-stats-bar {
+        transition: none;
+    }
 }
 </style>
 

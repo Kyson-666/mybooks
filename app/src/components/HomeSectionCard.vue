@@ -101,6 +101,14 @@ export default {
     margin-top: 5px;
     margin-bottom: 15px;
     box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
+    transition: box-shadow 200ms ease;
+}
+
+/* 悬停整块卡片时只加深一层阴影，不做位移：区块卡片很大，位移会带着内部封面一起抖 */
+@media (hover: hover) and (pointer: fine) {
+    .home-section-card:hover {
+        box-shadow: 0 6px 22px rgba(0, 0, 0, 0.12);
+    }
 }
 
 .theme--dark .home-section-card {
