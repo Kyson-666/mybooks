@@ -150,6 +150,15 @@ local function download(api, book, fmt, expected)
             thumb = book.thumb,
             formats = formats_of(book),
         })
+        State.set_link(saved, {
+            book_id = book.id,
+            format = fmt,
+            title = book.title,
+            author = book.author,
+            md5 = md5_of(saved),
+            path = saved,
+            pushed_at = 0,
+        })
         Toast.show(I18N.T("download_done"))
         if State.setting("auto_open", true) then
             M.open_file(saved)

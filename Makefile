@@ -1,4 +1,4 @@
-.PHONY: all build push test
+.PHONY: all build push test plugin
 
 VER := $(shell git branch --show-current)
 IMAGE := poxenstudio/mybooks:$(VER)
@@ -65,6 +65,15 @@ lint:
 
 pytest: lint
 	pytest tests
+
+PLUGIN_DIR := koreader_plugin/mybooks.koplugin
+PLUGIN_OUT := koreader_plugin/dist/mybooks.zip
+
+plugin:
+	@mkdir -p $(dir $(PLUGIN_OUT))
+	@rm -f $(PLUGIN_OUT)
+	@cd koreader_plugin && zip -rq $(abspath $(PLUGIN_OUT)) mybooks.koplugin -x "*.DS_Store" "*.git*"
+	@echo "Built $(PLUGIN_OUT)"
 
 up:
 	docker compose up

@@ -119,6 +119,30 @@ function M.show(api)
                 page:set_items(build(), true)
             end),
 
+            MenuUI.header(I18N.T("sync_section")),
+            toggle_row(I18N.T("sync_progress"), State.setting("sync_progress", true), function()
+                State.set_setting("sync_progress", not State.setting("sync_progress", true))
+                page:set_items(build(), true)
+            end),
+            toggle_row(I18N.T("sync_reading_seconds"), State.setting("sync_reading_seconds", true), function()
+                State.set_setting("sync_reading_seconds", not State.setting("sync_reading_seconds", true))
+                page:set_items(build(), true)
+            end),
+            toggle_row(I18N.T("sync_annotations"), State.setting("sync_annotations", true), function()
+                State.set_setting("sync_annotations", not State.setting("sync_annotations", true))
+                page:set_items(build(), true)
+            end),
+            value_row(I18N.T("sync_status"), I18N.T("sync_status_fmt",
+                #State.pending_keys(), #State.pending_seconds_keys(), State.links_count()), nil),
+            value_row(I18N.T("sync_now"), "", function()
+                local Sync = require("mybooks_sync")
+                Sync.flush_pending(api)
+                Sync.flush_state(api)
+                Sync.flush_seconds(api)
+                Toast.show(I18N.T("sync_done"))
+                page:set_items(build(), true)
+            end),
+
             MenuUI.header(I18N.T("about_section")),
             value_row(I18N.T("version"), DeviceInfo.plugin_version()),
             value_row(I18N.T("server_version"), server.version or "—"),

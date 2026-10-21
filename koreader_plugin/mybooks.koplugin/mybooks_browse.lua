@@ -183,7 +183,24 @@ end
 function M.book_actions(api, book)
     local Detail = require("mybooks_detail")
     local Download = require("mybooks_download")
+    local Sync = require("mybooks_sync")
     local dialog
+    local function current_state()
+        local rsp, err = api:get("/states", { ids = tostring(book.id) })
+        if rsp and not err and rsp.states then
+            return rsp.states[tostring(book.id)] or {}
+        end
+        return {}
+    end
+    local function toggle(key, value)
+        local changes = {}
+        changes[key] = value
+        local rsp = Sync.push_state(api, { book_id = book.id, format = "epub" }, changes)
+        if not rsp then
+            Toast.error(ListView.error_text("network"))
+        end
+    end
+    local state = current_state()
     local buttons = {
         {
             {
@@ -200,6 +217,31 @@ function M.book_actions(api, book)
                 callback = function()
                     UIManager:close(dialog)
                     Download.start(api, book)
+                end,
+            },
+        },
+        {
+            {
+                text = I18N.T(state.favorite and "unfavorite" or "favorite"),
+                callback = function()
+                    UIManager:close(dialog)
+                    toggle("favorite", not state.favorite)
+                end,
+            },
+            {
+                text = I18N.T(state.wants and "unwant" or "to_read"),
+                callback = function()
+                    UIManager:close(dialog)
+                    toggle("wants", not state.wants)
+                end,
+            },
+        },
+        {
+            {
+                text = I18N.T(state.read_state == 2 and "mark_unread" or "mark_read"),
+                callback = function()
+                    UIManager:close(dialog)
+                    toggle("read_state", state.read_state == 2 and 0 or 2)
                 end,
             },
         },

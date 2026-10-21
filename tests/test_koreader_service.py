@@ -76,7 +76,18 @@ class TestRoutes(unittest.TestCase):
         paths = [item[0] for item in koreader.routes()]
         self.assertEqual(
             paths,
-            ["/api/koreader/session", "/api/koreader/home", "/api/koreader/states", "/api/koreader/search"],
+            [
+                "/api/koreader/session",
+                "/api/koreader/home",
+                "/api/koreader/states",
+                "/api/koreader/search",
+                r"/api/koreader/progress/(\d+)",
+                "/api/koreader/progress",
+                "/api/koreader/reading-seconds",
+                "/api/koreader/state",
+                "/api/koreader/match",
+                "/api/koreader/annotations",
+            ],
         )
 
 

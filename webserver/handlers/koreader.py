@@ -2,10 +2,24 @@
 # -*- coding: UTF-8 -*-
 """MyBooks KOReader plugin API: /api/koreader/*."""
 
-from webserver.handlers.base import BaseHandler, auth, js
+import logging
+
+import tornado.escape
+
+from webserver.handlers.base import BaseHandler, auth, js, throttle
 from webserver.handlers.book import SearchBook
 from webserver.i18n import _
 from webserver.services import koreader_service
+
+
+def _body(handler):
+    if not handler.request.body:
+        return {}
+    try:
+        data = tornado.escape.json_decode(handler.request.body)
+    except Exception:
+        return None
+    return data if isinstance(data, dict) else None
 
 
 class KoreaderSession(BaseHandler):
@@ -61,10 +75,73 @@ class KoreaderSearch(SearchBook):
         return await koreader_service.trim_search_response(self, rsp)
 
 
+class KoreaderWrite(BaseHandler):
+    @js
+    @auth
+    async def post(self):
+        if not koreader_service.is_enabled():
+            return koreader_service.disabled_error()
+        data = _body(self)
+        if data is None:
+            return {"err": "params.invalid", "msg": _("请求内容不是合法的 JSON")}
+        try:
+            return await self.handler_action(data)
+        except Exception:
+            logging.error("[koreader] %s failed", self.request.path, exc_info=True)
+            return {"err": "failed", "msg": _("服务器处理失败")}
+
+    async def handler_action(self, data):
+        raise NotImplementedError
+
+
+class KoreaderProgress(KoreaderWrite):
+    @throttle(write=True)
+    async def post(self):
+        return await super().post()
+
+    async def handler_action(self, data):
+        return await koreader_service.update_progress(self, data)
+
+
+class KoreaderReadingSeconds(KoreaderWrite):
+    async def handler_action(self, data):
+        return await koreader_service.update_reading_seconds(self, data)
+
+
+class KoreaderState(KoreaderWrite):
+    async def handler_action(self, data):
+        return await koreader_service.update_state(self, data)
+
+
+class KoreaderProgressGet(BaseHandler):
+    @js
+    @auth
+    async def get(self, book_id):
+        if not koreader_service.is_enabled():
+            return koreader_service.disabled_error()
+        return await koreader_service.get_progress(self, int(book_id), self.get_argument("format", "epub"))
+
+
+class KoreaderMatch(KoreaderWrite):
+    async def handler_action(self, data):
+        return await koreader_service.match_books(self, data)
+
+
+class KoreaderAnnotations(KoreaderWrite):
+    async def handler_action(self, data):
+        return await koreader_service.exchange_annotations(self, data)
+
+
 def routes():
     return [
         (r"/api/koreader/session", KoreaderSession),
         (r"/api/koreader/home", KoreaderHome),
         (r"/api/koreader/states", KoreaderStates),
         (r"/api/koreader/search", KoreaderSearch),
+        (r"/api/koreader/progress/(\d+)", KoreaderProgressGet),
+        (r"/api/koreader/progress", KoreaderProgress),
+        (r"/api/koreader/reading-seconds", KoreaderReadingSeconds),
+        (r"/api/koreader/state", KoreaderState),
+        (r"/api/koreader/match", KoreaderMatch),
+        (r"/api/koreader/annotations", KoreaderAnnotations),
     ]

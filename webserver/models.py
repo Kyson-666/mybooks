@@ -786,6 +786,33 @@ class ReadingRecord(Base, SQLAlchemyMixin):
     )
 
 
+# KOReader 插件上报的阅读位置，与 /api/sync 的 configs.location 分开存，避免互相覆盖。
+class KoreaderPosition(Base, SQLAlchemyMixin):
+    __tablename__ = "koreader_position"
+
+    reader_id = Column(Integer, ForeignKey("readers.id"), primary_key=True)
+    book_id = Column(Integer, primary_key=True)
+    format = Column(String(16), primary_key=True)
+    xpointer = Column(Text)
+    percent = Column(Float)
+    client_updated_at = Column(Integer)
+    device_id = Column(String(64))
+    device_name = Column(String(64))
+    update_time = Column(DateTime)
+
+    reader = relationship(Reader)
+
+    def format_dict(self):
+        return {
+            "xpointer": self.xpointer,
+            "percent": self.percent,
+            "client_updated_at": self.client_updated_at,
+            "device_id": self.device_id,
+            "device_name": self.device_name,
+            "update_time": self.update_time.isoformat() + "Z" if self.update_time else None,
+        }
+
+
 # 用户对某本书的评分 + 评论（"共读"里的评价 = 推荐，见 plan/Social_Reading_Plan.md §5.1）。
 # 每个用户对每本书最多一条（唯一约束），自行删除是软删除（deleted_at），管理员屏蔽是把
 # status 置为 hidden（prev_status 记录屏蔽前的状态，供"恢复"用），两者语义不同、互不覆盖。
@@ -1254,7 +1281,7 @@ def user_syncdb(engine):
 # 表结构随功能迭代新增的表，不希望依赖运维方手动重新执行 `--syncdb` 才能用上
 # （`docker/start.sh` 每次启动都会跑 --syncdb，但手工部署/测试环境不一定会），
 # 在正常的 make_app() 启动路径里也顺带补建一次，checkfirst=True 天然幂等。
-_NEW_TABLES_AUTO_ENSURE = (ReadingRecord, BookReview, InstalledTool, BookReadingStats, BookList, BookListBook, BookListLike, ManualReadingLog, BookVisit, BookShare, ScanDirSnapshot, MyNexusBookAnalysis, MyNexusChatSession)
+_NEW_TABLES_AUTO_ENSURE = (ReadingRecord, BookReview, InstalledTool, BookReadingStats, BookList, BookListBook, BookListLike, ManualReadingLog, BookVisit, BookShare, ScanDirSnapshot, MyNexusBookAnalysis, MyNexusChatSession, KoreaderPosition)
 
 
 def ensure_new_tables(engine):

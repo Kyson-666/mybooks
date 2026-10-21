@@ -193,7 +193,47 @@ function M.show(api, book)
         title = detail.title or "",
         items = build(),
     }
+    local function is_on(key)
+        local value = (detail.state or {})[key]
+        return value == true or value == 1
+    end
+    local function refresh_footer()
+        local buttons = page.footer_buttons
+        buttons[1].text = I18N.T(is_on("favorite") and "unfavorite" or "favorite")
+        buttons[2].text = I18N.T(is_on("wants") and "unwant" or "to_read")
+        buttons[3].text = I18N.T((detail.state or {}).read_state == 2 and "mark_unread" or "mark_read")
+    end
+    local function apply_state(changes)
+        local Sync = require("mybooks_sync")
+        local result = Sync.push_state(api, { book_id = detail.id, format = "epub" }, changes)
+        if result and result.state then
+            detail.state = result.state
+            refresh_footer()
+            page:set_items(build(), false)
+        else
+            Toast.error(I18N.T("err_network"))
+        end
+    end
     page.footer_buttons = {
+        {
+            text = I18N.T(is_on("favorite") and "unfavorite" or "favorite"),
+            hit = function()
+                apply_state({ favorite = not is_on("favorite") })
+            end,
+        },
+        {
+            text = I18N.T(is_on("wants") and "unwant" or "to_read"),
+            hit = function()
+                apply_state({ wants = not is_on("wants") })
+            end,
+        },
+        {
+            text = I18N.T((detail.state or {}).read_state == 2 and "mark_unread" or "mark_read"),
+            hit = function()
+                local finished = (detail.state or {}).read_state == 2
+                apply_state({ read_state = finished and 0 or 2 })
+            end,
+        },
         {
             text = I18N.T("download"),
             hit = function()
