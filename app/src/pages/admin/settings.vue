@@ -3430,7 +3430,7 @@ export default {
 .settings-group-bar {
   position: sticky;
   top: var(--settings-bar-top, 56px);
-  z-index: 1;
+  z-index: 2;
   padding: 10px 12px 8px;
   margin-bottom: 12px;
 }
