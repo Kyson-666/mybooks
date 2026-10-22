@@ -2,7 +2,7 @@
   <div>
     <v-row align="start">
         <v-col cols="12">
-            <MyNexusChatDialog :open.sync="mynexusChatOpen" :book="book" />
+            <MyNexusChatDialog :open.sync="mynexusChatOpen" :book="book" @unavailable="onMyNexusUnavailable" />
             <v-dialog v-model="dialog_converting" persistent width="460">
                 <v-card class="dialog-border">
                     <div style="height: 16px;"></div>
@@ -622,9 +622,11 @@
                                     rounded
                                     color="teal"
                                     class="white--text"
-                                    @click="mynexusChatOpen = true"
+                                    :disabled="mynexusChecking"
+                                    @click="openMyNexusChat"
                                 >
-                                    <v-icon left>mdi-forum-outline</v-icon>
+                                    <v-progress-circular v-if="mynexusChecking" indeterminate size="16" width="2" class="mr-1"></v-progress-circular>
+                                    <v-icon v-else left>mdi-forum-outline</v-icon>
                                     {{ $t('book.mynexusCompanion') }}
                                 </v-chip>
                                 <v-menu offset-y :close-on-content-click="false" v-model="categoryMenu" content-class="mt-category-menu">
@@ -1088,6 +1090,22 @@
         <v-alert type="info" text dense class="mt-4">
             {{ $t('book.separateHint') }}
         </v-alert>
+    </AppDialog>
+
+    <!-- MyNexus 解析结果失效，询问是否重新解读 -->
+    <AppDialog
+        v-model="dialog_mynexus_reanalyze"
+        type="confirm"
+        :title="$t('book.mynexusCompanion')"
+        icon="mdi-alert-circle-outline"
+        color="deep-purple"
+        confirm-dark
+        width="500"
+        :confirm-text="$t('book.mynexusReanalyze')"
+        :confirm-loading="mynexusRequesting"
+        @confirm="confirmMyNexusReanalyze"
+    >
+        <p>{{ $t('book.mynexusRemoteMissing') }}</p>
     </AppDialog>
 
     <!-- 删除书籍确认对话框 -->
@@ -1700,7 +1718,9 @@ export default {
         loaded: false,
         mynexusPollTimer: null,
         mynexusRequesting: false,
+        mynexusChecking: false,
         mynexusChatOpen: false,
+        dialog_mynexus_reanalyze: false,
         mynexusDescriptionTab: "description",
         ai_filling: false,
         catalog_extracting: false,
@@ -1919,6 +1939,41 @@ export default {
             } catch (error) {
                 console.error("Failed to refresh MyNexus availability:", error);
             }
+        },
+        async openMyNexusChat() {
+            if (!this.mynexusEnabled || this.mynexusChecking) return;
+            this.mynexusChecking = true;
+            try {
+                // Ask MyNexus whether the book still exists and is ready before
+                // opening the companion session.
+                const response = await this.$backend(`/book/${this.book.id}/mynexus/availability?verify=1`);
+                if (response.err !== "ok") {
+                    this.$alert("error", response.msg || this.$t("book.mynexusChatFailed"));
+                    return;
+                }
+                if (response.available) {
+                    this.mynexusChatOpen = true;
+                    return;
+                }
+                this.onMyNexusUnavailable(response.reason || "missing");
+            } catch (error) {
+                this.$alert("error", error.message || this.$t("book.mynexusChatFailed"));
+            } finally {
+                this.mynexusChecking = false;
+            }
+        },
+        onMyNexusUnavailable() {
+            this.$set(this.book, "ai_companion_available", false);
+            this.$set(this.book, "ai_reading_guide", "");
+            this.dialog_mynexus_reanalyze = true;
+        },
+        confirmMyNexusReanalyze() {
+            this.dialog_mynexus_reanalyze = false;
+            if (!this.isAdmin) {
+                this.$alert("warning", this.$t("book.mynexusReanalyzeAdminOnly"));
+                return;
+            }
+            this.startMyNexusAnalysis();
         },
         async startMyNexusAnalysis() {
             if (!this.mynexusEnabled) return;

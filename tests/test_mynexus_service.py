@@ -20,6 +20,8 @@ def test_response_messages_have_translations(language):
 
     messages = (
         "AI 助手暂不可用",
+        "AI解析结果已不存在",
+        "AI解析尚未完成",
         "JSON 请求格式无效",
         "MyNexus 会话失败",
         "MyNexus 未返回会话 ID",
@@ -185,3 +187,86 @@ def test_retry_remote_analysis_retries_the_failed_task(monkeypatch):
     assert polls == [42]
     assert analysis.status == "pending"
     assert analysis.error_msg == ""
+
+
+def _fake_threadpool(monkeypatch):
+    async def fake_run_in_threadpool(func, *args, **kwargs):
+        return func(*args, **kwargs)
+
+    monkeypatch.setattr(mynexus_handler.utils, "run_in_threadpool", fake_run_in_threadpool)
+
+
+class _CommitSession:
+    def __init__(self):
+        self.commits = 0
+
+    def commit(self):
+        self.commits += 1
+
+
+def test_refresh_remote_analysis_detects_book_deleted_from_mynexus(monkeypatch):
+    analysis = MyNexusBookAnalysis(42, status="completed")
+    analysis.remote_book_id = "remote-book"
+    session = _CommitSession()
+
+    class FakeClient:
+        def analysis_status(self, book_id):
+            raise MyNexusError(404, "book not found")
+
+    monkeypatch.setattr(mynexus_handler, "MyNexusClient", lambda *args, **kwargs: FakeClient())
+    _fake_threadpool(monkeypatch)
+
+    state, error = asyncio.run(
+        mynexus_handler._refresh_remote_analysis(session, analysis, 42)
+    )
+
+    assert (state, error) == ("missing", None)
+    assert analysis.status == "failed"
+    assert analysis.remote_book_id == ""
+
+
+def test_refresh_remote_analysis_reports_not_ready(monkeypatch):
+    analysis = MyNexusBookAnalysis(42, status="completed")
+    analysis.remote_book_id = "remote-book"
+    session = _CommitSession()
+
+    class FakeClient:
+        def analysis_status(self, book_id):
+            return {
+                "analysis_status": "processing",
+                "book_id": "remote-book",
+                "ingest_task": {"status": "processing", "progress": 30},
+            }
+
+    monkeypatch.setattr(mynexus_handler, "MyNexusClient", lambda *args, **kwargs: FakeClient())
+    _fake_threadpool(monkeypatch)
+
+    state, error = asyncio.run(
+        mynexus_handler._refresh_remote_analysis(session, analysis, 42)
+    )
+
+    assert (state, error) == ("not_ready", None)
+    assert analysis.status == "processing"
+    assert analysis.progress == 30
+
+
+def test_refresh_remote_analysis_surfaces_transport_errors(monkeypatch):
+    analysis = MyNexusBookAnalysis(42, status="completed")
+    analysis.remote_book_id = "remote-book"
+    session = _CommitSession()
+
+    class FakeClient:
+        def analysis_status(self, book_id):
+            raise MyNexusError(502, "MyNexus request failed")
+
+    monkeypatch.setattr(mynexus_handler, "MyNexusClient", lambda *args, **kwargs: FakeClient())
+    _fake_threadpool(monkeypatch)
+
+    state, error = asyncio.run(
+        mynexus_handler._refresh_remote_analysis(session, analysis, 42)
+    )
+
+    assert state is None
+    assert isinstance(error, MyNexusError)
+    # A transport failure must not mark the local analysis as failed.
+    assert analysis.status == "completed"

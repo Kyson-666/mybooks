@@ -85,6 +85,11 @@ export default {
             this.mynexusChatError = "";
             try {
                 const response = await this.$backend(`/book/${this.book.id}/mynexus/session`);
+                if (response.err === "mynexus.missing" || response.err === "mynexus.not_ready") {
+                    this.$emit("update:open", false);
+                    this.$emit("unavailable", response.err);
+                    return;
+                }
                 if (response.err !== "ok") throw new Error(response.msg || this.$t("book.mynexusChatFailed"));
                 this.mynexusMessages = response.messages || [];
                 if (this.mynexusMessages.length === 0 && this.book?.title) {

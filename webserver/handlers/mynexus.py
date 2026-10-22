@@ -164,6 +164,32 @@ def _persist_status(scoped_session, book_id, response):
         scoped_session.remove()
 
 
+REMOTE_MISSING_ERROR = "MyNexus has no book matching this MyBooks ID"
+
+
+async def _refresh_remote_analysis(session, analysis, book_id):
+    """Mirror the MyNexus analysis status of a book into our local record.
+
+    Returns ``(state, error)`` where ``state`` is ``"completed"``,
+    ``"not_ready"`` or ``"missing"``. ``error`` is a ``MyNexusError`` when
+    MyNexus itself could not be reached, so callers can surface the transport
+    failure instead of treating the book as deleted.
+    """
+    try:
+        client = MyNexusClient()
+        response = await utils.run_in_threadpool(client.analysis_status, book_id)
+    except MyNexusError as exc:
+        if exc.status_code == 404:
+            # The remote book (and therefore its AI analysis) no longer exists.
+            _mark_analysis_failed(session, analysis, REMOTE_MISSING_ERROR, clear_remote=True)
+            return "missing", None
+        return None, exc
+    _update_analysis(session, analysis, response)
+    if analysis.status == "completed":
+        return "completed", None
+    return "not_ready", None
+
+
 def _persist_failure(scoped_session, book_id, message):
     session = scoped_session()
     try:
@@ -350,7 +376,17 @@ class MyNexusSessionHandler(BaseHandler):
         ready = await self._ready_book(raw_id)
         if not ready:
             return {"err": "not_found", "msg": _("AI 助手暂不可用")}
-        book_id, _ = ready
+        book_id, analysis = ready
+        # Confirm with MyNexus that the book still exists and is ready before
+        # opening a session: the local record can be stale when the book was
+        # deleted from MyNexus.
+        state, error = await _refresh_remote_analysis(self.sqlite_session, analysis, book_id)
+        if error:
+            return {"err": "mynexus.error", "msg": error.message}
+        if state == "missing":
+            return {"err": "mynexus.missing", "msg": _("AI解析结果已不存在")}
+        if state != "completed":
+            return {"err": "mynexus.not_ready", "msg": _("AI解析尚未完成")}
         mapping = self.sqlite_session.get(MyNexusChatSession, (self.current_user.id, book_id))
         if not mapping:
             return {"err": "ok", "session_id": None, "messages": []}
@@ -360,6 +396,11 @@ class MyNexusSessionHandler(BaseHandler):
                 client.session_detail, mapping.remote_session_id, self.current_user.id
             )
         except MyNexusError as exc:
+            if exc.status_code == 404:
+                # The remote chat session was removed; start a new one lazily.
+                self.sqlite_session.delete(mapping)
+                self.sqlite_session.commit()
+                return {"err": "ok", "session_id": None, "messages": []}
             return {"err": "mynexus.error", "msg": exc.message}
         mapping.update_time = datetime.datetime.now()
         self.sqlite_session.commit()
@@ -523,23 +564,30 @@ class MyNexusAvailabilityHandler(MyNexusBookHandler):
         if not book:
             return {"err": "not_found", "msg": _("没有找到书籍")}
         analysis = self.sqlite_session.get(MyNexusBookAnalysis, book_id)
-        if analysis and analysis.status in ACTIVE_STATUSES:
-            try:
-                response = await utils.run_in_threadpool(MyNexusClient().analysis_status, book_id)
-                _update_analysis(self.sqlite_session, analysis, response)
-            except MyNexusError as exc:
-                if exc.status_code == 404:
-                    _mark_analysis_failed(
-                        self.sqlite_session, analysis,
-                        "MyNexus has no book matching this MyBooks ID",
-                        clear_remote=True,
-                    )
-                elif exc.status_code != 404:
-                    logging.error("MyNexus public status lookup for book %s failed: %s", book_id, exc.message)
+        # ``verify=1`` asks MyNexus directly, which is used right before
+        # opening an AI companion session so a book removed from MyNexus is
+        # detected even though the local analysis record still says completed.
+        verify = self.get_argument("verify", "0").lower() in ("1", "true", "yes")
+        if analysis and (verify or analysis.status in ACTIVE_STATUSES):
+            state, error = await _refresh_remote_analysis(self.sqlite_session, analysis, book_id)
+            if error:
+                if verify:
+                    return {"err": "mynexus.error", "msg": error.message}
+                logging.error("MyNexus public status lookup for book %s failed: %s", book_id, error.message)
         available = bool(analysis and analysis.status == "completed")
+        reason = ""
+        if not available:
+            if not analysis or not analysis.remote_book_id:
+                reason = "missing"
+            elif analysis.status == "failed":
+                reason = "failed"
+            else:
+                reason = "not_ready"
         return {
             "err": "ok",
             "available": available,
+            "reason": reason,
+            "status": analysis.status if analysis else "not_started",
             "reading_guide": analysis.reading_guide if available else "",
         }
 

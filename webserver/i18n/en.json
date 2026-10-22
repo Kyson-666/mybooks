@@ -575,6 +575,8 @@
   "分享参数不正确": "Invalid share parameters",
   "分享已保存": "Share saved",
   "AI 助手暂不可用": "The AI assistant is temporarily unavailable",
+  "AI解析结果已不存在": "The AI analysis result no longer exists",
+  "AI解析尚未完成": "The AI analysis is not ready yet",
   "JSON 请求格式无效": "Invalid JSON request",
   "MyNexus 会话失败": "MyNexus session failed",
   "MyNexus 未返回会话 ID": "MyNexus did not return a session ID",
