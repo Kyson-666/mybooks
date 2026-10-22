@@ -26,7 +26,9 @@ export const state = () => ({
     },
     site_title: "首页",
     site_title_template: "%s | MyBooks",
-    showUserInfo: false
+    showUserInfo: false,
+    // 设置保存后自增：AppHeader 监听它重新拉 /user/info，让侧边栏等导航立即生效
+    sysRefresh: 0
 })
 
 export const mutations = {
@@ -78,5 +80,9 @@ export const mutations = {
         };
     }, settings_title(state, v) {
         state.site_title_template = ' %s | ' + v;
+    }, set_sys(state, sys) {
+        if (sys) state.sys = sys;
+    }, refresh_sys(state) {
+        state.sysRefresh += 1;
     }
 }

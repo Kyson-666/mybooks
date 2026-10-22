@@ -204,6 +204,9 @@ settings = {
     "ENABLE_HOMEPAGE_READING_STATS": True,
     "ENABLE_HOMEPAGE_READING_BOOKS": True,
     "ENABLE_HOMEPAGE_BOOKLISTS": False,
+    # 书单卡片的封面条是否自动横向轮播。关闭后只保留手动横滑，适合低配设备或
+    # 不希望页面持续动起来的站点；前端读 sys.booklist_cover_scroll
+    "ENABLE_BOOKLIST_COVER_SCROLL": True,
     "HOMEPAGE_CONFIG": {},
     "ALLOW_NEW_USER_MANAGE_BOOK": True,
     "ALLOW_NEW_USER_PUSH_BOOK": True,
@@ -296,7 +299,8 @@ settings = {
     'FOOTER': '',
     'FOOTER_WATERMARK': 'PoxenStudio/MyBooks',
     'HIDE_PROJECT_LINKS': False,
-    'SIDEBAR_ITEMS': [],                # 侧边栏显示的项目，空表示全部显示
+    'SIDEBAR_ITEMS': [],                # 侧边栏显示的项目，空表示全部显示；仅含 "none" 表示全部隐藏
+    'SIDEBAR_ITEMS_MIGRATED': False,    # 服务端内部标记（无 UI 控件）：管理员保存过设置页即置 True，之后 SIDEBAR_ITEMS 由管理员权威决定，读取期不再补齐旧默认列表缺的三个新项
 
     'FRIENDS': [],
     'SOCIALS': [],

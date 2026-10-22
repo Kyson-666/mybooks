@@ -44,6 +44,7 @@ from webserver.services.book_review_service import BookReviewService
 from webserver.base.formatter import SimpleBookFormatter
 from webserver.base.setting_saver import ADMIN_SETTING_KEYS, SettingsSaver
 from webserver.base.homepage import get_homepage_config, normalize_homepage
+from webserver.base.sidebar import SIDEBAR_DEFAULT_ITEMS, SIDEBAR_ITEMS_MIGRATED_KEY, get_sidebar_items
 from webserver.base.trash_manager import TrashManager
 from webserver.version import VERSION
 from webserver.handlers.audio import AudioUtils
@@ -458,7 +459,8 @@ class AdminSettings(BaseHandler):
             CONF["DEFAULT_PAGE_SIZE"] = 60  # 默认每页显示60本书
 
         if not CONF.get("SIDEBAR_ITEMS", []):
-            CONF["SIDEBAR_ITEMS"] = ["audiobooks", "printbooks", "publishers", "folders", "tags", "series", "languages", "rating", "memo", "categories"]
+            # 默认列表的唯一权威定义在 webserver/base/sidebar.py（下发给前端时同一份归一化）
+            CONF["SIDEBAR_ITEMS"] = list(SIDEBAR_DEFAULT_ITEMS)
 
         # 与首页渲染共用同一套归一化：auto.py 被手改成非 dict/空值时也会回退旧开关，
         # 否则设置页显示"全部可见"，管理员保存任意设置就会被静默改写首页行为。
@@ -490,6 +492,11 @@ class AdminSettings(BaseHandler):
         ]
         settings = dict(CONF)
         settings["HOMEPAGE_CONFIG"] = homepage_config
+        # 与 /user/info 同一套读取期归一化：迁移标记未置位时，升级前保存过的旧默认列表
+        # 缺 authors/friends/booklists，设置页必须显示补齐后的结果，否则管理员一保存就把
+        # 陈旧缺项固化下来；标记已置位（管理员保存过设置页）则 stored 列表即权威，原样返回。
+        # 只改返回给前端的副本，不回写 CONF，也不改写用户存的配置。
+        settings["SIDEBAR_ITEMS"] = get_sidebar_items(CONF)
         return {"err": "ok", "settings": settings, "sns": sns, "site_url": self.site_url}
 
     @js
@@ -598,6 +605,11 @@ class AdminSettings(BaseHandler):
         need_sync_authors = args.get("ENABLE_AUTHOR_INFO", False) and not CONF.get(
             "ENABLE_AUTHOR_INFO", False
         )
+        # 管理员保存设置页 = 已看过并确认过侧边栏列表：无条件置迁移标记为真，让
+        # SIDEBAR_ITEMS 从此以 stored 为权威、读取期不再补齐陈旧默认。放在 args 上，
+        # save_extra_settings 内 CONF.update(args) 更新内存、args.dumpfile() 落盘，
+        # 之后每次普通保存都会重申 True，前端 payload 无论带什么都不可能把它抹回假。
+        args[SIDEBAR_ITEMS_MIGRATED_KEY] = True
         result = SettingsSaver().save_extra_settings(args)
         perf.apply_logging()
         if need_sync_authors:

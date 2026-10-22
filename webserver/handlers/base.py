@@ -28,6 +28,7 @@ from webserver.base.book_data_cascade import cascade_delete_book_data
 from webserver.base.formatter import BookFormatter
 from webserver.base.query_cache import VersionedCache, library_version
 from webserver.base.global_state import get_global_state
+from webserver.base.sidebar import get_sidebar_items
 from webserver.services.resource_service import ResourceService
 from webserver.services.perf_monitor import PerfMonitor
 from webserver.models import Item, Message, Reader
@@ -1823,9 +1824,13 @@ class BaseHandler(web.RequestHandler):
                 "standalone": CONF.get("STANDALONE", False),
                 "hide_project_links": CONF.get("HIDE_PROJECT_LINKS", False),
                 "enable_podcast_service": CONF.get("ENABLE_PODCAST_SERVICE", False),
+                # 书单卡片封面条是否自动轮播（站长级总开关，默认开）
+                "booklist_cover_scroll": CONF.get("ENABLE_BOOKLIST_COVER_SCROLL", True),
                 "enable_opds_service": CONF.get("ENABLE_OPDS_SERVICE", True),
                 "enable_webdav_service": CONF.get("ENABLE_WEBDAV_SERVICE", True),
-                "sidebar_items": CONF.get("SIDEBAR_ITEMS", []),
+                # 读取期下发：迁移标记未置位时补齐旧默认缺的 authors/friends/booklists，
+                # 置位后以 stored 为权威原样返回；两种情况都不改写用户存的配置（见 sidebar.py）
+                "sidebar_items": get_sidebar_items(CONF),
                 "invited_enabled": self.need_invited(),
                 "showUserInfo": CONF.get("ENABLE_AUTHOR_INFO", False),
                 "mynexus_enabled": CONF.get("ENABLE_MYNEXUS", False),

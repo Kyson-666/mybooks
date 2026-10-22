@@ -732,13 +732,14 @@ export default {
                 }
             ];
 
-            // 管理员配置的侧边栏显示项，为空表示全部显示
+            // 管理员配置的侧边栏显示项：空数组表示全部显示（旧配置），
+            // 仅含 "none" 表示全部隐藏（设置页全不勾选时写入的哨兵值）
             const showItem = (key) => !this.sys.sidebar_items || this.sys.sidebar_items.length === 0 || this.sys.sidebar_items.includes(key);
             const navLinks = [
                 ...(showItem("folders") && this.sys.allow.folder ? [{ icon: "mdi-folder-multiple-outline", href: "/folder", text: "appHeader.folders", count: this.sys.folders, color: "amber darken-2" }] : []),
                 ...(showItem("audiobooks") ? [{ icon: "mdi-headphones", href: "/audiobooks", text: "appHeader.audioBooks", count: this.sys.audiobooks, color: "purple"}] : []),
                 ...(showItem("printbooks") && this.sys.allow.physical_books ? [{ icon: "mdi-bookshelf", href: "/printbooks", text: "appHeader.physicalBooks", count: this.sys.physicals, color: "orange"}] : []),
-                { icon: "mdi-account-group", href: "/author", text: "appHeader.authors", count: this.sys.authors, color: "blue darken-1"},
+                ...(showItem("authors") ? [{ icon: "mdi-account-group", href: "/author", text: "appHeader.authors", count: this.sys.authors, color: "blue darken-1"}] : []),
                 ...(showItem("categories") ? [{ icon: "mdi-shape-plus", href: "/categories", text: "appHeader.categoryBrowse", count: this.sys.categories, color: "green" }] : []),
                 ...(showItem("tags") ? [{ icon: "mdi-tag-heart", href: "/tag", text: "appHeader.tags", count: this.sys.tags, color: "deep-orange"}] : []),
                 ...(showItem("publishers") ? [{ icon: "mdi-home-group", href: "/publisher", text: "appHeader.publishers", count: this.sys.publishers, color: "blue darken-2"}] : []),
@@ -777,10 +778,10 @@ export default {
                 .concat(this.user.is_login ? userLinks : [])
                 .concat(this.user.is_admin ? adminLinks : [])
                 .concat(this.user.is_login ? readingLinks : [])
-                .concat(this.user.is_login ? booklistLinks: [])
+                .concat(this.user.is_login && showItem("booklists") ? booklistLinks: [])
                 .concat(navLinks)
                 .concat(showItem("memo") ? memoLink : [])
-                .concat(this.sys.friends.length > 0 ? friendLinks : [])
+                .concat(showItem("friends") && this.sys.friends.length > 0 ? friendLinks : [])
         },
     },
     mounted() {
@@ -872,7 +873,20 @@ export default {
         this.stopPolling();
         document.removeEventListener("visibilitychange", this.onVisibilityChange);
     },
+    watch: {
+        // 设置保存后重新拉取系统信息：侧边栏显示项、页脚开关等无需整页刷新即可生效
+        "$store.state.sysRefresh"() {
+            this.refreshUserInfo();
+        },
+    },
     methods: {
+        refreshUserInfo() {
+            this.$backend("/user/info").then((rsp) => {
+                if (!rsp || !rsp.sys) return;
+                this.sys = rsp.sys;
+                this.$store.commit("set_sys", rsp.sys);
+            });
+        },
         isExternalLink(url) {
             return url && (url.startsWith('http://') || url.startsWith('https://'));
         },

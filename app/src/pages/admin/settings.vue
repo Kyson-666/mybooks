@@ -48,10 +48,33 @@
         <div class="settings-bar-right d-flex align-center">
           <!-- 稳定的 live region：chips 是 v-if/v-else 互换的节点，直接挂 aria-live 不保证播报 -->
           <span v-if="dirtyCount > 0" class="settings-status-chip-wrap" role="status" aria-live="polite">
-            <v-chip color="orange" text-color="white" small class="settings-status-chip">
+            <v-chip
+              color="orange"
+              text-color="white"
+              small
+              class="settings-status-chip settings-status-chip-clickable"
+              role="button"
+              tabindex="0"
+              :title="$t('settings.unsaved_jump_tip', { n: dirtyCount })"
+              aria-describedby="settings-dirty-jump-tip"
+              @click="jumpToNextDirty"
+              @keydown.enter.prevent="jumpToNextDirty"
+              @keydown.space.prevent="jumpToNextDirty"
+            >
               {{ $t('settings.unsaved_changes', { n: dirtyCount }) }}
             </v-chip>
           </span>
+          <!--
+            跳转提示放这里而不是当 aria-label：
+            1) 覆盖可见文本的话，读屏播报的是操作指引而不是「N 项未保存」这个数字；
+            2) 它也不能落在上面那个 role="status" 里，否则每次计数变化都会重播一遍指引。
+            只做描述，播报仍以 visible text（含计数）为准。
+          -->
+          <span
+            v-if="dirtyCount > 0"
+            id="settings-dirty-jump-tip"
+            class="settings-sr-only"
+          >{{ $t('settings.unsaved_jump_tip', { n: dirtyCount }) }}</span>
           <v-btn
             v-if="!searchOpen"
             icon
@@ -142,20 +165,22 @@
             <div class="pl-6" v-if="s.fields && s.fields.length" :class="{ 'settings-fields-2col': s.fields.some((x) => x.half) }">
             <template v-for="f in s.fields">
               <div :key="'w-' + f.key" :id="'f-' + f.key" :class="f.half ? 'settings-field-half' : 'settings-field-full'">
-              <v-checkbox
-                small
-                hide-details
-                v-if="f.type === 'checkbox'"
-                :input-value="isCheckboxInputValue(f)"
-                :disabled="isFieldLockedBy(f)"
-                :key="f.key + '-checkbox'"
-                :label="$t(f.label)"
-                @change="onCheckboxChange(f, $event)"
-              >
-                <template v-if="f.icon" v-slot:prepend>
-                  <v-icon :color="f.color">{{ f.icon }}</v-icon>
-                </template>
-              </v-checkbox>
+              <template v-if="f.type === 'checkbox'">
+                <v-checkbox
+                  small
+                  hide-details
+                  :input-value="isCheckboxInputValue(f)"
+                  :disabled="isFieldLockedBy(f)"
+                  :key="f.key + '-checkbox'"
+                  :label="$t(f.label)"
+                  @change="onCheckboxChange(f, $event)"
+                >
+                  <template v-if="f.icon" v-slot:prepend>
+                    <v-icon :color="f.color">{{ f.icon }}</v-icon>
+                  </template>
+                </v-checkbox>
+                <div v-if="f.tips" class="text-caption grey--text ml-8">{{ $t(f.tips) }}</div>
+              </template>
               <div
                 v-else-if="f.type === 'checkbox_list'"
                 :key="f.key + '-checkbox_list'"
@@ -173,14 +198,17 @@
                       :key="f.key + '-' + opt.value"
                       cols="12"
                       sm="6"
+                      md="4"
                     >
                       <v-checkbox
-                        v-model="settings[f.key]"
+                        :input-value="checkboxListInputValue(f)"
                         :value="opt.value"
+                        :disabled="isCheckboxOptionLocked(f, opt)"
                         :label="$t(opt.text)"
                         dense
                         hide-details
                         class="mt-0"
+                        @change="onCheckboxListChange(f, $event)"
                       ></v-checkbox>
                     </v-col>
                   </v-row>
@@ -342,8 +370,9 @@
 
             <div class="pl-6" v-if="s.groups && s.groups.length">
             <template v-for="grp in s.groups">
+              <!-- 父开关本身也能改脏，必须给出 f-<key> 锚点，否则逐项跳转会退回整张卡片 -->
+              <div :key="'w-' + grp.key" :id="'f-' + grp.key">
               <v-checkbox
-                :key="grp.key"
                 small
                 hide-details
                 v-model="settings[grp.key]"
@@ -352,6 +381,7 @@
                 @change="$delete(forceOpen, grp.key)"
               >
               </v-checkbox>
+              </div>
               <template v-if="settings[grp.key] || forceOpen[grp.key]">
                 <div class="pl-6" :key="grp.key + '-fields'">
                 <template v-for="f in grp.fields">
@@ -402,11 +432,13 @@
             </div>
 
             <template v-if="s.special === 'homepage_cards'">
-              <homepage-cards-editor v-if="settingsLoaded" v-model="settings.HOMEPAGE_CONFIG"></homepage-cards-editor>
+              <div id="f-HOMEPAGE_CONFIG">
+                <homepage-cards-editor v-if="settingsLoaded" v-model="settings.HOMEPAGE_CONFIG"></homepage-cards-editor>
+              </div>
             </template>
 
             <template v-if="s.special === 'friends'">
-              <div class="pl-6">
+              <div id="f-FRIENDS" class="pl-6">
               <v-row
                 v-for="(friend, idx) in settings.FRIENDS"
                 :key="'friend-' + friend.href"
@@ -449,15 +481,17 @@
             </template>
 
             <template v-if="s.special === 'reader_dicts'">
-              <reader-dict-editor
-                v-model="settings.READER_MYDICTS"
-                :mybooks-enabled.sync="settings.READER_DICT_MYBOOKS_ENABLED"
-                :baike-enabled.sync="settings.READER_DICT_BAIKE_ENABLED"
-              ></reader-dict-editor>
+              <div id="f-READER_MYDICTS">
+                <reader-dict-editor
+                  v-model="settings.READER_MYDICTS"
+                  :mybooks-enabled.sync="settings.READER_DICT_MYBOOKS_ENABLED"
+                  :baike-enabled.sync="settings.READER_DICT_BAIKE_ENABLED"
+                ></reader-dict-editor>
+              </div>
             </template>
 
             <template v-if="s.special === 'devices'">
-              <div class="pl-6">
+              <div id="f-DEVICES" class="pl-6">
               <template v-for="(device, idx) in settings.DEVICES">
                 <div :key="'device-' + idx" class="device-item mb-3">
                   <v-row>
@@ -622,6 +656,7 @@
             <template v-if="s.special === 'bookbarn'">
               <p>{{ $t("settings.book_barn_description") }}</p>
               <div class="pl-6">
+              <div id="f-ENABLE_BOOKBARN">
               <v-checkbox
                 small
                 hide-details
@@ -629,6 +664,8 @@
                 :key="'ENABLE_BOOKBARN'"
                 :label="$t('settings.bookbarn_enable')"
               ></v-checkbox>
+              </div>
+              <div id="f-BOOKBARN_TOKEN">
               <v-text-field
                 flat
                 small
@@ -637,6 +674,7 @@
                 type="text"
                 :disabled="true"
               ></v-text-field>
+              </div>
               <v-btn
                 color="primary"
                 :disabled="!settings['ENABLE_BOOKBARN'] || appliedToken"
@@ -651,6 +689,7 @@
             <template v-if="s.special === 'ai_capabilities'">
               <p>{{ $t("settings.ai_capabilities_description") }}</p>
               <div class="pl-6">
+              <div id="f-AI_ENABLED">
               <v-checkbox
                 small
                 hide-details
@@ -658,6 +697,8 @@
                 :key="'AI_ENABLED'"
                 :label="$t('settings.ai_enabled')"
               ></v-checkbox>
+              </div>
+              <div id="f-AI_DEEPSEEK_API_KEY">
               <v-text-field
                 :disabled="!settings['AI_ENABLED']"
                 :prepend-icon="'mdi-key'"
@@ -668,6 +709,8 @@
                 :rules="apiKeyRules"
                 :maxlength="128"
               ></v-text-field>
+              </div>
+              <div id="f-AI_API_URL">
               <v-text-field
                 :disabled="!settings['AI_ENABLED']"
                 :prepend-icon="'mdi-link'"
@@ -678,6 +721,8 @@
                 :rules="[urlRule]"
                 :maxlength="512"
               ></v-text-field>
+              </div>
+              <div id="f-AI_MODEL">
               <v-text-field
                 :disabled="!settings['AI_ENABLED']"
                 :prepend-icon="'mdi-function'"
@@ -688,6 +733,8 @@
                 :rules="[modelNameRule]"
                 :maxlength="128"
               ></v-text-field>
+              </div>
+              <div id="f-AI_MCP_TOKEN">
               <v-text-field
                 :prepend-icon="'mdi-key'"
                 v-model="settings['AI_MCP_TOKEN']"
@@ -697,6 +744,7 @@
                 @click:append="generateMCPToken"
                 readonly
               ></v-text-field>
+              </div>
               <v-btn
                 :disabled="!settings['AI_ENABLED'] || testingAI"
                 color="green"
@@ -753,6 +801,7 @@
                 <span v-else>{{ $t("settings.mynexus_test") }}</span>
               </v-btn>
               <v-divider class="my-2"></v-divider>
+              <div id="f-AI_ALLOW_SET_CATEGORY">
               <v-checkbox
                 small
                 hide-details
@@ -763,6 +812,7 @@
                 class="mb-3"
                 prepend-icon="mdi-scatter-plot-outline"
               ></v-checkbox>
+              </div>
               </div>
             </template>
 
@@ -775,6 +825,7 @@
                 hide-selected
                 multiple
                 small-chips
+                @change="ensureSettingKeysReactive"
               >
                 <template v-slot:selection="{ attrs, item, parent, selected }">
                   <v-chip
@@ -804,6 +855,7 @@
                   </v-subheader>
                 </v-col>
                 <v-col class="py-0" cols="12" sm="3">
+                  <div :id="'f-SOCIAL_AUTH_' + s2.value.toUpperCase() + '_KEY'">
                   <v-text-field
                     small
                     hide-details
@@ -815,8 +867,10 @@
                     placeholder="Key/AppID"
                     type="text"
                   ></v-text-field>
+                  </div>
                 </v-col>
                 <v-col class="py-0" cols="12" sm="7">
+                  <div :id="'f-SOCIAL_AUTH_' + s2.value.toUpperCase() + '_SECRET'">
                   <v-text-field
                     small
                     hide-details
@@ -830,6 +884,7 @@
                     placeholder="Secret"
                     type="text"
                   ></v-text-field>
+                  </div>
                 </v-col>
               </v-row>
               </div>
@@ -871,6 +926,7 @@
 
             <template v-if="s.special === 'perf'">
               <div class="pl-6">
+                <div id="f-PERFORMANCE_MODE">
                 <v-checkbox
                   small
                   v-model="liteMode"
@@ -878,19 +934,22 @@
                   :label="$t('settings.perf_mode_lite')"
                   :hint="$t('settings.perf_mode_hint')"
                   persistent-hint
+                  @change="forceLiteGroups = false"
                 ></v-checkbox>
-                <div v-if="liteMode" style="padding-left: 32px">
-                  <v-checkbox
-                    v-for="key in liteGroups"
-                    :key="key"
-                    small
-                    dense
-                    v-model="settings[key]"
-                    :label="$t('settings.' + key.toLowerCase())"
-                    :hint="$t('settings.' + key.toLowerCase() + '_hint')"
-                    persistent-hint
-                  ></v-checkbox>
                 </div>
+                <div v-if="liteMode || forceLiteGroups" style="padding-left: 32px">
+                  <div v-for="key in liteGroups" :key="key" :id="'f-' + key">
+                    <v-checkbox
+                      small
+                      dense
+                      v-model="settings[key]"
+                      :label="$t('settings.' + key.toLowerCase())"
+                      :hint="$t('settings.' + key.toLowerCase() + '_hint')"
+                      persistent-hint
+                    ></v-checkbox>
+                  </div>
+                </div>
+                <div id="f-THUMB_CACHE">
                 <v-checkbox
                   small
                   v-model="thumbCache"
@@ -898,8 +957,11 @@
                   :label="$t('settings.thumb_cache')"
                   :hint="$t('settings.thumb_cache_hint')"
                   persistent-hint
+                  @change="forceCacheSize = false"
                 ></v-checkbox>
-                <div v-if="thumbCache" style="padding-left: 32px; padding-top: 14px">
+                </div>
+                <div v-if="thumbCache || forceCacheSize" style="padding-left: 32px; padding-top: 14px">
+                  <div id="f-CACHE_MAX_MB">
                   <v-select
                     v-model="cacheMaxMb"
                     :items="cacheSizeItems"
@@ -907,12 +969,14 @@
                     dense
                     style="max-width: 240px"
                   ></v-select>
+                  </div>
                 </div>
               </div>
             </template>
 
             <template v-if="s.special === 'stamp'">
               <div class="pl-6">
+              <div id="f-ENABLE_STAMP_FEATURE">
               <v-checkbox
                 small
                 hide-details
@@ -920,6 +984,7 @@
                 :label="$t('settings.enable_stamp_feature')"
                 prepend-icon="mdi-picture-in-picture-bottom-right-outline"
               ></v-checkbox>
+              </div>
               <div v-if="settings['ENABLE_STAMP_FEATURE']" style="margin-top: 16px; margin-left: 16px;">
                 <v-row align="top">
                   <v-col cols="12" sm="6">
@@ -1057,19 +1122,30 @@
     ></reading-range-dialog>
 
     <div class="settings-savebar">
-      <v-icon small :color="dirtyCount > 0 ? 'orange' : 'green'" class="mr-2">
-        {{ dirtyCount > 0 ? "mdi-pencil-box-outline" : "mdi-check-circle" }}
-      </v-icon>
-      <span
-        class="text-caption"
-        :class="dirtyCount > 0 ? 'orange--text font-weight-bold' : 'grey--text'"
+      <button
+        type="button"
+        class="settings-savebar-status"
+        :class="{ 'is-clickable': dirtyCount > 0 }"
+        :tabindex="dirtyCount > 0 ? 0 : -1"
+        :aria-disabled="dirtyCount > 0 ? null : 'true'"
+        :title="dirtyCount > 0 ? $t('settings.unsaved_jump_tip', { n: dirtyCount }) : null"
+        :aria-describedby="dirtyCount > 0 ? 'settings-dirty-jump-tip' : null"
+        @click="jumpToNextDirty"
       >
-        {{
-          dirtyCount > 0
-            ? $t("settings.savebar_unsaved", { n: dirtyCount })
-            : $t("settings.all_saved")
-        }}
-      </span>
+        <v-icon small :color="dirtyCount > 0 ? 'orange' : 'green'" class="mr-2">
+          {{ dirtyCount > 0 ? "mdi-pencil-box-outline" : "mdi-check-circle" }}
+        </v-icon>
+        <span
+          class="text-caption"
+          :class="dirtyCount > 0 ? 'orange--text font-weight-bold' : 'grey--text'"
+        >
+          {{
+            dirtyCount > 0
+              ? $t("settings.savebar_unsaved", { n: dirtyCount })
+              : $t("settings.all_saved")
+          }}
+        </span>
+      </button>
       <span class="text-caption grey--text ml-4 hidden-sm-and-down">{{ $t("settings.save_hints") }}</span>
       <div class="settings-savebar-actions">
         <v-btn
@@ -1109,9 +1185,9 @@ const LITE_GROUPS = [
 const SPECIAL_BLOCKS = [
   { key: "HOMEPAGE_CONFIG", label: "settings.sec_site_home_cards", icon: "mdi-view-grid-plus-outline", gid: "site", sid: "site-home-cards", al: ["首页卡片", "自定义卡片", "homepage cards", "首頁卡片"] },
   { key: "FRIENDS", label: "settings.friend_links", icon: "mdi-link-variant", gid: "site", sid: "site-friends" },
-  { key: "READER_MYDICTS", label: "settings.sec_reader_dict", icon: "mdi-book-alphabet", gid: "reading", sid: "reader-dict", al: ["翻译"] },
   { key: "READER_DICT_MYBOOKS_ENABLED", label: "settings.reader_dict_mybooks", icon: "mdi-book-alphabet", gid: "reading", sid: "reader-dict" },
   { key: "READER_DICT_BAIKE_ENABLED", label: "settings.reader_dict_baike", icon: "mdi-book-alphabet", gid: "reading", sid: "reader-dict" },
+  { key: "READER_MYDICTS", label: "settings.sec_reader_dict", icon: "mdi-book-alphabet", gid: "reading", sid: "reader-dict", al: ["翻译"] },
   { key: "ENABLE_STAMP_FEATURE", label: "settings.enable_stamp_feature", icon: "mdi-picture-in-picture-bottom-right-outline", gid: "reading", sid: "reader-physical" },
   { key: "SOCIALS", label: "settings.select_socials", icon: "mdi-at", gid: "users", sid: "users-social", al: ["qq", "微信", "微博", "github", "oauth"] },
   { key: "DEVICES", label: "settings.device_mgt", icon: "mdi-tablet-cellphone", gid: "push", sid: "push-devices", al: ["kindle", "文石", "掌阅", "汉王", "当当", "koreader", "duokan", "ireader", "boox", "ftp"] },
@@ -1122,10 +1198,10 @@ const SPECIAL_BLOCKS = [
   { key: "AI_API_URL", label: "settings.ai_api_url", icon: "mdi-link", gid: "services", sid: "svc-ai" },
   { key: "AI_MODEL", label: "settings.ai_model", icon: "mdi-function", gid: "services", sid: "svc-ai" },
   { key: "AI_MCP_TOKEN", label: "settings.ai_mcp_token", icon: "mdi-key", gid: "services", sid: "svc-ai" },
-  { key: "AI_ALLOW_SET_CATEGORY", label: "settings.ai_allow_set_category", icon: "mdi-scatter-plot-outline", gid: "services", sid: "svc-ai" },
   { key: "ENABLE_MYNEXUS", label: "settings.mynexus_enabled", icon: "mdi-book-search", gid: "services", sid: "svc-ai", al: ["mynexus", "nexus"] },
   { key: "MYNEXUS_URL", label: "settings.mynexus_url", icon: "mdi-link", gid: "services", sid: "svc-ai", al: ["mynexus", "nexus"] },
   { key: "MYNEXUS_TOKEN", label: "settings.mynexus_token", icon: "mdi-key", gid: "services", sid: "svc-ai", al: ["mynexus", "nexus"] },
+  { key: "AI_ALLOW_SET_CATEGORY", label: "settings.ai_allow_set_category", icon: "mdi-scatter-plot-outline", gid: "services", sid: "svc-ai" },
   { key: "SSL", label: "settings.ssl_certificate_management", icon: "mdi-lock", gid: "protocols", sid: "proto-net", al: ["证书", "https"] },
   { key: "PERFORMANCE_MODE", label: "settings.perf_mode_lite", icon: "mdi-speedometer", gid: "ops", sid: "ops-perf", al: ["性能", "速度"] },
   { key: "LITE_GROUP_LISTING", label: "settings.lite_group_listing", icon: "mdi-speedometer", gid: "ops", sid: "ops-perf" },
@@ -1140,6 +1216,23 @@ const SPECIAL_BLOCKS = [
 
 // 值型字段（可安全用空串补默认值的那些；数组/特殊块类型不在此列，缺 key 时保持原样）
 const SETTING_TEXT_TYPES = ["text", "textarea", "select", "number"];
+
+// READER_MYDICTS 元素上的 showToken 只是显隐 token 的视图状态，
+// 点眼睛图标不应算作未保存修改，比较前先剥掉
+function settingsValueForCompare(key, value) {
+  if (key !== "READER_MYDICTS" || !Array.isArray(value)) return value;
+  return value.map((d) => {
+    const e = { ...d };
+    delete e.showToken;
+    return e;
+  });
+}
+
+// 由子组件统一渲染、没有各自独立 DOM 锚点的 key，跳转时落到同一个块
+const ANCHOR_ALIASES = {
+  READER_DICT_MYBOOKS_ENABLED: "READER_MYDICTS",
+  READER_DICT_BAIKE_ENABLED: "READER_MYDICTS",
+};
 
 // 激活分组下色条 + 组标题竖条：默认跟随站点主色 accent（外观菜单里的「主色」），
 // 换主色即时跟随
@@ -1765,6 +1858,13 @@ export default {
               { icon: "mdi-auto-fix", key: "RECOMMEND_ENABLE", label: "settings.recommend_enable", type: "checkbox" },
               { icon: "mdi-account-group-outline", key: "RECOMMEND_USE_CROWD", label: "settings.recommend_use_crowd", type: "checkbox" },
               {
+                icon: "mdi-image-multiple-outline",
+                key: "ENABLE_BOOKLIST_COVER_SCROLL",
+                label: "settings.booklist_cover_scroll",
+                type: "checkbox",
+                tips: "settings.booklist_cover_scroll_tips",
+              },
+              {
                 icon: "mdi-book-multiple",
                 key: "DEFAULT_PAGE_SIZE",
                 label: "settings.default_page_size",
@@ -1780,17 +1880,22 @@ export default {
                 label: "settings.sidebar_items",
                 type: "checkbox_list",
                 tips: "settings.sidebar_items_tips",
+                // 全不勾选时写入 "none"：空数组表示「全部显示」，无法表达「全部隐藏」
+                emptyValue: "none",
                 items: [
                   { value: "audiobooks", text: "appHeader.audioBooks" },
                   { value: "printbooks", text: "appHeader.physicalBooks" },
+                  { value: "authors", text: "appHeader.authors" },
                   { value: "publishers", text: "appHeader.publishers" },
-                  { value: "folders", text: "appHeader.folders" },
+                  { value: "folders", text: "appHeader.folders", requires: "ENABLE_FOLDER_BROWSE" },
                   { value: "categories", text: "nav.categories" },
                   { value: "tags", text: "appHeader.tags" },
                   { value: "series", text: "appHeader.series" },
                   { value: "languages", text: "appHeader.languages" },
                   { value: "rating", text: "appHeader.rating" },
+                  { value: "booklists", text: "appHeader.booklists" },
                   { value: "memo", text: "appHeader.memo" },
+                  { value: "friends", text: "appHeader.friendLinks" },
                 ],
               },
             ],
@@ -2549,6 +2654,11 @@ export default {
     searchOpen: false,
     // 搜索跳转的视图层展开状态（key = 嵌套开关 grp.key），不触碰真实设置值
     forceOpen: {},
+    // 上一次「跳转到未保存项」的目标 key，供多次点击循环推进
+    dirtyJumpKey: "",
+    // 跳转到被模式开关隐藏的性能子项时只做视图层展开，不改真实设置值
+    forceLiteGroups: false,
+    forceCacheSize: false,
     bookNavList: [],
     thanksToNames: [],
     thanksToShow: false,
@@ -2594,22 +2704,103 @@ export default {
       if (!this.settingsLoaded) return 0;
       const before = this.snapshot;
       const now = this.settings;
-      // READER_MYDICTS 元素上的 showToken 只是显隐 token 的视图状态，
-      // 点眼睛图标不应算作未保存修改，比较前先剥掉
-      const stripView = (k, v) =>
-        k === "READER_MYDICTS" && Array.isArray(v)
-          ? v.map((d) => {
-              const e = { ...d };
-              delete e.showToken;
-              return e;
-            })
-          : v;
       let n = 0;
       Object.keys(now).forEach((k) => {
-        if (JSON.stringify(stripView(k, before[k])) !== JSON.stringify(stripView(k, now[k]))) n++;
+        if (
+          JSON.stringify(settingsValueForCompare(k, before[k])) !==
+          JSON.stringify(settingsValueForCompare(k, now[k]))
+        ) {
+          n++;
+        }
       });
       if (JSON.stringify(this.bookNavSnapshot) !== JSON.stringify(this.bookNavList)) n++;
       return n;
+    },
+    // 未保存项按页面出现顺序排列，供顶栏 chip / 保存栏状态逐项跳转。
+    // flatIndex 里特殊块统一追加在末尾，这里按 gid/sid 重新归位到它所在的小节。
+    dirtyItems() {
+      if (!this.settingsLoaded) return [];
+      const before = this.snapshot;
+      const now = this.settings;
+      const dirtyKeys = {};
+      Object.keys(now).forEach((k) => {
+        if (
+          JSON.stringify(settingsValueForCompare(k, before[k])) !==
+          JSON.stringify(settingsValueForCompare(k, now[k]))
+        ) {
+          dirtyKeys[k] = true;
+        }
+      });
+      const items = [];
+      const seen = {};
+      this.flatIndex.forEach((r) => {
+        if (dirtyKeys[r.key] && !seen[r.key]) {
+          items.push(r);
+          seen[r.key] = true;
+        }
+      });
+      // 社交登录的 KEY/SECRET 是 SOCIALS 动态拼键，不在 flatIndex 里；
+      // 逐个补目标，否则改了凭据后计数会增加但点跳转没有落点
+      (this.settings.SOCIALS || []).forEach((s) => {
+        const value = String(s.value || "").toUpperCase();
+        if (!value) return;
+        const provider = s.text || value;
+        ["KEY", "SECRET"].forEach((field) => {
+          const key = "SOCIAL_AUTH_" + value + "_" + field;
+          if (!dirtyKeys[key] || seen[key]) return;
+          items.push({
+            key,
+            label: provider + " " + field,
+            icon: "mdi-at",
+            red: false,
+            gid: "users",
+            sid: "users-social",
+            path: "",
+            al: [],
+            parentKey: "",
+          });
+          seen[key] = true;
+        });
+      });
+      // 已从 SOCIALS 移除的 provider 仍可能留下脏 key（保存时仍会提交），
+      // 没有独立控件可定位，至少落到社交登录卡片
+      Object.keys(dirtyKeys).forEach((k) => {
+        if (seen[k] || k.indexOf("SOCIAL_AUTH_") !== 0) return;
+        const matched = k.match(/^SOCIAL_AUTH_(.+)_(KEY|SECRET)$/);
+        if (!matched) return;
+        items.push({
+          key: k,
+          label: matched[1] + " " + matched[2],
+          icon: "mdi-at",
+          red: false,
+          gid: "users",
+          sid: "users-social",
+          path: "",
+          al: [],
+          parentKey: "",
+        });
+        seen[k] = true;
+      });
+      // BookNavEditor 改的是 bookNavList，settings.BOOK_NAV 要到保存时才序列化回去，
+      // 所以分类编辑不体现在上面的 key 对比里，单独补到「书籍分类」卡片
+      if (
+        JSON.stringify(this.bookNavSnapshot) !== JSON.stringify(this.bookNavList) &&
+        !seen["BOOK_NAV"]
+      ) {
+        const nav = this.flatIndex.find((r) => r.key === "BOOK_NAV");
+        if (nav) items.push(nav);
+      }
+      const order = {};
+      this.groups.forEach((g, gi) => {
+        g.sections.forEach((s, si) => {
+          order[g.id + "/" + s.id] = gi * 1000 + si;
+        });
+      });
+      items.sort(
+        (a, b) =>
+          (order[a.gid + "/" + a.sid] || 0) - (order[b.gid + "/" + b.sid] || 0)
+      );
+      return items;
     },
     flatIndex() {
       const idx = [];
@@ -2876,6 +3067,38 @@ export default {
       if (this.isFieldLockedBy(f)) return;
       this.$set(this.settings, f.key, value);
     },
+    // checkbox_list 里带 requires 的选项：依赖的总开关关闭时置灰且显示为未勾选。
+    // 锁定只是显示层的判断，不改写 settings[f.key]：checkboxListInputValue 把锁定项从
+    // 展示数组里滤掉（所以它呈现为未勾选、也点不动），而 onCheckboxListChange 保存时会把
+    // 「已存储但当前锁定」的值补回去。于是重新打开总开关后原勾选照旧恢复，用户在锁定期间
+    // 改动其它选项也不会把该值永久删掉。
+    isCheckboxOptionLocked(f, opt) {
+      return !!(opt && opt.requires && this.settings && !this.settings[opt.requires]);
+    },
+    checkboxListInputValue(f) {
+      const stored = Array.isArray(this.settings[f.key]) ? this.settings[f.key] : [];
+      return stored.filter(
+        (value) => !(f.items || []).some((opt) => opt.value === value && this.isCheckboxOptionLocked(f, opt))
+      );
+    },
+    onCheckboxListChange(f, value) {
+      // Vuetify 2 的 Selectable 用 input-value 播种 internalValue，勾选框 change 抛出的数组
+      // 必然不含当前锁定项，直接照原样保存就会永久删掉它（如关掉「文件夹浏览」期间改一次
+      // 列表就再也回不来）。所以先把「已存储且此刻锁定」的值按存储顺序补回，再落库。
+      // 补回必须在空值哨兵判断之前：只剩锁定项的列表不是「全不勾选」，不该写 "none"。
+      // SIDEBAR_ITEMS 的空数组历史上表示「全部显示」，全不勾选时写 emptyValue 哨兵，
+      // 让「全部隐藏」也能保存生效，同时不影响旧配置的空数组语义。
+      const sentinel = f.emptyValue;
+      const emitted = (Array.isArray(value) ? value : []).filter((item) => item !== sentinel);
+      const stored = Array.isArray(this.settings[f.key]) ? this.settings[f.key] : [];
+      const locked = stored.filter(
+        (item) => item !== sentinel && (f.items || []).some((opt) => opt.value === item && this.isCheckboxOptionLocked(f, opt))
+      );
+      const missing = locked.filter((item) => emitted.indexOf(item) < 0);
+      let next = emitted.concat(missing);
+      if (sentinel && next.length === 0) next = [sentinel];
+      this.$set(this.settings, f.key, next);
+    },
     // rsp.settings 里没有的 key 拿不到响应式 getter（服务端 CONF 没给默认值的项，
     // 如 ENABLE_BOOKS_TYPE_CONVERT_DIRECT、微信的 SOCIAL_AUTH_*_KEY/_SECRET）。
     // Vue 2 下 v-model 的普通赋值不走 setter，dirtyCount 不会重算，「保存设置」就一直是
@@ -2983,6 +3206,8 @@ export default {
     selectGroup(id) {
       this.searchQ = "";
       this.searchOpen = false;
+      this.forceLiteGroups = false;
+      this.forceCacheSize = false;
       this.activeGroup = id;
       if (process.client) window.scrollTo({ top: 0 });
     },
@@ -3001,6 +3226,11 @@ export default {
       this.searchQ = "";
       this.searchOpen = false;
       this.activeGroup = r.gid;
+      // 极速模式/缩略图缓存关闭后其子项被 v-if 隐藏；跳转只做视图层展开，
+      // 并且只在「本次跳转确实需要」时展开——否则跳完一次后隐藏子项会一直可见，
+      // 用户能在 PERFORMANCE_MODE=normal 下改到平时看不见的设置并保存掉
+      this.forceLiteGroups = r.key.indexOf("LITE_GROUP_") === 0;
+      this.forceCacheSize = r.key === "CACHE_MAX_MB";
       if (r.parentKey) {
         // 只做视图层展开：写真实 settings 会静默开启 INVITE_MODE 等父开关并计入未保存数
         this.$set(this.forceOpen, r.parentKey, true);
@@ -3011,8 +3241,9 @@ export default {
         if (this._jumpTimer) clearTimeout(this._jumpTimer);
         this._jumpTimer = setTimeout(() => {
           this._jumpTimer = null;
+          const domKey = ANCHOR_ALIASES[r.key] || r.key;
           const el =
-            document.getElementById("f-" + r.key) ||
+            document.getElementById("f-" + domKey) ||
             document.getElementById("sec-" + r.gid + "-" + r.sid);
           if (!el) return;
           el.scrollIntoView({ behavior: "smooth", block: "center" });
@@ -3021,6 +3252,16 @@ export default {
           el.classList.add("field-flash");
         }, 100);
       });
+    },
+    // 顶栏 chip 与保存栏状态共用同一个游标：每次点击跳到下一个未保存项，
+    // 走到末项后回到第一项；只有一项时就地重跳（再闪一次）
+    jumpToNextDirty() {
+      const items = this.dirtyItems;
+      if (!items.length) return;
+      const idx = items.findIndex((r) => r.key === this.dirtyJumpKey);
+      const next = items[(idx + 1) % items.length];
+      this.dirtyJumpKey = next.key;
+      this.jumpTo(next);
     },
     scrollToRouteHash() {
       const hash = this.$route && this.$route.hash;
@@ -3149,6 +3390,7 @@ export default {
           this.$alert("error", rsp.msg || this.$t("settings.save_error"));
         } else {
           this.$alert("success", rsp.msg || this.$t("settings.save_success"));
+          this.$store.commit("refresh_sys");
         }
         // 服务端确认后才把规范化结果落到本地状态与 localStorage
         this.settings["BOOK_NAV"] = payload["BOOK_NAV"];
@@ -3181,6 +3423,10 @@ export default {
         }
         this.snapshot = savedSnapshot;
         this.bookNavSnapshot = savedNav;
+        // 全部保存后游标归零，下次产生未保存项时从第一项开始跳
+        this.dirtyJumpKey = "";
+        this.forceLiteGroups = false;
+        this.forceCacheSize = false;
         this.$alert("success", rsp.msg || this.$t("settings.save_success"));
       });
     },
@@ -3562,11 +3808,37 @@ export default {
   transform: none;
   flex: 0 0 auto;
 }
+/* 未保存计数可点击：逐项跳到未保存字段 */
+.settings-status-chip-clickable {
+  cursor: pointer;
+}
+.settings-status-chip-clickable:hover {
+  filter: brightness(1.08);
+}
+.settings-status-chip-clickable:focus-visible {
+  outline: 2px solid #ef6c00;
+  outline-offset: 2px;
+}
+.theme--dark .settings-status-chip-clickable:focus-visible {
+  outline-color: #90caf9;
+}
 /* 状态 chip 的 live region 外壳（保持与原来一致的 flex 占位） */
 .settings-status-chip-wrap {
   display: inline-flex;
   align-items: center;
   flex: 0 0 auto;
+}
+/* 仅读屏可见（aria-describedby 的描述源）：不能 display:none，那样描述会丢失 */
+.settings-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 .settings-search-btn {
   flex: 0 0 auto;
@@ -3661,6 +3933,32 @@ export default {
   padding: 8px 24px;
   background: #fff;
   border-top: 1px solid #e0e0e0;
+}
+.settings-savebar-status {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  margin-left: -6px;
+  padding: 4px 6px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+}
+.settings-savebar-status.is-clickable {
+  cursor: pointer;
+}
+.settings-savebar-status.is-clickable:hover {
+  background: rgba(255, 152, 0, 0.12);
+}
+.settings-savebar-status:focus-visible {
+  outline: 2px solid #1976d2;
+  outline-offset: 2px;
+}
+.theme--dark .settings-savebar-status:focus-visible {
+  outline-color: #90caf9;
 }
 .settings-savebar-actions {
   flex: 0 0 100%;
