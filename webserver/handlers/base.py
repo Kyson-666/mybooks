@@ -437,6 +437,7 @@ class BaseHandler(web.RequestHandler):
             "server_import": CONF.get("ENABLE_SERVER_FILE_IMPORT", False),
             "sync": CONF.get("ENABLE_DATA_SYNC", False),
             "book_review": CONF.get("ENABLE_BOOK_REVIEW", True),
+            "user_memos": CONF.get("ENABLE_USER_MEMOS", True),
             "book_recommend": CONF.get("ENABLE_BOOK_RECOMMEND_TO_OTHERS", True),
             "shared_notes": CONF.get("ENABLE_SHARED_NOTES", True),
         }

@@ -235,6 +235,7 @@ sys中为基础系统信息，title为网站标题, books为在库书籍数量�
 | `upload` | `ALLOW_GUEST_UPLOAD` | `false` | 是否允许访客上传书籍 |
 | `sync` | `ENABLE_DATA_SYNC` | `true` | 是否启用阅读数据同步（MyReader 同步） |
 | `book_review` | `ENABLE_BOOK_REVIEW` | `true` | 是否允许用户对书籍进行评论及评分 |
+| `user_memos` | `ENABLE_USER_MEMOS` | `true` | 是否启用站内留言（侧边栏「站内留言」与系统管理「留言管理」入口） |
 | `book_recommend` | `ENABLE_BOOK_RECOMMEND_TO_OTHERS` | `true` | 评价是否计入推荐人数/首页推荐位 |
 | `shared_notes` | `ENABLE_SHARED_NOTES` | `true` | 阅读时是否可查看其他用户的划线与笔记 |
 
@@ -254,8 +255,9 @@ sys中为基础系统信息，title为网站标题, books为在库书籍数量�
 | `languages` | 语言 | |
 | `rating` | 评分 | |
 | `booklists` | 阅读书单 | 仅登录用户显示 |
-| `memo` | 站内留言 | |
 | `friends` | 友情链接 | 还需已配置友情链接（`sys.friends` 非空） |
+
+> 站内留言不受 `SIDEBAR_ITEMS` 控制：是否显示由 `sys.allow.user_memos`（配置项 `ENABLE_USER_MEMOS`）决定。
 
 登录用户的 `user` 字段：
 

@@ -1188,7 +1188,7 @@ const SPECIAL_BLOCKS = [
   { key: "READER_DICT_MYBOOKS_ENABLED", label: "settings.reader_dict_mybooks", icon: "mdi-book-alphabet", gid: "reading", sid: "reader-dict" },
   { key: "READER_DICT_BAIKE_ENABLED", label: "settings.reader_dict_baike", icon: "mdi-book-alphabet", gid: "reading", sid: "reader-dict" },
   { key: "READER_MYDICTS", label: "settings.sec_reader_dict", icon: "mdi-book-alphabet", gid: "reading", sid: "reader-dict", al: ["翻译"] },
-  { key: "ENABLE_STAMP_FEATURE", label: "settings.enable_stamp_feature", icon: "mdi-picture-in-picture-bottom-right-outline", gid: "reading", sid: "reader-physical" },
+  { key: "ENABLE_STAMP_FEATURE", label: "settings.enable_stamp_feature", icon: "mdi-picture-in-picture-bottom-right-outline", gid: "reading", sid: "reader-extended" },
   { key: "SOCIALS", label: "settings.select_socials", icon: "mdi-at", gid: "users", sid: "users-social", al: ["qq", "微信", "微博", "github", "oauth"] },
   { key: "DEVICES", label: "settings.device_mgt", icon: "mdi-tablet-cellphone", gid: "push", sid: "push-devices", al: ["kindle", "文石", "掌阅", "汉王", "当当", "koreader", "duokan", "ireader", "boox", "ftp"] },
   { key: "ENABLE_BOOKBARN", label: "settings.bookbarn_enable", icon: "mdi-key", gid: "services", sid: "svc-bookbarn" },
@@ -1271,7 +1271,9 @@ const SEARCH_ALIASES = {
     统计: ["HOMEPAGE_CONFIG", "ALLOW_USER_DISABLE_STATISTIC"], banner: ["HOMEPAGE_CONFIG"], 阅读统计: ["HOMEPAGE_CONFIG"],
     在读: ["HOMEPAGE_CONFIG"], 正在阅读: ["HOMEPAGE_CONFIG"],
     书单: ["HOMEPAGE_CONFIG", "BOOK_NAV"], 书单推荐: ["HOMEPAGE_CONFIG"],
-    推荐给他人: ["ENABLE_BOOK_RECOMMEND_TO_OTHERS", "HOMEPAGE_CONFIG"], 他人推荐: ["ENABLE_BOOK_RECOMMEND_TO_OTHERS", "HOMEPAGE_CONFIG"],
+    推荐给他人: ["ENABLE_BOOK_RECOMMEND_TO_OTHERS", "HOMEPAGE_CONFIG"], 他人推荐: ["ENABLE_BOOK_RECOMMEND_TO_OTHERS", "HOMEPAGE_CONFIG"], "留言": ["ENABLE_USER_MEMOS"],
+    实体书: ["ENABLE_PHYSICAL_BOOKS", "ENABLE_BOOKS_TYPE_CONVERT_DIRECT"], 纸书: ["ENABLE_PHYSICAL_BOOKS"], 纸质书: ["ENABLE_PHYSICAL_BOOKS"], 书架: ["ENABLE_PHYSICAL_BOOKS"], 印刷: ["ENABLE_PHYSICAL_BOOKS"],
+    类型转换: ["ENABLE_BOOKS_TYPE_CONVERT_DIRECT"], 直接转换: ["ENABLE_BOOKS_TYPE_CONVERT_DIRECT"],
     // 站点与外观 · 书籍分类
     分类: ["BOOK_NAV", "IMPORT_CATEGORY_WITH_FOLDER", "ENABLE_FOLDER_BROWSE", "AI_ALLOW_SET_CATEGORY"], 导航: ["BOOK_NAV"], 标签: ["BOOK_NAV"],
     分类导航: ["BOOK_NAV"], 分类管理: ["BOOK_NAV"], 分类树: ["BOOK_NAV"],
@@ -1292,9 +1294,7 @@ const SEARCH_ALIASES = {
     // 阅读与内容 · 书评与互动
     评论: ["ENABLE_BOOK_REVIEW", "REVIEW_REQUIRES_APPROVAL", "ENABLE_BOOK_RECOMMEND_TO_OTHERS"], 评分: ["ENABLE_BOOK_REVIEW"], 书评: ["ENABLE_BOOK_REVIEW"], 打分: ["ENABLE_BOOK_REVIEW"], 星级: ["ENABLE_BOOK_REVIEW"],
     审核: ["REVIEW_REQUIRES_APPROVAL", "ENABLE_AUTO_NEW_USER_APPROVAL"], 先审后发: ["REVIEW_REQUIRES_APPROVAL"],
-    // 阅读与内容 · 实体书与图章
-    实体书: ["ENABLE_PHYSICAL_BOOKS", "ENABLE_BOOKS_TYPE_CONVERT_DIRECT"], 纸书: ["ENABLE_PHYSICAL_BOOKS"], 纸质书: ["ENABLE_PHYSICAL_BOOKS"], 书架: ["ENABLE_PHYSICAL_BOOKS"], 印刷: ["ENABLE_PHYSICAL_BOOKS"],
-    类型转换: ["ENABLE_BOOKS_TYPE_CONVERT_DIRECT"], 直接转换: ["ENABLE_BOOKS_TYPE_CONVERT_DIRECT"],
+    // 阅读与内容 · 扩展功能
     文件夹: ["ENABLE_FOLDER_BROWSE"], 层级: ["ENABLE_FOLDER_BROWSE"], 多级目录: ["ENABLE_FOLDER_BROWSE"], 多级分类: ["ENABLE_FOLDER_BROWSE"],
     图章: ["ENABLE_STAMP_FEATURE"], 盖章: ["ENABLE_STAMP_FEATURE"], 印章: ["ENABLE_STAMP_FEATURE"],
     // 用户与访问 · 访问权限
@@ -1418,7 +1418,9 @@ const SEARCH_ALIASES = {
     統計: ["HOMEPAGE_CONFIG", "ALLOW_USER_DISABLE_STATISTIC"], banner: ["HOMEPAGE_CONFIG"], 閱讀統計: ["HOMEPAGE_CONFIG"],
     在讀: ["HOMEPAGE_CONFIG"], 正在閱讀: ["HOMEPAGE_CONFIG"],
     書單: ["HOMEPAGE_CONFIG", "BOOK_NAV"], 書單推薦: ["HOMEPAGE_CONFIG"], 推薦書單: ["HOMEPAGE_CONFIG"],
-    推薦給他人: ["ENABLE_BOOK_RECOMMEND_TO_OTHERS", "HOMEPAGE_CONFIG"], 他人推薦: ["ENABLE_BOOK_RECOMMEND_TO_OTHERS", "HOMEPAGE_CONFIG"],
+    推薦給他人: ["ENABLE_BOOK_RECOMMEND_TO_OTHERS", "HOMEPAGE_CONFIG"], 他人推薦: ["ENABLE_BOOK_RECOMMEND_TO_OTHERS", "HOMEPAGE_CONFIG"], "留言": ["ENABLE_USER_MEMOS"],
+    實體書: ["ENABLE_PHYSICAL_BOOKS", "ENABLE_BOOKS_TYPE_CONVERT_DIRECT"], 紙書: ["ENABLE_PHYSICAL_BOOKS"], 紙本書: ["ENABLE_PHYSICAL_BOOKS"], 書架: ["ENABLE_PHYSICAL_BOOKS"], 印刷: ["ENABLE_PHYSICAL_BOOKS"],
+    類型轉換: ["ENABLE_BOOKS_TYPE_CONVERT_DIRECT"], 直接轉換: ["ENABLE_BOOKS_TYPE_CONVERT_DIRECT"], 格式轉換: ["ENABLE_BOOKS_TYPE_CONVERT_DIRECT", "ENABLE_TXT_TO_TXTZ_PLUGIN"],
     // 網站與外觀 · 書籍分類
     分類: ["BOOK_NAV", "IMPORT_CATEGORY_WITH_FOLDER", "ENABLE_FOLDER_BROWSE", "AI_ALLOW_SET_CATEGORY"], 導覽: ["BOOK_NAV"], 標籤: ["BOOK_NAV"],
     分類導覽: ["BOOK_NAV"], 分類管理: ["BOOK_NAV"], 分類樹: ["BOOK_NAV"],
@@ -1439,8 +1441,6 @@ const SEARCH_ALIASES = {
     評論: ["ENABLE_BOOK_REVIEW", "REVIEW_REQUIRES_APPROVAL", "ENABLE_BOOK_RECOMMEND_TO_OTHERS"], 評分: ["ENABLE_BOOK_REVIEW"], 書評: ["ENABLE_BOOK_REVIEW"], 打分: ["ENABLE_BOOK_REVIEW"], 星等: ["ENABLE_BOOK_REVIEW"],
     審核: ["REVIEW_REQUIRES_APPROVAL", "ENABLE_AUTO_NEW_USER_APPROVAL"], 先審後發: ["REVIEW_REQUIRES_APPROVAL"],
     // 閱讀與內容 · 實體書與圖章
-    實體書: ["ENABLE_PHYSICAL_BOOKS", "ENABLE_BOOKS_TYPE_CONVERT_DIRECT"], 紙書: ["ENABLE_PHYSICAL_BOOKS"], 紙本書: ["ENABLE_PHYSICAL_BOOKS"], 書架: ["ENABLE_PHYSICAL_BOOKS"], 印刷: ["ENABLE_PHYSICAL_BOOKS"],
-    類型轉換: ["ENABLE_BOOKS_TYPE_CONVERT_DIRECT"], 直接轉換: ["ENABLE_BOOKS_TYPE_CONVERT_DIRECT"], 格式轉換: ["ENABLE_BOOKS_TYPE_CONVERT_DIRECT", "ENABLE_TXT_TO_TXTZ_PLUGIN"],
     資料夾: ["ENABLE_FOLDER_BROWSE"], 層級: ["ENABLE_FOLDER_BROWSE"], 多層目錄: ["ENABLE_FOLDER_BROWSE"], 多級分類: ["ENABLE_FOLDER_BROWSE"],
     圖章: ["ENABLE_STAMP_FEATURE"], 蓋章: ["ENABLE_STAMP_FEATURE"], 印章: ["ENABLE_STAMP_FEATURE"],
     // 用戶與訪問 · 存取權限
@@ -1563,7 +1563,9 @@ const SEARCH_ALIASES = {
     stats: ["HOMEPAGE_CONFIG", "ALLOW_USER_DISABLE_STATISTIC"], statistics: ["HOMEPAGE_CONFIG", "ALLOW_USER_DISABLE_STATISTIC"], "reading stats": ["HOMEPAGE_CONFIG"], banner: ["HOMEPAGE_CONFIG"],
     "currently reading": ["HOMEPAGE_CONFIG"], "reading now": ["HOMEPAGE_CONFIG"], "in progress": ["HOMEPAGE_CONFIG"],
     booklist: ["HOMEPAGE_CONFIG", "BOOK_NAV"], "book list": ["HOMEPAGE_CONFIG", "BOOK_NAV"], collections: ["HOMEPAGE_CONFIG"], featured: ["HOMEPAGE_CONFIG"],
-    "recommend to others": ["ENABLE_BOOK_RECOMMEND_TO_OTHERS", "HOMEPAGE_CONFIG"], "share books": ["ENABLE_BOOK_RECOMMEND_TO_OTHERS", "HOMEPAGE_CONFIG"],
+    "recommend to others": ["ENABLE_BOOK_RECOMMEND_TO_OTHERS", "HOMEPAGE_CONFIG"], "share books": ["ENABLE_BOOK_RECOMMEND_TO_OTHERS", "HOMEPAGE_CONFIG"], "memo": ["ENABLE_USER_MEMOS"],
+    physical: ["ENABLE_PHYSICAL_BOOKS", "ENABLE_BOOKS_TYPE_CONVERT_DIRECT"], hardcopy: ["ENABLE_PHYSICAL_BOOKS"], print: ["ENABLE_PHYSICAL_BOOKS"], printed: ["ENABLE_PHYSICAL_BOOKS"], "paper books": ["ENABLE_PHYSICAL_BOOKS"], shelf: ["ENABLE_PHYSICAL_BOOKS"], bookshelf: ["ENABLE_PHYSICAL_BOOKS"],
+    convert: ["ENABLE_BOOKS_TYPE_CONVERT_DIRECT", "ENABLE_TXT_TO_TXTZ_PLUGIN"], conversion: ["ENABLE_BOOKS_TYPE_CONVERT_DIRECT", "ENABLE_TXT_TO_TXTZ_PLUGIN"],
     // Site & Appearance · categories
     category: ["BOOK_NAV", "IMPORT_CATEGORY_WITH_FOLDER", "AI_ALLOW_SET_CATEGORY"], categories: ["BOOK_NAV", "IMPORT_CATEGORY_WITH_FOLDER"], categorize: ["AI_ALLOW_SET_CATEGORY"], tag: ["BOOK_NAV"], tags: ["BOOK_NAV"],
     // Reading & Content · reader & sync
@@ -1581,8 +1583,6 @@ const SEARCH_ALIASES = {
     review: ["ENABLE_BOOK_REVIEW", "REVIEW_REQUIRES_APPROVAL", "ENABLE_BOOK_RECOMMEND_TO_OTHERS"], reviews: ["ENABLE_BOOK_REVIEW", "REVIEW_REQUIRES_APPROVAL"], rating: ["ENABLE_BOOK_REVIEW"], rate: ["ENABLE_BOOK_REVIEW"], comment: ["ENABLE_BOOK_REVIEW"], comments: ["ENABLE_BOOK_REVIEW"], stars: ["ENABLE_BOOK_REVIEW"],
     approve: ["REVIEW_REQUIRES_APPROVAL", "ENABLE_AUTO_NEW_USER_APPROVAL"], moderate: ["REVIEW_REQUIRES_APPROVAL"], moderation: ["REVIEW_REQUIRES_APPROVAL"],
     // Reading & Content · physical books & stamp
-    physical: ["ENABLE_PHYSICAL_BOOKS", "ENABLE_BOOKS_TYPE_CONVERT_DIRECT"], hardcopy: ["ENABLE_PHYSICAL_BOOKS"], print: ["ENABLE_PHYSICAL_BOOKS"], printed: ["ENABLE_PHYSICAL_BOOKS"], "paper books": ["ENABLE_PHYSICAL_BOOKS"], shelf: ["ENABLE_PHYSICAL_BOOKS"], bookshelf: ["ENABLE_PHYSICAL_BOOKS"],
-    convert: ["ENABLE_BOOKS_TYPE_CONVERT_DIRECT", "ENABLE_TXT_TO_TXTZ_PLUGIN"], conversion: ["ENABLE_BOOKS_TYPE_CONVERT_DIRECT", "ENABLE_TXT_TO_TXTZ_PLUGIN"],
     folder: ["ENABLE_FOLDER_BROWSE"], folders: ["ENABLE_FOLDER_BROWSE"], directory: ["ENABLE_FOLDER_BROWSE", "scan_upload_path"], hierarchy: ["ENABLE_FOLDER_BROWSE"], "multi-level": ["ENABLE_FOLDER_BROWSE"],
     stamp: ["ENABLE_STAMP_FEATURE"], seal: ["ENABLE_STAMP_FEATURE"],
     // Users & Access · access permissions
@@ -1878,6 +1878,27 @@ export default {
                 })),
               },
               {
+                icon: "mdi-message-text-outline",
+                key: "ENABLE_USER_MEMOS",
+                label: "settings.enable_user_memos",
+                type: "checkbox",
+                tips: "settings.enable_user_memos_tips",
+              },
+              {
+                icon: "mdi-bookshelf",
+                key: "ENABLE_PHYSICAL_BOOKS",
+                label: "settings.enable_physical_books",
+                type: "checkbox",
+                fields: [
+                  {
+                    icon: "mdi-swap-horizontal",
+                    key: "ENABLE_BOOKS_TYPE_CONVERT_DIRECT",
+                    label: "settings.enable_book_type_convert_directly",
+                    type: "checkbox",
+                  }
+                ]
+              },
+              {
                 icon: "mdi-page-layout-sidebar-left",
                 key: "SIDEBAR_ITEMS",
                 label: "settings.sidebar_items",
@@ -1887,7 +1908,6 @@ export default {
                 emptyValue: "none",
                 items: [
                   { value: "audiobooks", text: "appHeader.audioBooks" },
-                  { value: "printbooks", text: "appHeader.physicalBooks" },
                   { value: "authors", text: "appHeader.authors" },
                   { value: "publishers", text: "appHeader.publishers" },
                   { value: "folders", text: "appHeader.folders", requires: "ENABLE_FOLDER_BROWSE" },
@@ -1897,7 +1917,6 @@ export default {
                   { value: "languages", text: "appHeader.languages" },
                   { value: "rating", text: "appHeader.rating" },
                   { value: "booklists", text: "appHeader.booklists" },
-                  { value: "memo", text: "appHeader.memo" },
                   { value: "friends", text: "appHeader.friendLinks" },
                 ],
               },
@@ -1909,15 +1928,6 @@ export default {
             title: "settings.sec_site_home_cards",
             desc: "settings.sec_site_home_cards_desc",
             special: "homepage_cards",
-          },
-          {
-            id: "site-cats",
-            icon: "mdi-tag-outline",
-            title: "settings.book_tags",
-            desc: "settings.book_tags_description",
-            fields: [
-              { icon: "mdi-tag-outline", key: "BOOK_NAV", type: "book_nav", label: "settings.book_nav", al: ["书单", "分类", "导航"] },
-            ],
           },
           {
             id: "site-friends",
@@ -1955,10 +1965,13 @@ export default {
             ],
           },
           {
-            id: "reader-dict",
-            icon: "mdi-book-alphabet",
-            title: "settings.sec_reader_dict",
-            special: "reader_dicts",
+            id: "site-cats",
+            icon: "mdi-tag-outline",
+            title: "settings.book_tags",
+            desc: "settings.book_tags_description",
+            fields: [
+              { icon: "mdi-tag-outline", key: "BOOK_NAV", type: "book_nav", label: "settings.book_nav", al: ["书单", "分类", "导航"] },
+            ],
           },
           {
             id: "reader-review",
@@ -1971,24 +1984,10 @@ export default {
             ],
           },
           {
-            id: "reader-physical",
+            id: "reader-extended",
             icon: "mdi-bookshelf",
-            title: "settings.sec_reader_physical",
+            title: "settings.sec_reader_extended",
             groups: [
-              {
-                icon: "mdi-bookshelf",
-                key: "ENABLE_PHYSICAL_BOOKS",
-                label: "settings.enable_physical_books",
-                type: "checkbox",
-                fields: [
-                  {
-                    icon: "mdi-swap-horizontal",
-                    key: "ENABLE_BOOKS_TYPE_CONVERT_DIRECT",
-                    label: "settings.enable_book_type_convert_directly",
-                    type: "checkbox",
-                  }
-                ]
-              },
               {
                 icon: "mdi-folder-multiple-outline",
                 key: "ENABLE_FOLDER_BROWSE",
@@ -1997,6 +1996,12 @@ export default {
               },
             ],
             special: "stamp",
+          },
+          {
+            id: "reader-dict",
+            icon: "mdi-book-alphabet",
+            title: "settings.sec_reader_dict",
+            special: "reader_dicts",
           },
         ],
       },

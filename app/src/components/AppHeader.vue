@@ -608,6 +608,7 @@ export default {
                 read: true,
                 physical_books: true,
                 share_link: true,
+                user_memos: true,
             },
         },
         messages: [],
@@ -693,7 +694,7 @@ export default {
                         { icon: "mdi-library-shelves", href: "/admin/books", text: "appHeader.bookManagement", color: "blue darken-2"},
                         ...(this.sys.allow.share_link ? [{ icon: "mdi-cloud-outline", href: "/admin/shares", text: "appHeader.shareManagement", color: "teal" }] : []),
                         { icon: "mdi-notebook", href: "/admin/all-expected", text: "expected.allPageTitle", color: "green"},
-                        { icon: "mdi-message-text-outline", href: "/admin/user-memos", text: "memos.pageTitle", color: "blue"},
+                        ...(this.sys.allow.user_memos ? [{ icon: "mdi-message-text-outline", href: "/admin/user-memos", text: "memos.pageTitle", color: "blue" }] : []),
                         ...(this.sys.allow.book_review ? [{ icon: "mdi-comment-text-multiple-outline", href: "/admin/book-reviews", text: "adminBookReviews.pageTitle", color: "deep-orange"}] : []),
                         { icon: "mdi-math-log", href: "/admin/syslog", text: "appHeader.syslog", color: "green"},
                         { icon: "mdi-toolbox-outline", href: "/admin/toolbox", text: "appHeader.toolbox", color: "deep-orange"},
@@ -781,7 +782,7 @@ export default {
                 .concat(this.user.is_login ? readingLinks : [])
                 .concat(this.user.is_login && showItem("booklists") ? booklistLinks: [])
                 .concat(navLinks)
-                .concat(showItem("memo") ? memoLink : [])
+                .concat(this.sys.allow.user_memos ? memoLink : [])
                 .concat(showItem("friends") && this.sys.friends.length > 0 ? friendLinks : [])
         },
     },
