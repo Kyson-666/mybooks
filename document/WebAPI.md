@@ -238,12 +238,14 @@ sys中为基础系统信息，title为网站标题, books为在库书籍数量�
 | `book_recommend` | `ENABLE_BOOK_RECOMMEND_TO_OTHERS` | `true` | 评价是否计入推荐人数/首页推荐位 |
 | `shared_notes` | `ENABLE_SHARED_NOTES` | `true` | 阅读时是否可查看其他用户的划线与笔记 |
 
-`sys.sidebar_items`（string 数组，对应配置项 `SIDEBAR_ITEMS`，默认 `[]`）为管理员配置的侧边栏可选导航项白名单：**空数组表示全部显示**，非空时仅显示数组中列出的项。未列入可选范围的导航（首页、作者、所有图书、个人/管理/书单菜单等）始终显示。可取值如下：
+`sys.sidebar_items`（string 数组，对应配置项 `SIDEBAR_ITEMS`，默认 `[]`）为管理员配置的侧边栏可选导航项白名单：**空数组表示全部显示**（兼容旧配置），数组仅含 `none` 时表示全部隐藏，其余情况下仅显示数组中列出的项。未列入可选范围的导航（首页、所有图书、个人/管理菜单等）始终显示。可取值如下：
 
 | 值 | 侧边栏项 | 备注 |
 |---|---|---|
+| `none` | —— | **哨兵值，不是导航项**：数组仅含本值时全部隐藏（设置页全不勾选时写入）；消费方需按未知值容错处理 |
 | `audiobooks` | 有声书 | |
 | `printbooks` | 实体书 | 还需 `sys.allow.physical_books` 为 true |
+| `authors` | 作者 | |
 | `publishers` | 出版社 | |
 | `folders` | 文件夹浏览 | 还需 `sys.allow.folder` 为 true |
 | `categories` | 分类浏览 | |
@@ -251,7 +253,9 @@ sys中为基础系统信息，title为网站标题, books为在库书籍数量�
 | `series` | 丛书 | |
 | `languages` | 语言 | |
 | `rating` | 评分 | |
+| `booklists` | 阅读书单 | 仅登录用户显示 |
 | `memo` | 站内留言 | |
+| `friends` | 友情链接 | 还需已配置友情链接（`sys.friends` 非空） |
 
 登录用户的 `user` 字段：
 

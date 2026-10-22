@@ -296,7 +296,8 @@ settings = {
     'FOOTER': '',
     'FOOTER_WATERMARK': 'PoxenStudio/MyBooks',
     'HIDE_PROJECT_LINKS': False,
-    'SIDEBAR_ITEMS': [],                # 侧边栏显示的项目，空表示全部显示
+    'SIDEBAR_ITEMS': [],                # 侧边栏显示的项目，空表示全部显示；仅含 "none" 表示全部隐藏
+    'SIDEBAR_ITEMS_MIGRATED': False,    # 服务端内部标记（无 UI 控件）：管理员保存过设置页即置 True，之后 SIDEBAR_ITEMS 由管理员权威决定，读取期不再补齐旧默认列表缺的三个新项
 
     'FRIENDS': [],
     'SOCIALS': [],

@@ -196,14 +196,17 @@
                       :key="f.key + '-' + opt.value"
                       cols="12"
                       sm="6"
+                      md="4"
                     >
                       <v-checkbox
-                        v-model="settings[f.key]"
+                        :input-value="checkboxListInputValue(f)"
                         :value="opt.value"
+                        :disabled="isCheckboxOptionLocked(f, opt)"
                         :label="$t(opt.text)"
                         dense
                         hide-details
                         class="mt-0"
+                        @change="onCheckboxListChange(f, $event)"
                       ></v-checkbox>
                     </v-col>
                   </v-row>
@@ -1869,17 +1872,22 @@ export default {
                 label: "settings.sidebar_items",
                 type: "checkbox_list",
                 tips: "settings.sidebar_items_tips",
+                // 全不勾选时写入 "none"：空数组表示「全部显示」，无法表达「全部隐藏」
+                emptyValue: "none",
                 items: [
                   { value: "audiobooks", text: "appHeader.audioBooks" },
                   { value: "printbooks", text: "appHeader.physicalBooks" },
+                  { value: "authors", text: "appHeader.authors" },
                   { value: "publishers", text: "appHeader.publishers" },
-                  { value: "folders", text: "appHeader.folders" },
+                  { value: "folders", text: "appHeader.folders", requires: "ENABLE_FOLDER_BROWSE" },
                   { value: "categories", text: "nav.categories" },
                   { value: "tags", text: "appHeader.tags" },
                   { value: "series", text: "appHeader.series" },
                   { value: "languages", text: "appHeader.languages" },
                   { value: "rating", text: "appHeader.rating" },
+                  { value: "booklists", text: "appHeader.booklists" },
                   { value: "memo", text: "appHeader.memo" },
+                  { value: "friends", text: "appHeader.friendLinks" },
                 ],
               },
             ],
@@ -3050,6 +3058,38 @@ export default {
       if (this.isFieldLockedBy(f)) return;
       this.$set(this.settings, f.key, value);
     },
+    // checkbox_list 里带 requires 的选项：依赖的总开关关闭时置灰且显示为未勾选。
+    // 锁定只是显示层的判断，不改写 settings[f.key]：checkboxListInputValue 把锁定项从
+    // 展示数组里滤掉（所以它呈现为未勾选、也点不动），而 onCheckboxListChange 保存时会把
+    // 「已存储但当前锁定」的值补回去。于是重新打开总开关后原勾选照旧恢复，用户在锁定期间
+    // 改动其它选项也不会把该值永久删掉。
+    isCheckboxOptionLocked(f, opt) {
+      return !!(opt && opt.requires && this.settings && !this.settings[opt.requires]);
+    },
+    checkboxListInputValue(f) {
+      const stored = Array.isArray(this.settings[f.key]) ? this.settings[f.key] : [];
+      return stored.filter(
+        (value) => !(f.items || []).some((opt) => opt.value === value && this.isCheckboxOptionLocked(f, opt))
+      );
+    },
+    onCheckboxListChange(f, value) {
+      // Vuetify 2 的 Selectable 用 input-value 播种 internalValue，勾选框 change 抛出的数组
+      // 必然不含当前锁定项，直接照原样保存就会永久删掉它（如关掉「文件夹浏览」期间改一次
+      // 列表就再也回不来）。所以先把「已存储且此刻锁定」的值按存储顺序补回，再落库。
+      // 补回必须在空值哨兵判断之前：只剩锁定项的列表不是「全不勾选」，不该写 "none"。
+      // SIDEBAR_ITEMS 的空数组历史上表示「全部显示」，全不勾选时写 emptyValue 哨兵，
+      // 让「全部隐藏」也能保存生效，同时不影响旧配置的空数组语义。
+      const sentinel = f.emptyValue;
+      const emitted = (Array.isArray(value) ? value : []).filter((item) => item !== sentinel);
+      const stored = Array.isArray(this.settings[f.key]) ? this.settings[f.key] : [];
+      const locked = stored.filter(
+        (item) => item !== sentinel && (f.items || []).some((opt) => opt.value === item && this.isCheckboxOptionLocked(f, opt))
+      );
+      const missing = locked.filter((item) => emitted.indexOf(item) < 0);
+      let next = emitted.concat(missing);
+      if (sentinel && next.length === 0) next = [sentinel];
+      this.$set(this.settings, f.key, next);
+    },
     // rsp.settings 里没有的 key 拿不到响应式 getter（服务端 CONF 没给默认值的项，
     // 如 ENABLE_BOOKS_TYPE_CONVERT_DIRECT、微信的 SOCIAL_AUTH_*_KEY/_SECRET）。
     // Vue 2 下 v-model 的普通赋值不走 setter，dirtyCount 不会重算，「保存设置」就一直是
@@ -3341,6 +3381,7 @@ export default {
           this.$alert("error", rsp.msg || this.$t("settings.save_error"));
         } else {
           this.$alert("success", rsp.msg || this.$t("settings.save_success"));
+          this.$store.commit("refresh_sys");
         }
         // 服务端确认后才把规范化结果落到本地状态与 localStorage
         this.settings["BOOK_NAV"] = payload["BOOK_NAV"];
