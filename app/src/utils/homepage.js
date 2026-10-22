@@ -114,9 +114,14 @@ export function normalizeHomepageConfig(raw) {
 
 export function sectionLabel(card, t) {
   if (!card) return "";
+  let value = card.value;
+  if (value && card.type === "rating") {
+    value = t("settings.homepage_rating_value", { n: value });
+  }
+  if (!value) value = t("settings.homepage_card_no_value");
   return t("settings.homepage_card_auto_title", {
     type: t("settings.homepage_type_" + card.type),
-    value: card.value,
+    value,
   });
 }
 
