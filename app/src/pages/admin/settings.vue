@@ -165,20 +165,22 @@
             <div class="pl-6" v-if="s.fields && s.fields.length" :class="{ 'settings-fields-2col': s.fields.some((x) => x.half) }">
             <template v-for="f in s.fields">
               <div :key="'w-' + f.key" :id="'f-' + f.key" :class="f.half ? 'settings-field-half' : 'settings-field-full'">
-              <v-checkbox
-                small
-                hide-details
-                v-if="f.type === 'checkbox'"
-                :input-value="isCheckboxInputValue(f)"
-                :disabled="isFieldLockedBy(f)"
-                :key="f.key + '-checkbox'"
-                :label="$t(f.label)"
-                @change="onCheckboxChange(f, $event)"
-              >
-                <template v-if="f.icon" v-slot:prepend>
-                  <v-icon :color="f.color">{{ f.icon }}</v-icon>
-                </template>
-              </v-checkbox>
+              <template v-if="f.type === 'checkbox'">
+                <v-checkbox
+                  small
+                  hide-details
+                  :input-value="isCheckboxInputValue(f)"
+                  :disabled="isFieldLockedBy(f)"
+                  :key="f.key + '-checkbox'"
+                  :label="$t(f.label)"
+                  @change="onCheckboxChange(f, $event)"
+                >
+                  <template v-if="f.icon" v-slot:prepend>
+                    <v-icon :color="f.color">{{ f.icon }}</v-icon>
+                  </template>
+                </v-checkbox>
+                <div v-if="f.tips" class="text-caption grey--text ml-8">{{ $t(f.tips) }}</div>
+              </template>
               <div
                 v-else-if="f.type === 'checkbox_list'"
                 :key="f.key + '-checkbox_list'"
@@ -1856,6 +1858,13 @@ export default {
               },
               { icon: "mdi-auto-fix", key: "RECOMMEND_ENABLE", label: "settings.recommend_enable", type: "checkbox" },
               { icon: "mdi-account-group-outline", key: "RECOMMEND_USE_CROWD", label: "settings.recommend_use_crowd", type: "checkbox" },
+              {
+                icon: "mdi-image-multiple-outline",
+                key: "ENABLE_BOOKLIST_COVER_SCROLL",
+                label: "settings.booklist_cover_scroll",
+                type: "checkbox",
+                tips: "settings.booklist_cover_scroll_tips",
+              },
               {
                 icon: "mdi-book-multiple",
                 key: "DEFAULT_PAGE_SIZE",
