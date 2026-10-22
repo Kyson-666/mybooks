@@ -817,8 +817,7 @@
             </template>
 
             <template v-if="s.special === 'socials'">
-              <p>{{ $t("settings.socials_description") }}</p>
-              <div id="f-SOCIALS" class="pl-6">
+              <div class="pl-6">
               <v-combobox
                 v-model="settings.SOCIALS"
                 :items="sns_items"
@@ -3055,13 +3054,14 @@ export default {
     }
   },
   methods: {
-    // lockOn 指定的总开关开启后，该字段失去意义：显示为已勾选且不可取消，
+    // lockOn 指定的总开关开启后，该字段失去意义：置灰显示为未勾选且不可点选
+    // （与后端一致——REQUIRE_LOGIN 下四项访客权限恒按 False 处理），
     // 但不回写 settings，保留用户原先保存的访客权限值，关掉总开关后原样恢复。
     isFieldLockedBy(f) {
       return !!(f && f.lockOn && this.settings && this.settings[f.lockOn]);
     },
     isCheckboxInputValue(f) {
-      return this.isFieldLockedBy(f) ? true : this.settings[f.key];
+      return this.isFieldLockedBy(f) ? false : this.settings[f.key];
     },
     onCheckboxChange(f, value) {
       if (this.isFieldLockedBy(f)) return;
@@ -3677,7 +3677,7 @@ export default {
 .settings-group-bar {
   position: sticky;
   top: var(--settings-bar-top, 56px);
-  z-index: 5;
+  z-index: 2;
   padding: 10px 12px 8px;
   margin-bottom: 12px;
 }
@@ -3924,7 +3924,7 @@ export default {
 .settings-savebar {
   position: sticky;
   bottom: 0;
-  z-index: 200;
+  z-index: 1;
   display: flex;
   align-items: center;
   /* 窄屏计数位数大时允许换行，避免横排溢出 */
