@@ -345,7 +345,7 @@
                                     <v-icon>mdi-email-send</v-icon>
                                     {{ $t('book.shareToEmail') }}
                                 </v-list-item>
-                                <v-list-item v-if="isAdmin" @click="dialog_book_share = true">
+                                <v-list-item v-if="isAdmin && shareLinkEnabled" @click="dialog_book_share = true">
                                     <v-icon>mdi-cloud-outline</v-icon>
                                     {{ book.shared ? $t('share.manageShare') : $t('share.createShare') }}
                                 </v-list-item>
@@ -369,7 +369,7 @@
                         </v-menu>
 
                         <ReadingTimeBackfillDialog ref="reading_time_backfill" @saved="onReadingTimeSaved" />
-                        <BookShareDialog v-if="isAdmin" v-model="dialog_book_share" :book="book" @changed="onShareChanged" />
+                        <BookShareDialog v-if="isAdmin && shareLinkEnabled" v-model="dialog_book_share" :book="book" @changed="onShareChanged" />
                     </template>
                 </v-toolbar>
                 <v-row>
@@ -411,7 +411,7 @@
                             <div>
                                 <p class='title mb-0'>
                                     {{ book.title }}
-                                    <v-icon v-if="isAdmin && book.shared" color="teal"
+                                    <v-icon v-if="isAdmin && shareLinkEnabled && book.shared" color="teal"
                                         @click="dialog_book_share = true"
                                         class="ml-1"
                                         :title="$t('share.sharedBadge')">
@@ -599,7 +599,7 @@
                                     <v-icon left>mdi-robot</v-icon>
                                     {{ $t('book.aiUpdate') }}
                                 </v-chip>
-                                <v-chip v-if="isAdmin && book.shared" rounded smallF color="#006400" class="white--text"
+                                <v-chip v-if="isAdmin && shareLinkEnabled && book.shared" rounded smallF color="#006400" class="white--text"
                                         @click="dialog_book_share = true">
                                     <v-icon left>mdi-cloud-outline</v-icon>
                                     {{ $t('share.manageShare') }}
@@ -1288,6 +1288,9 @@ export default {
         },
         isAdmin: function () {
             return this.$store.state.user?.is_admin === true;
+        },
+        shareLinkEnabled: function () {
+            return this.$store.state.sys?.allow?.share_link !== false;
         },
         mynexusStatus: function () {
             return this.book.mynexus_analysis?.status || "not_started";

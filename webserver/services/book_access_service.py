@@ -23,21 +23,29 @@ class BookAccessService:
 
     @staticmethod
     def guest_read_source(handler, book_id: Optional[int] = None) -> Optional[str]:
-        # REQUIRE_LOGIN（必须登录才能访问）是"整站关闸"：全站访客可读、分享授权、
-        # 公开书单的 guest_read 一律失效。私人图书馆下任何账号都能读全库，分享链接
-        # 保留读权限只会变成绕过登录的后门（见 docs/mybooks-require-login-plan-20261018.md）。
+        # 分享链接优先于 REQUIRE_LOGIN：持有效分享授权即可读，不受"必须登录"影响。
+        if BookAccessService._share_allows(handler, book_id, "allow_read"):
+            return "share"
+        # REQUIRE_LOGIN（必须登录才能访问）是"整站关闸"：全站访客可读、公开书单的
+        # guest_read 一律失效。分享链接已在上面单独放行，不受此门影响。
         if CONF.get("REQUIRE_LOGIN", False):
             return None
         if CONF.get("ALLOW_GUEST_READ", False):
             return "global"
-        if BookAccessService._share_allows(handler, book_id, "allow_read"):
-            return "share"
         if BookAccessService._booklist_allows_read(book_id):
             return "booklist"
         return None
 
     @staticmethod
+    def share_link_enabled() -> bool:
+        """分享链接功能总开关；与 sys.allow.share_link 一致，不受 REQUIRE_LOGIN 影响。"""
+        return bool(CONF.get("ENABLE_SHARE_LINK", True))
+
+    @staticmethod
     def _share_allows(handler, book_id: Optional[int], permission: str) -> bool:
+        # 总开关关闭后，已发出的分享链接与已授予的 cookie 一并失效，避免旧授权继续放行
+        if not BookAccessService.share_link_enabled():
+            return False
         if book_id is None:
             return BookShareService.any_grant(handler)
         share = BookShareService.granted_share(handler, book_id)
@@ -45,16 +53,11 @@ class BookAccessService:
 
     @staticmethod
     def share_read_granted(handler, book_id) -> bool:
-        # REQUIRE_LOGIN 下分享链接整体失效：否则被禁用/无 read 权限的账号拿着 share
-        # 仍可读，等于绕过"必须登录 + 账号权限"。
-        if CONF.get("REQUIRE_LOGIN", False):
-            return False
+        # 分享链接优先于 REQUIRE_LOGIN；持有有效授权时也不再受账号阅读权限约束。
         return book_id is not None and BookAccessService._share_allows(handler, book_id, "allow_read")
 
     @staticmethod
     def share_download_granted(handler, book_id) -> bool:
-        if CONF.get("REQUIRE_LOGIN", False):
-            return False
         return book_id is not None and BookAccessService._share_allows(handler, book_id, "allow_download")
 
     @staticmethod
@@ -71,11 +74,12 @@ class BookAccessService:
 
     @staticmethod
     def guest_download_allowed(handler, book_id: Optional[int] = None) -> bool:
+        # 分享授权优先于 REQUIRE_LOGIN，其次才是全局"访客可下载"开关
+        if BookAccessService._share_allows(handler, book_id, "allow_download"):
+            return True
         if CONF.get("REQUIRE_LOGIN", False):
             return False
-        if CONF.get("ALLOW_GUEST_DOWNLOAD", False):
-            return True
-        return BookAccessService._share_allows(handler, book_id, "allow_download")
+        return bool(CONF.get("ALLOW_GUEST_DOWNLOAD", False))
 
     @staticmethod
     def guest_upload_allowed() -> bool:

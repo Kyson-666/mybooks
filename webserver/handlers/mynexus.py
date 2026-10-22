@@ -61,6 +61,69 @@ def _failed_task_id(response):
     return None
 
 
+_MAX_SELECTION_CHARS = 2000
+_MAX_TITLE_CHARS = 200
+_MAX_HREF_CHARS = 500
+_MAX_CFI_CHARS = 500
+_MAX_CONTEXT_BYTES = 8192
+
+
+def _context_text(value, limit):
+    if not isinstance(value, str):
+        return ""
+    return value[:limit]
+
+
+def _context_int(value):
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return 0
+    return max(0, int(value))
+
+
+def _context_fraction(value):
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return 0.0
+    return min(1.0, max(0.0, float(value)))
+
+
+def _normalize_context(raw):
+    """Drop malformed fields and enforce the wire limits shared with MyReader."""
+    if not isinstance(raw, dict):
+        return None
+    reading = raw.get("reading")
+    selection = raw.get("selection")
+    out = {}
+    if isinstance(reading, dict):
+        out["reading"] = {
+            "book_title": _context_text(reading.get("book_title"), _MAX_TITLE_CHARS),
+            "chapter_title": _context_text(reading.get("chapter_title"), _MAX_TITLE_CHARS),
+            "chapter_href": _context_text(reading.get("chapter_href"), _MAX_HREF_CHARS),
+            "section_index": _context_int(reading.get("section_index")),
+            "progress_fraction": _context_fraction(reading.get("progress_fraction")),
+            "page": _context_int(reading.get("page")),
+            "cfi": _context_text(reading.get("cfi"), _MAX_CFI_CHARS),
+        }
+    if isinstance(selection, dict):
+        text = _context_text(selection.get("text"), _MAX_SELECTION_CHARS)
+        if text:
+            out["selection"] = {
+                "text": text,
+                "chapter_title": _context_text(selection.get("chapter_title"), _MAX_TITLE_CHARS),
+                "chapter_href": _context_text(selection.get("chapter_href"), _MAX_HREF_CHARS),
+                "section_index": _context_int(selection.get("section_index")),
+                "page": _context_int(selection.get("page")),
+                "progress_fraction": _context_fraction(selection.get("progress_fraction")),
+                "cfi": _context_text(selection.get("cfi"), _MAX_CFI_CHARS),
+            }
+    if not out:
+        return None
+    if len(json.dumps(out, ensure_ascii=False).encode("utf-8")) > _MAX_CONTEXT_BYTES:
+        out.pop("selection", None)
+        if not out or len(json.dumps(out, ensure_ascii=False).encode("utf-8")) > _MAX_CONTEXT_BYTES:
+            return None
+    return out
+
+
 def _update_analysis(session, analysis, response):
     status = response.get("analysis_status") or "processing"
     ingest = response.get("ingest_task") or {}
@@ -337,6 +400,9 @@ class MyNexusSessionHandler(BaseHandler):
                 self.finish({"err": "params.invalid", "msg": _("消息必须包含用户或助手角色及文本内容")})
                 return
             normalized.append({"role": message["role"], "content": message["content"]})
+            context = _normalize_context(message.get("context"))
+            if context:
+                normalized[-1]["context"] = context
         if normalized[-1]["role"] != "user":
             self.set_status(400)
             self.finish({"err": "params.invalid", "msg": _("最后一条消息必须来自用户")})
@@ -349,6 +415,14 @@ class MyNexusSessionHandler(BaseHandler):
             "book_ids": [analysis.remote_book_id],
             "stream": True,
         }
+        sent_context = normalized[-1].get("context") or {}
+        sent_reading = sent_context.get("reading") or {}
+        sent_selection = sent_context.get("selection") or {}
+        logging.info(
+            "[MyNexus] chat context book=%s chapter=%s section=%s selection_len=%d",
+            book_id, sent_reading.get("chapter_title", ""), sent_reading.get("section_index"),
+            len(sent_selection.get("text", "")),
+        )
         try:
             client = MyNexusClient()
         except MyNexusError as exc:

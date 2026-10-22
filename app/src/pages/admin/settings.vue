@@ -1250,7 +1250,7 @@ const SEARCH_ALIASES = {
     // 站点与外观 · 站点标识
     站名: ["site_title"], 站点名称: ["site_title"], 网站标题: ["site_title"], 名称: ["site_title", "DEVICES"], 标题: ["site_title", "push_title"],
     图标: ["site_icon"], 网站图标: ["site_icon"], favicon: ["site_icon"], logo: ["site_icon"], 徽标: ["site_icon"],
-    默认链接: ["SITE_URL"], 访问链接: ["SITE_URL"], 分享链接: ["SITE_URL"], 分享地址: ["SITE_URL"], 对外地址: ["SITE_URL"], 外网: ["SITE_URL"], 内网: ["SITE_URL"], 二维码: ["SITE_URL"],
+    默认链接: ["SITE_URL"], 访问链接: ["SITE_URL"], 分享链接: ["SITE_URL", "ENABLE_SHARE_LINK"], 分享地址: ["SITE_URL"], 对外地址: ["SITE_URL"], 外网: ["SITE_URL"], 内网: ["SITE_URL"], 二维码: ["SITE_URL"],
     公告: ["HEADER"], 告示: ["HEADER"], 通知: ["HEADER", "SEND_MAIL_FOR_NEW_BOOKS"],
     脚注: ["FOOTER"], 页脚: ["FOOTER"], 页尾: ["FOOTER"], 底部: ["FOOTER"], 版权: ["FOOTER"],
     水印: ["FOOTER_WATERMARK"],
@@ -1297,11 +1297,12 @@ const SEARCH_ALIASES = {
     类型转换: ["ENABLE_BOOKS_TYPE_CONVERT_DIRECT"], 直接转换: ["ENABLE_BOOKS_TYPE_CONVERT_DIRECT"],
     文件夹: ["ENABLE_FOLDER_BROWSE"], 层级: ["ENABLE_FOLDER_BROWSE"], 多级目录: ["ENABLE_FOLDER_BROWSE"], 多级分类: ["ENABLE_FOLDER_BROWSE"],
     图章: ["ENABLE_STAMP_FEATURE"], 盖章: ["ENABLE_STAMP_FEATURE"], 印章: ["ENABLE_STAMP_FEATURE"],
-    // 用户与访问 · 访客权限
-    访客: ["ALLOW_GUEST_READ", "ALLOW_GUEST_DOWNLOAD", "ALLOW_GUEST_UPLOAD", "ALLOW_GUEST_PUSH"],
-    游客: ["ALLOW_GUEST_READ", "ALLOW_GUEST_DOWNLOAD", "ALLOW_GUEST_UPLOAD", "ALLOW_GUEST_PUSH"],
-    匿名: ["ALLOW_GUEST_READ", "ALLOW_GUEST_DOWNLOAD"], 免登录: ["ALLOW_GUEST_READ", "ALLOW_GUEST_DOWNLOAD", "ALLOW_GUEST_UPLOAD", "ALLOW_GUEST_PUSH"], 未登录: ["ALLOW_GUEST_READ", "ALLOW_GUEST_DOWNLOAD"],
+    // 用户与访问 · 访问权限
+    访客: ["ALLOW_GUEST_READ", "ALLOW_GUEST_DOWNLOAD", "ALLOW_GUEST_UPLOAD", "ALLOW_GUEST_PUSH", "ENABLE_SHARE_LINK"],
+    游客: ["ALLOW_GUEST_READ", "ALLOW_GUEST_DOWNLOAD", "ALLOW_GUEST_UPLOAD", "ALLOW_GUEST_PUSH", "ENABLE_SHARE_LINK"],
+    匿名: ["ALLOW_GUEST_READ", "ALLOW_GUEST_DOWNLOAD"], 免登录: ["ALLOW_GUEST_READ", "ALLOW_GUEST_DOWNLOAD", "ALLOW_GUEST_UPLOAD", "ALLOW_GUEST_PUSH", "ENABLE_SHARE_LINK"], 未登录: ["ALLOW_GUEST_READ", "ALLOW_GUEST_DOWNLOAD"],
     在线阅读: ["ALLOW_GUEST_READ"], 试读: ["ALLOW_GUEST_READ"],
+    分享: ["ENABLE_SHARE_LINK", "ENABLE_SHARED_NOTES"], 直链: ["ENABLE_SHARE_LINK"], 链接阅读: ["ENABLE_SHARE_LINK"], 分享阅读: ["ENABLE_SHARE_LINK"],
     // 用户与访问 · 注册与邀请
     邀请: ["INVITE_MODE", "INVITE_CODE"], 私人: ["INVITE_MODE"], 访问码: ["INVITE_MODE", "INVITE_CODE"], 注册码: ["INVITE_CODE", "INVITE_MODE"], 邀请码: ["INVITE_CODE", "INVITE_MODE"], 封闭: ["INVITE_MODE"],
     密码锁: ["INVITE_MODE", "INVITE_CODE"], 口令: ["INVITE_CODE"],
@@ -1399,7 +1400,7 @@ const SEARCH_ALIASES = {
     公告: ["HEADER"], 告示: ["HEADER"], 通知: ["HEADER", "SEND_MAIL_FOR_NEW_BOOKS"],
     頁尾: ["FOOTER"], 頁腳: ["FOOTER"], 腳註: ["FOOTER"], 底部: ["FOOTER"], 版權: ["FOOTER"],
     浮水印: ["FOOTER_WATERMARK"], 水印: ["FOOTER_WATERMARK"],
-    預設連結: ["SITE_URL"], 存取連結: ["SITE_URL"], 分享連結: ["SITE_URL"], 分享網址: ["SITE_URL"], 對外網址: ["SITE_URL"], 外網: ["SITE_URL"], 內網: ["SITE_URL"], 二維碼: ["SITE_URL"],
+    預設連結: ["SITE_URL"], 存取連結: ["SITE_URL"], 分享連結: ["SITE_URL", "ENABLE_SHARE_LINK"], 分享網址: ["SITE_URL"], 對外網址: ["SITE_URL"], 外網: ["SITE_URL"], 內網: ["SITE_URL"], 二維碼: ["SITE_URL"],
     語言: ["site_language", "DEFAULT_LANGUAGE"], 語系: ["site_language"], 中文: ["site_language"], english: ["site_language"], 繁體: ["site_language"], 簡體: ["site_language"], 多語言: ["site_language", "DEFAULT_LANGUAGE"], 切換: ["site_language"], 預設語言: ["DEFAULT_LANGUAGE"],
     時區: ["site_timezone"], 系統時區: ["site_timezone"], 時區設定: ["site_timezone"], 東八區: ["site_timezone"], 格林威治: ["site_timezone"], 跨天: ["site_timezone"], 統計口徑: ["site_timezone"], utc: ["site_timezone"], timezone: ["site_timezone"],
     首頁: ["INDEX_PAGE_TYPE", "MAIN_PAGE_RANDOM_COUNT", "MAIN_PAGE_RECENT_COUNT"], 首頁類型: ["INDEX_PAGE_TYPE"],
@@ -1442,11 +1443,12 @@ const SEARCH_ALIASES = {
     類型轉換: ["ENABLE_BOOKS_TYPE_CONVERT_DIRECT"], 直接轉換: ["ENABLE_BOOKS_TYPE_CONVERT_DIRECT"], 格式轉換: ["ENABLE_BOOKS_TYPE_CONVERT_DIRECT", "ENABLE_TXT_TO_TXTZ_PLUGIN"],
     資料夾: ["ENABLE_FOLDER_BROWSE"], 層級: ["ENABLE_FOLDER_BROWSE"], 多層目錄: ["ENABLE_FOLDER_BROWSE"], 多級分類: ["ENABLE_FOLDER_BROWSE"],
     圖章: ["ENABLE_STAMP_FEATURE"], 蓋章: ["ENABLE_STAMP_FEATURE"], 印章: ["ENABLE_STAMP_FEATURE"],
-    // 用戶與訪問 · 訪客權限
-    訪客: ["ALLOW_GUEST_READ", "ALLOW_GUEST_DOWNLOAD", "ALLOW_GUEST_UPLOAD", "ALLOW_GUEST_PUSH"],
-    遊客: ["ALLOW_GUEST_READ", "ALLOW_GUEST_DOWNLOAD", "ALLOW_GUEST_UPLOAD", "ALLOW_GUEST_PUSH"],
-    匿名: ["ALLOW_GUEST_READ", "ALLOW_GUEST_DOWNLOAD"], 免登入: ["ALLOW_GUEST_READ", "ALLOW_GUEST_DOWNLOAD", "ALLOW_GUEST_UPLOAD", "ALLOW_GUEST_PUSH"], 未登入: ["ALLOW_GUEST_READ", "ALLOW_GUEST_DOWNLOAD"],
+    // 用戶與訪問 · 存取權限
+    訪客: ["ALLOW_GUEST_READ", "ALLOW_GUEST_DOWNLOAD", "ALLOW_GUEST_UPLOAD", "ALLOW_GUEST_PUSH", "ENABLE_SHARE_LINK"],
+    遊客: ["ALLOW_GUEST_READ", "ALLOW_GUEST_DOWNLOAD", "ALLOW_GUEST_UPLOAD", "ALLOW_GUEST_PUSH", "ENABLE_SHARE_LINK"],
+    匿名: ["ALLOW_GUEST_READ", "ALLOW_GUEST_DOWNLOAD"], 免登入: ["ALLOW_GUEST_READ", "ALLOW_GUEST_DOWNLOAD", "ALLOW_GUEST_UPLOAD", "ALLOW_GUEST_PUSH", "ENABLE_SHARE_LINK"], 未登入: ["ALLOW_GUEST_READ", "ALLOW_GUEST_DOWNLOAD"],
     線上閱讀: ["ALLOW_GUEST_READ"], 試閱: ["ALLOW_GUEST_READ"],
+    分享: ["ENABLE_SHARE_LINK", "ENABLE_SHARED_NOTES"], 直連: ["ENABLE_SHARE_LINK"], 連結閱讀: ["ENABLE_SHARE_LINK"], 分享閱讀: ["ENABLE_SHARE_LINK"],
     // 用戶與訪問 · 註冊與邀請
     邀請: ["INVITE_MODE", "INVITE_CODE"], 私人: ["INVITE_MODE"], 私人圖書館: ["INVITE_MODE"], 私密: ["INVITE_MODE"], 存取碼: ["INVITE_MODE", "INVITE_CODE"], 註冊碼: ["INVITE_CODE", "INVITE_MODE"], 邀請碼: ["INVITE_CODE", "INVITE_MODE"], 封閉: ["INVITE_MODE"],
     密碼鎖: ["INVITE_MODE", "INVITE_CODE"], 通關密語: ["INVITE_CODE"],
@@ -1541,7 +1543,7 @@ const SEARCH_ALIASES = {
     // Site & Appearance · site identity
     "site name": ["site_title"], "site title": ["site_title"], "website name": ["site_title"], name: ["site_title", "DEVICES"], title: ["site_title", "push_title"], subject: ["push_title", "RESET_MAIL_TITLE", "SIGNUP_MAIL_TITLE"],
     icon: ["site_icon"], favicon: ["site_icon"], logo: ["site_icon"], brand: ["site_icon"],
-    "default url": ["SITE_URL"], "site url": ["SITE_URL"], "share link": ["SITE_URL"], "share url": ["SITE_URL"], "external url": ["SITE_URL"], "public url": ["SITE_URL"], "base url": ["SITE_URL"], qrcode: ["SITE_URL"], "qr code": ["SITE_URL"], lan: ["SITE_URL"],
+    "default url": ["SITE_URL"], "site url": ["SITE_URL"], "share link": ["SITE_URL", "ENABLE_SHARE_LINK"], "share url": ["SITE_URL"], "external url": ["SITE_URL"], "public url": ["SITE_URL"], "base url": ["SITE_URL"], qrcode: ["SITE_URL"], "qr code": ["SITE_URL"], lan: ["SITE_URL"],
     header: ["HEADER"], announcement: ["HEADER"], notice: ["HEADER"], "site header": ["HEADER"],
     footer: ["FOOTER"], copyright: ["FOOTER"], watermark: ["FOOTER_WATERMARK"],
     language: ["site_language", "DEFAULT_LANGUAGE"], languages: ["site_language"], locale: ["site_language"], i18n: ["site_language"], multilingual: ["site_language"], english: ["site_language"], chinese: ["site_language"], traditional: ["site_language"], simplified: ["site_language"], "default language": ["DEFAULT_LANGUAGE"],
@@ -1583,10 +1585,11 @@ const SEARCH_ALIASES = {
     convert: ["ENABLE_BOOKS_TYPE_CONVERT_DIRECT", "ENABLE_TXT_TO_TXTZ_PLUGIN"], conversion: ["ENABLE_BOOKS_TYPE_CONVERT_DIRECT", "ENABLE_TXT_TO_TXTZ_PLUGIN"],
     folder: ["ENABLE_FOLDER_BROWSE"], folders: ["ENABLE_FOLDER_BROWSE"], directory: ["ENABLE_FOLDER_BROWSE", "scan_upload_path"], hierarchy: ["ENABLE_FOLDER_BROWSE"], "multi-level": ["ENABLE_FOLDER_BROWSE"],
     stamp: ["ENABLE_STAMP_FEATURE"], seal: ["ENABLE_STAMP_FEATURE"],
-    // Users & Access · guests
-    guest: ["ALLOW_GUEST_READ", "ALLOW_GUEST_DOWNLOAD", "ALLOW_GUEST_UPLOAD", "ALLOW_GUEST_PUSH"], guests: ["ALLOW_GUEST_READ", "ALLOW_GUEST_DOWNLOAD", "ALLOW_GUEST_UPLOAD", "ALLOW_GUEST_PUSH"],
-    anonymous: ["ALLOW_GUEST_READ", "ALLOW_GUEST_DOWNLOAD"], "not logged in": ["ALLOW_GUEST_READ", "ALLOW_GUEST_DOWNLOAD"], "public access": ["ALLOW_GUEST_READ", "ALLOW_GUEST_DOWNLOAD", "ALLOW_GUEST_UPLOAD", "ALLOW_GUEST_PUSH"],
+    // Users & Access · access permissions
+    guest: ["ALLOW_GUEST_READ", "ALLOW_GUEST_DOWNLOAD", "ALLOW_GUEST_UPLOAD", "ALLOW_GUEST_PUSH", "ENABLE_SHARE_LINK"], guests: ["ALLOW_GUEST_READ", "ALLOW_GUEST_DOWNLOAD", "ALLOW_GUEST_UPLOAD", "ALLOW_GUEST_PUSH", "ENABLE_SHARE_LINK"],
+    anonymous: ["ALLOW_GUEST_READ", "ALLOW_GUEST_DOWNLOAD"], "not logged in": ["ALLOW_GUEST_READ", "ALLOW_GUEST_DOWNLOAD"], "public access": ["ALLOW_GUEST_READ", "ALLOW_GUEST_DOWNLOAD", "ALLOW_GUEST_UPLOAD", "ALLOW_GUEST_PUSH", "ENABLE_SHARE_LINK"],
     "read online": ["ALLOW_GUEST_READ"], browse: ["ALLOW_GUEST_READ"], download: ["ALLOW_GUEST_DOWNLOAD", "ENABLE_DOWNLOAD_QUOTA", "GLOBAL_DOWNLOAD_QUOTA"], downloads: ["ALLOW_GUEST_DOWNLOAD"], upload: ["ALLOW_GUEST_UPLOAD", "MAX_UPLOAD_SIZE", "CHUNK_UPLOAD_SIZE"], push: ["ALLOW_GUEST_PUSH", "DEVICES", "push_title", "push_content", "SEND_MAIL_FOR_NEW_BOOKS"],
+    share: ["ENABLE_SHARE_LINK", "ENABLE_SHARED_NOTES"], "share links": ["ENABLE_SHARE_LINK"], "public link": ["ENABLE_SHARE_LINK"], "read by link": ["ENABLE_SHARE_LINK"],
     // Users & Access · registration & invitation
     register: ["ALLOW_REGISTER", "SIGNUP_MAIL_TITLE", "ENABLE_AUTO_NEW_USER_APPROVAL"], registration: ["ALLOW_REGISTER"], signup: ["ALLOW_REGISTER"], "sign up": ["ALLOW_REGISTER"], "create account": ["ALLOW_REGISTER"],
     invite: ["INVITE_MODE", "INVITE_CODE"], invitation: ["INVITE_MODE", "INVITE_CODE"], "invite code": ["INVITE_CODE", "INVITE_MODE"], "access code": ["INVITE_CODE", "INVITE_MODE"], "private library": ["INVITE_MODE"], "private mode": ["INVITE_MODE"], passcode: ["INVITE_MODE", "INVITE_CODE"], closed: ["INVITE_MODE"],
@@ -2007,12 +2010,13 @@ export default {
             icon: "mdi-account",
             title: "settings.sec_users_guest",
             fields: [
-              // 私人图书馆标准模式：开启后所有页面与接口都要求登录，下面四项访客权限随之失效
+              // 私人图书馆标准模式：开启后所有页面与接口都要求登录，下面各项访问权限随之失效
               { icon: "mdi-login-variant", key: "REQUIRE_LOGIN", label: "settings.require_login", type: "checkbox", al: ["必须登录", "私人图书馆", "需登录", "login required"] },
               { icon: "mdi-read", key: "ALLOW_GUEST_READ", label: "settings.allow_guest_read", type: "checkbox", lockOn: "REQUIRE_LOGIN" },
               { icon: "mdi-download", key: "ALLOW_GUEST_DOWNLOAD", label: "settings.allow_guest_download", type: "checkbox", lockOn: "REQUIRE_LOGIN" },
               { icon: "mdi-upload", key: "ALLOW_GUEST_UPLOAD", label: "settings.allow_guest_upload", type: "checkbox", lockOn: "REQUIRE_LOGIN" },
               { icon: "mdi-send", key: "ALLOW_GUEST_PUSH", label: "settings.allow_guest_push", type: "checkbox", lockOn: "REQUIRE_LOGIN" },
+              { icon: "mdi-link-variant", key: "ENABLE_SHARE_LINK", label: "settings.allow_share_link", type: "checkbox" },
             ],
           },
           {
@@ -3055,7 +3059,7 @@ export default {
   },
   methods: {
     // lockOn 指定的总开关开启后，该字段失去意义：置灰显示为未勾选且不可点选
-    // （与后端一致——REQUIRE_LOGIN 下四项访客权限恒按 False 处理），
+    // （与后端一致——REQUIRE_LOGIN 下各项访客权限恒按 False 处理），
     // 但不回写 settings，保留用户原先保存的访客权限值，关掉总开关后原样恢复。
     isFieldLockedBy(f) {
       return !!(f && f.lockOn && this.settings && this.settings[f.lockOn]);

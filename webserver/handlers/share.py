@@ -14,6 +14,7 @@ from webserver.base.formatter import BookFormatter
 from webserver.handlers.base import BaseHandler, is_admin, js
 from webserver.i18n import _
 from webserver.models import BookShare
+from webserver.services.book_access_service import BookAccessService
 from webserver.services.book_share_service import RESULT_BAD_PASSWORD, RESULT_LOCKED, RESULT_OK, BookShareService, ShareParamError
 
 CONF = loader.get_settings()
@@ -68,6 +69,8 @@ class AdminBookShareHandler(BaseHandler, ShareHandlerMixin):
     @js
     @is_admin
     def post(self, bid):
+        if not BookAccessService.share_link_enabled():
+            return {"err": "share.disabled", "msg": _("分享链接功能未启用")}
         book_id = int(bid)
         data = self._json_body()
         if data is None:
@@ -159,6 +162,8 @@ class ShareInfoHandler(BaseHandler, ShareHandlerMixin):
 
     @js
     def get(self, token):
+        if not BookAccessService.share_link_enabled():
+            return _invalid()
         share = BookShareService.get_by_token(token)
         granted = share is not None and BookShareService.has_grant(self, share)
         if not self._usable(share, granted):
@@ -170,6 +175,8 @@ class ShareVerifyHandler(ShareInfoHandler):
 
     @js
     def post(self, token):
+        if not BookAccessService.share_link_enabled():
+            return _invalid()
         share = BookShareService.get_by_token(token)
         granted = share is not None and BookShareService.has_grant(self, share)
         if not self._usable(share, granted):

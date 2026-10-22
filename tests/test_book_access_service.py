@@ -13,6 +13,7 @@ from webserver.models import Reader
 from webserver.services import book_access_service
 from webserver.services.book_access_service import BookAccessService
 from webserver.services.booklist_service import BookListService
+from webserver.services.book_share_service import BookShareService
 
 WEBSERVER = pathlib.Path(__file__).resolve().parent.parent / "webserver"
 ALLOWED_DIRECT_USERS = {"services/book_access_service.py", "settings.py", "base/setting_saver.py", "handlers/base.py"}
@@ -49,15 +50,19 @@ class TestBookAccessService(unittest.TestCase):
         self.assertFalse(self.check(conf, BookAccessService.guest_read_allowed, 1))
         self.assertFalse(self.check(conf, BookAccessService.guest_read_allowed))
         self.assertFalse(self.check(conf, BookAccessService.guest_download_allowed, 1))
-        # 整站关闸：连显式分享/公开书单的逐个授权也一并失效（私人图书馆下任何账号都能读全库）
+        # 整站关闸：公开书单的逐个授权失效
+        with mock.patch.dict(book_access_service.CONF, conf, clear=False), \
+                mock.patch.object(BookAccessService, "_share_allows", return_value=False), \
+                mock.patch.object(BookAccessService, "_booklist_allows_read", return_value=True):
+            self.assertIsNone(BookAccessService.guest_read_source(NoCookieHandler(), 1))
+        # 分享链接优先于 REQUIRE_LOGIN：持有有效授权时阅读/下载都放行
         with mock.patch.dict(book_access_service.CONF, conf, clear=False), \
                 mock.patch.object(BookAccessService, "_share_allows", return_value=True), \
                 mock.patch.object(BookAccessService, "_booklist_allows_read", return_value=True):
-            self.assertIsNone(BookAccessService.guest_read_source(NoCookieHandler(), 1))
-            self.assertFalse(BookAccessService.guest_download_allowed(NoCookieHandler(), 1))
-            # 分享授权在 HTTP 层的快捷判定也要一并失效（否则被禁用账号拿 share 仍可读）
-            self.assertFalse(BookAccessService.share_read_granted(NoCookieHandler(), 1))
-            self.assertFalse(BookAccessService.share_download_granted(NoCookieHandler(), 1))
+            self.assertEqual(BookAccessService.guest_read_source(NoCookieHandler(), 1), "share")
+            self.assertTrue(BookAccessService.guest_download_allowed(NoCookieHandler(), 1))
+            self.assertTrue(BookAccessService.share_read_granted(NoCookieHandler(), 1))
+            self.assertTrue(BookAccessService.share_download_granted(NoCookieHandler(), 1))
 
     def test_require_login_disables_guest_upload_and_push(self):
         # handlers 里"访客上传/推送开着就跳过 can_upload()/can_push()"的分支必须读这两个总开关，
@@ -68,6 +73,18 @@ class TestBookAccessService(unittest.TestCase):
         with mock.patch.dict(book_access_service.CONF, {"REQUIRE_LOGIN": False, "ALLOW_GUEST_UPLOAD": True, "ALLOW_GUEST_PUSH": False}, clear=False):
             self.assertTrue(BookAccessService.guest_upload_allowed())
             self.assertFalse(BookAccessService.guest_push_allowed())
+
+    def test_share_link_flag_disables_existing_grants(self):
+        share = mock.Mock(allow_read=True, allow_download=True)
+        conf = {"REQUIRE_LOGIN": False, "ENABLE_SHARE_LINK": False}
+        with mock.patch.dict(book_access_service.CONF, conf, clear=False), \
+                mock.patch.object(BookShareService, "granted_share", return_value=share):
+            self.assertFalse(BookAccessService.share_read_granted(NoCookieHandler(), 1))
+            self.assertFalse(BookAccessService.share_download_granted(NoCookieHandler(), 1))
+        with mock.patch.dict(book_access_service.CONF, {"ENABLE_SHARE_LINK": True}, clear=False), \
+                mock.patch.object(BookShareService, "granted_share", return_value=share):
+            self.assertTrue(BookAccessService.share_read_granted(NoCookieHandler(), 1))
+            self.assertTrue(BookAccessService.share_download_granted(NoCookieHandler(), 1))
 
     def test_handlers_do_not_read_guest_flags_directly(self):
         offenders = []

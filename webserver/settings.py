@@ -292,6 +292,8 @@ settings = {
     'ALLOW_GUEST_READ' : True,
     'ALLOW_GUEST_PUSH' : True,
     'ALLOW_GUEST_DOWNLOAD' : True,
+    # 允许管理员为书籍创建分享链接，未登录访客可通过 /s/<token> 直接阅读。
+    'ENABLE_SHARE_LINK' : False,
     "ENABLE_DOWNLOAD_QUOTA" : False,   # 是否启用每用户每日下载配额限制
     "GLOBAL_DOWNLOAD_QUOTA" : 10,       # 全局每日下载配额（用户未单独设置时使用），0表示不限制
     'ALLOW_REGISTER' : False,

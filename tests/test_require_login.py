@@ -10,10 +10,13 @@
 
 import unittest
 from types import SimpleNamespace
+from unittest import mock
 
 from tornado import web
 
 from webserver.handlers.base import CONF, BaseHandler, login_gate_allowed
+from webserver.services.book_access_service import BookAccessService
+from webserver.services.book_share_service import BookShareService
 
 
 def _bare_handler(path="/api/index", uri=None):
@@ -36,6 +39,7 @@ def _bare_handler(path="/api/index", uri=None):
 
     handler.redirect = _redirect
     handler.get_argument = lambda name, default=None: default
+    handler.get_secure_cookie = lambda name: None
     return handler
 
 
@@ -57,9 +61,12 @@ class TestLoginGateAllowList(unittest.TestCase):
         ):
             self.assertFalse(login_gate_allowed(path), path)
 
-    def test_shares_and_opds_are_not_open_doors(self):
-        # 私人图书馆下"任何账号都能读全库"，分享没有意义；放行它们等于留后门（见方案文档 §2.2）
-        for path in ("/s/abc123", "/api/share/abc123", "/api/share/abc123/verify", "/opds", "/opds/nav/new"):
+    def test_shares_are_open_doors_but_opds_is_not(self):
+        # 分享链接优先于 REQUIRE_LOGIN：落地页与分享 API 必须放行；
+        # 书籍内容由 BaseHandler.share_grant_allows_path 再按逐本授权校验。
+        for path in ("/s/abc123", "/api/share/abc123", "/api/share/abc123/verify"):
+            self.assertTrue(login_gate_allowed(path), path)
+        for path in ("/opds", "/opds/nav/new"):
             self.assertFalse(login_gate_allowed(path), path)
 
     def test_login_and_install_surfaces_allowed(self):
@@ -190,10 +197,63 @@ class TestShouldBeLoggedIn(unittest.TestCase):
         self.assertFalse(handler.should_be_logged_in())
         self.assertEqual(handler.written, [])
 
+    def test_share_entries_pass_with_require_login(self):
+        # 分享页与分享 API 优先于必须登录，否则打开分享链接会先被踢去登录页
+        CONF["REQUIRE_LOGIN"] = True
+        for path in ("/s/abc123", "/api/share/abc123", "/api/share/abc123/verify"):
+            handler = _bare_handler(path)
+            self.assertFalse(handler.should_be_logged_in(), path)
+
+    def test_share_content_passes_only_with_book_grant(self):
+        CONF["REQUIRE_LOGIN"] = True
+        with mock.patch.object(
+            BookAccessService, "share_read_granted",
+            side_effect=lambda handler, book_id: book_id == 12,
+        ):
+            for path in (
+                "/read/12",
+                "/api/book/12/read",
+                "/get/extract/12/ch1.xhtml",
+                "/api/read/txt/12",
+                "/api/book/12/filepath",
+            ):
+                handler = _bare_handler(path)
+                self.assertFalse(handler.should_be_logged_in(), path)
+            handler = _bare_handler("/read/13")
+            with self.assertRaises(web.Finish):
+                handler.should_be_logged_in()
+            self.assertEqual(handler.redirects[0].split("?")[0], "/login/")
+
+    def test_share_download_link_passes_with_download_grant(self):
+        CONF["REQUIRE_LOGIN"] = True
+        with mock.patch.object(
+            BookAccessService, "share_download_granted",
+            side_effect=lambda handler, book_id: book_id == 12,
+        ):
+            self.assertFalse(_bare_handler("/api/book/12.epub").should_be_logged_in())
+        handler = _bare_handler("/api/book/13.epub")
+        with mock.patch.object(BookAccessService, "share_download_granted", return_value=False):
+            with self.assertRaises(web.Finish):
+                handler.should_be_logged_in()
+        self.assertEqual(handler.written[0]["err"], "user.need_login")
+
+    def test_share_cover_only_for_actually_shared_books(self):
+        CONF["REQUIRE_LOGIN"] = True
+        with mock.patch.object(BookShareService, "shared_book_ids", return_value={12}):
+            self.assertFalse(_bare_handler("/get/cover/12.jpg").should_be_logged_in())
+            self.assertFalse(_bare_handler("/get/thumb_240_320/12.jpg").should_be_logged_in())
+            handler = _bare_handler("/get/cover/13.jpg")
+            with self.assertRaises(web.Finish):
+                handler.should_be_logged_in()
+        with mock.patch.object(BookShareService, "shared_book_ids", return_value={12}), \
+                mock.patch.object(BookAccessService, "share_link_enabled", return_value=False):
+            with self.assertRaises(web.Finish):
+                _bare_handler("/get/cover/12.jpg").should_be_logged_in()
+
     def test_book_file_returns_401_not_json(self):
         # /get/* 的消费者是 <img>/下载器，200 JSON 会被当成资源解析
         CONF["REQUIRE_LOGIN"] = True
-        handler = _bare_handler("/get/cover/1.jpg")
+        handler = _bare_handler("/get/1/book.epub")
         with self.assertRaises(web.Finish):
             handler.should_be_logged_in()
         self.assertEqual(handler.written, [])
@@ -314,7 +374,7 @@ class TestInviteModeInteraction(unittest.TestCase):
 
 class TestAllowFlags(unittest.TestCase):
     def setUp(self):
-        self._saved = {k: CONF.get(k) for k in ("REQUIRE_LOGIN", "ALLOW_GUEST_READ", "ALLOW_GUEST_DOWNLOAD", "ALLOW_GUEST_PUSH", "ALLOW_GUEST_UPLOAD")}
+        self._saved = {k: CONF.get(k) for k in ("REQUIRE_LOGIN", "ALLOW_GUEST_READ", "ALLOW_GUEST_DOWNLOAD", "ALLOW_GUEST_PUSH", "ALLOW_GUEST_UPLOAD", "ENABLE_SHARE_LINK")}
 
     def tearDown(self):
         for k, v in self._saved.items():
@@ -326,12 +386,16 @@ class TestAllowFlags(unittest.TestCase):
         CONF["ALLOW_GUEST_DOWNLOAD"] = True
         CONF["ALLOW_GUEST_PUSH"] = True
         CONF["ALLOW_GUEST_UPLOAD"] = False
+        CONF["ENABLE_SHARE_LINK"] = False
         flags = _bare_handler("/").allow_flags()
         self.assertFalse(flags["require_login"])
         self.assertTrue(flags["read"])
         self.assertTrue(flags["download"])
         self.assertTrue(flags["push"])
         self.assertFalse(flags["upload"])
+        self.assertFalse(flags["share_link"])
+        CONF["ENABLE_SHARE_LINK"] = True
+        self.assertTrue(_bare_handler("/").allow_flags()["share_link"])
 
     def test_guest_permissions_forced_false_when_on(self):
         CONF["REQUIRE_LOGIN"] = True
@@ -339,10 +403,15 @@ class TestAllowFlags(unittest.TestCase):
         CONF["ALLOW_GUEST_DOWNLOAD"] = True
         CONF["ALLOW_GUEST_PUSH"] = True
         CONF["ALLOW_GUEST_UPLOAD"] = True
+        CONF["ENABLE_SHARE_LINK"] = True
         flags = _bare_handler("/").allow_flags()
         self.assertTrue(flags["require_login"])
         for key in ("read", "download", "push", "upload"):
             self.assertFalse(flags[key], key)
+        # 分享链接独立于必须登录，只看自身开关
+        self.assertTrue(flags["share_link"])
+        CONF["ENABLE_SHARE_LINK"] = False
+        self.assertFalse(_bare_handler("/").allow_flags()["share_link"])
 
 
 if __name__ == "__main__":

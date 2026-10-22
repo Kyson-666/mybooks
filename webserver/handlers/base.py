@@ -31,6 +31,8 @@ from webserver.base.global_state import get_global_state
 from webserver.base.sidebar import get_sidebar_items
 from webserver.services.resource_service import ResourceService
 from webserver.services.perf_monitor import PerfMonitor
+from webserver.services.book_access_service import BookAccessService
+from webserver.services.book_share_service import BookShareService
 from webserver.models import Item, Message, Reader
 from webserver import constants
 from webserver.version import VERSION
@@ -43,8 +45,8 @@ AUDIO_OUTPUT_FOLDER = CONF.get("audio_output_folder", "/data/books/audios/")
 # 「必须登录才能访问」(REQUIRE_LOGIN) 开启后，仍然允许匿名访问的路径。
 # 原则：只放行"没有登录就进不来"的必需品（登录/注册/激活/安装、登录页静态资源），
 # 以及带自己凭据、网页登录没法覆盖的设备协议入口（播客 token、MCP token、WebDAV Basic）。
-# 分享链接 / 公开书单不在此列：私人图书馆下"任何账号都能读全库"，分享没有意义，
-# 且要放行就得在门禁里重做一遍逐本授权判定，见 docs/mybooks-require-login-plan-20261018.md。
+# 分享链接独立于 REQUIRE_LOGIN：分享页与分享 API 放行，书籍内容再按逐本分享授权放行
+# （见 BaseHandler.share_grant_allows_path）。公开书单仍不放行。
 LOGIN_GATE_ALLOW_EXACT = frozenset({
     "/login",
     "/logout",
@@ -71,6 +73,8 @@ LOGIN_GATE_ALLOW_EXACT = frozenset({
 LOGIN_GATE_ALLOW_PREFIX = (
     "/api/active/",        # 邮箱激活链接（实际路由 /api/active/<username>/<code>）
     "/api/mcp/",           # MCP 工具调用自带 AI_MCP_TOKEN
+    "/api/share/",         # 分享链接信息/验证接口：分享功能优先于 REQUIRE_LOGIN
+    "/s/",                 # 分享落地页（SPA）：页面本身不含书籍内容，内容仍逐本校验授权
     "/api/favicon/",       # 站点图标（登录页标签页要显示）
     "/books",              # WebDAV：裸 RequestHandler，不走本门禁；自带 Basic 认证
     "/_nuxt/",             # SPA 资源，登录页自身要能渲染
@@ -106,6 +110,33 @@ def _podcast_token_path(path):
     if seg in _PODCAST_PUBLIC_SEGMENTS:
         return False
     return bool(_PODCAST_TOKEN_RE.match(seg))
+
+
+# 分享链接允许匿名访问的书籍内容入口：命中时再按 book_id 校验分享授权（见
+# BaseHandler.share_grant_allows_path）。分享页与分享 API 不在此表，按前缀直接放行。
+_SHARE_READ_PATH_PATTERNS = (
+    re.compile(r"^/read/(\d+)/?$"),
+    re.compile(r"^/api/book/(\d+)/read/?$"),
+    re.compile(r"^/get/extract/(\d+)(?:/.*)?$"),
+    re.compile(r"^/api/read/txt/(\d+)/?$"),
+    re.compile(r"^/api/book/(\d+)/filepath/?$"),
+)
+
+# 分享落地页在用户输入提取码之前就要显示封面（分享 API 直接返回封面/缩略图地址），
+# 所以这类图片只对"确实存在有效分享"的书籍放行，避免顺带公开未分享书籍的封面。
+_SHARE_COVER_PATH_RE = re.compile(r"^/get/(?:cover|thumb(?:_\d+_\d+)?)/(\d+)(?:\.[A-Za-z0-9]+)?$")
+
+# 分享页的下载按钮直接指向 /api/book/<id>.<fmt>；是否真有下载权限由 BookDownload 再校验。
+_SHARE_DOWNLOAD_PATH_RE = re.compile(r"^/api/book/(\d+)\.[A-Za-z0-9]+$")
+
+
+def share_read_book_id(path):
+    """从分享阅读相关路径中取出 book_id；不属于这些入口时返回 None。"""
+    for pattern in _SHARE_READ_PATH_PATTERNS:
+        match = pattern.match(path)
+        if match:
+            return int(match.group(1))
+    return None
 
 
 def login_gate_allowed(path):
@@ -387,9 +418,9 @@ class BaseHandler(web.RequestHandler):
     def allow_flags(self):
         """下发给前端的站点开关（sys.allow）。
 
-        必须登录时访客四项一律上报 False：前端有大量 "allow.read / allow.download"
+        必须登录时访客各项一律上报 False：前端有大量 "allow.read / allow.download"
         分支（详情页访客可读、"访客可读"徽章、顶栏入口…），只靠后端拦会把 UI
-        留在"访客还能读"的错误状态。
+        留在"访客还能读"的错误状态。分享链接例外：它优先于必须登录，只看自身开关。
         """
         require_login = self.require_login_enabled()
         return {
@@ -399,6 +430,7 @@ class BaseHandler(web.RequestHandler):
             "push": False if require_login else CONF["ALLOW_GUEST_PUSH"],
             "read": False if require_login else CONF["ALLOW_GUEST_READ"],
             "upload": False if require_login else CONF.get("ALLOW_GUEST_UPLOAD", False),
+            "share_link": CONF.get("ENABLE_SHARE_LINK", True),
             "physical_books": CONF.get("ENABLE_PHYSICAL_BOOKS", True),
             "folder": CONF.get("ENABLE_FOLDER_BROWSE", False),
             "download_quota": CONF.get("ENABLE_DOWNLOAD_QUOTA", False),
@@ -528,6 +560,33 @@ class BaseHandler(web.RequestHandler):
             if not self.invited_code_is_ok():
                 return self.send_error_of_not_invited()
 
+    def share_grant_allows_path(self, path):
+        """该路径是否属于分享链接入口，且当前请求可匿名访问。
+
+        - 分享页封面/缩略图：分享开关打开，且该书确实有有效分享（落地页在拿到授权前就要显示封面）；
+        - 阅读内容入口：必须是当前请求持有该书的有效分享授权。
+        """
+        if path.startswith(("/s/", "/api/share/")):
+            return BookAccessService.share_link_enabled()
+        match = _SHARE_COVER_PATH_RE.match(path)
+        if match:
+            if not BookAccessService.share_link_enabled():
+                return False
+            return int(match.group(1)) in BookShareService.shared_book_ids()
+        match = _SHARE_DOWNLOAD_PATH_RE.match(path)
+        if match:
+            return BookAccessService.share_download_granted(self, int(match.group(1)))
+        book_id = share_read_book_id(path)
+        if book_id is None and path == "/api/book/txt/parser":
+            # TXT 目录接口把 book_id 放在查询参数里（/api/book/txt/parser?id=123）
+            try:
+                book_id = int(self.get_argument("id", ""))
+            except (TypeError, ValueError):
+                book_id = None
+        if book_id is None:
+            return False
+        return BookAccessService.share_read_granted(self, book_id)
+
     def should_be_logged_in(self):
         """REQUIRE_LOGIN 开启时的登录门禁：未登录且路径不在放行名单 → 一律拦下。
 
@@ -550,6 +609,10 @@ class BaseHandler(web.RequestHandler):
             if path.startswith("/podcast"):
                 return False
         if login_gate_allowed(path):
+            return False
+        # 分享链接优先于 REQUIRE_LOGIN：分享页/分享 API 已在上面的放行名单里，
+        # 书籍内容入口（阅读页、EPUB 解包、TXT 读取等）再按 book_id 校验分享授权。
+        if self.share_grant_allows_path(path):
             return False
         # 带下载签名的书籍直链（formatter 给登录用户生成、10 秒有效、绑定用户+书+格式）：
         # 下载器(aria2/IDM)没有 cookie，但签名本身就是凭据，交给 BookDownload 自己校验。
