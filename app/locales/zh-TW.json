@@ -868,6 +868,7 @@
     "search_results": "找到 {n} 項設定",
     "search_no_results": "沒有符合的設定，試試其他關鍵字",
     "unsaved_changes": "{n} 項未儲存",
+    "unsaved_jump_tip": "點擊跳轉到未儲存的設定項（共 {n} 項，再次點擊跳到下一項）",
     "unsaved_leave_title": "有未儲存的修改",
     "unsaved_leave_confirm": "有 {n} 項修改尚未儲存，離開頁面將遺失這些修改。",
     "unsaved_leave_confirm_button": "離開不儲存",

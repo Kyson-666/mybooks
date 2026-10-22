@@ -873,6 +873,7 @@
     "search_results": "找到 {n} 项设置",
     "search_no_results": "没有匹配的设置，试试其他关键词",
     "unsaved_changes": "{n} 项未保存",
+    "unsaved_jump_tip": "点击跳转到未保存的设置项（共 {n} 项，再次点击跳到下一项）",
     "unsaved_leave_title": "有未保存的修改",
     "unsaved_leave_confirm": "有 {n} 项修改尚未保存，离开页面将丢失这些修改。",
     "unsaved_leave_confirm_button": "离开不保存",
