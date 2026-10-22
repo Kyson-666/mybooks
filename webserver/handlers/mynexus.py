@@ -18,6 +18,8 @@ from webserver.i18n import _
 _book_locks = {}
 _status_tasks = {}
 
+ACTIVE_STATUSES = ("pending", "processing", "submitting")
+
 
 def _book_lock(book_id):
     return _book_locks.setdefault(book_id, asyncio.Lock())
@@ -30,6 +32,7 @@ def _analysis_dict(analysis):
             "progress": 0,
             "error_msg": "",
             "reading_guide": "",
+            "can_retry": False,
             "response": {},
         }
     return {
@@ -37,9 +40,25 @@ def _analysis_dict(analysis):
         "progress": analysis.progress,
         "error_msg": analysis.error_msg,
         "reading_guide": analysis.reading_guide,
-        "can_retry": analysis.status == "failed" and not analysis.remote_book_id,
+        # A failed analysis is always retryable: MyNexus can retry the failed
+        # ingest/summarize task, or MyBooks re-uploads the book when the remote
+        # record no longer exists.
+        "can_retry": analysis.status == "failed",
         "response": safe_json(analysis.response_json),
     }
+
+
+def _failed_task_id(response):
+    """Return the id of the remote task that should be retried, if any."""
+    for key in ("ingest_task", "summarize_task"):
+        task = response.get(key) or {}
+        if (
+            isinstance(task, dict)
+            and task.get("id")
+            and task.get("status") in ("failed", "canceled")
+        ):
+            return task["id"]
+    return None
 
 
 def _update_analysis(session, analysis, response):
@@ -58,9 +77,11 @@ def _update_analysis(session, analysis, response):
     session.commit()
 
 
-def _mark_analysis_failed(session, analysis, message):
+def _mark_analysis_failed(session, analysis, message, clear_remote=False):
     analysis.status = "failed"
     analysis.error_msg = message
+    if clear_remote:
+        analysis.remote_book_id = ""
     analysis.update_time = datetime.datetime.now()
     session.commit()
 
@@ -83,7 +104,7 @@ def _persist_failure(scoped_session, book_id, message):
     try:
         analysis = session.get(MyNexusBookAnalysis, book_id)
         if analysis:
-            _mark_analysis_failed(session, analysis, message)
+            _mark_analysis_failed(session, analysis, message, clear_remote=True)
     finally:
         session.close()
         scoped_session.remove()
@@ -110,7 +131,7 @@ async def _poll_analysis(book_id, scoped_session):
         status = await asyncio.get_running_loop().run_in_executor(
             None, _persist_status, scoped_session, book_id, response
         )
-        if status not in ("pending", "processing", "submitting"):
+        if status not in ACTIVE_STATUSES:
             return
 
 
@@ -133,6 +154,27 @@ class MyNexusBookHandler(BaseHandler):
             return book_id, None
         return book_id, book
 
+    async def _retry_remote_analysis(self, client, book_id, analysis):
+        """Retry the failed remote task, reusing the book already on MyNexus."""
+        response = await utils.run_in_threadpool(client.analysis_status, book_id)
+        if response.get("analysis_status") != "failed":
+            # The remote side may have moved on (still running or completed).
+            _update_analysis(self.sqlite_session, analysis, response)
+            if analysis.status in ACTIVE_STATUSES:
+                _ensure_status_poll(book_id, self.settings["ScopedSession"])
+            return True
+        task_id = _failed_task_id(response)
+        if not task_id:
+            return False
+        await utils.run_in_threadpool(client.retry_task, task_id)
+        analysis.status = "pending"
+        analysis.progress = 0
+        analysis.error_msg = ""
+        analysis.update_time = datetime.datetime.now()
+        self.sqlite_session.commit()
+        _ensure_status_poll(book_id, self.settings["ScopedSession"])
+        return True
+
     @js
     @is_admin
     async def post(self, raw_id):
@@ -141,12 +183,24 @@ class MyNexusBookHandler(BaseHandler):
             return {"err": "not_found", "msg": _("未找到该图书或无权访问")}
         async with _book_lock(book_id):
             analysis = self.sqlite_session.get(MyNexusBookAnalysis, book_id)
-            if analysis and analysis.status in ("pending", "processing", "completed", "submitting"):
+            if analysis and analysis.status in ACTIVE_STATUSES + ("completed",):
                 return {"err": "ok", "analysis": _analysis_dict(analysis)}
-            if analysis and analysis.status == "failed" and analysis.remote_book_id:
-                return {"err": "analysis.failed", "msg": analysis.error_msg, "analysis": _analysis_dict(analysis)}
             try:
                 client = MyNexusClient()
+            except MyNexusError as exc:
+                return {"err": "mynexus.error", "msg": exc.message}
+            if analysis and analysis.status == "failed" and analysis.remote_book_id:
+                try:
+                    if await self._retry_remote_analysis(client, book_id, analysis):
+                        return {"err": "ok", "analysis": _analysis_dict(analysis)}
+                except MyNexusError as exc:
+                    if exc.status_code != 404:
+                        _mark_analysis_failed(self.sqlite_session, analysis, exc.message)
+                        return {"err": "mynexus.error", "msg": exc.message}
+                    # The remote book no longer exists; upload it again.
+                    analysis.remote_book_id = ""
+                    self.sqlite_session.commit()
+            try:
                 formats = {
                     str(fmt).lower()
                     for fmt in await self.run_calibre_read_async(self.calibre_db_cache.formats, book_id)
@@ -171,6 +225,7 @@ class MyNexusBookHandler(BaseHandler):
                         client.upload_book, book_id, file_path
                     )
                 except MyNexusError as exc:
+                    logging.error(f"[MyNexus] Exception:{exc}")
                     if exc.status_code != 502:
                         raise
                     try:
@@ -178,7 +233,7 @@ class MyNexusBookHandler(BaseHandler):
                     except MyNexusError:
                         raise exc
                 _update_analysis(self.sqlite_session, analysis, response)
-                if analysis.status in ("pending", "processing", "submitting"):
+                if analysis.status in ACTIVE_STATUSES:
                     _ensure_status_poll(book_id, self.settings["ScopedSession"])
                 return {"err": "ok", "analysis": _analysis_dict(analysis)}
             except MyNexusError as exc:
@@ -195,14 +250,16 @@ class MyNexusBookHandler(BaseHandler):
         analysis = self.sqlite_session.get(MyNexusBookAnalysis, book_id)
         if not analysis:
             return {"err": "ok", "analysis": _analysis_dict(None)}
-        if analysis.status in ("pending", "processing", "submitting"):
+        if analysis.status in ACTIVE_STATUSES:
             try:
                 response = await utils.run_in_threadpool(MyNexusClient().analysis_status, book_id)
                 _update_analysis(self.sqlite_session, analysis, response)
             except MyNexusError as exc:
                 if exc.status_code == 404:
                     _mark_analysis_failed(
-                        self.sqlite_session, analysis, "MyNexus has no book matching this MyBooks ID"
+                        self.sqlite_session, analysis,
+                        "MyNexus has no book matching this MyBooks ID",
+                        clear_remote=True,
                     )
                 elif exc.status_code != 404:
                     logging.error("MyNexus status lookup for book %s failed: %s", book_id, exc.message)
@@ -390,14 +447,16 @@ class MyNexusAvailabilityHandler(MyNexusBookHandler):
         if not book:
             return {"err": "not_found", "msg": _("没有找到书籍")}
         analysis = self.sqlite_session.get(MyNexusBookAnalysis, book_id)
-        if analysis and analysis.status in ("pending", "processing", "submitting"):
+        if analysis and analysis.status in ACTIVE_STATUSES:
             try:
                 response = await utils.run_in_threadpool(MyNexusClient().analysis_status, book_id)
                 _update_analysis(self.sqlite_session, analysis, response)
             except MyNexusError as exc:
                 if exc.status_code == 404:
                     _mark_analysis_failed(
-                        self.sqlite_session, analysis, "MyNexus has no book matching this MyBooks ID"
+                        self.sqlite_session, analysis,
+                        "MyNexus has no book matching this MyBooks ID",
+                        clear_remote=True,
                     )
                 elif exc.status_code != 404:
                     logging.error("MyNexus public status lookup for book %s failed: %s", book_id, exc.message)

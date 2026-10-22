@@ -344,7 +344,7 @@ class BookDetail(BaseHandler):
                 "status": analysis.status,
                 "progress": analysis.progress,
                 "error_msg": analysis.error_msg,
-                "can_retry": analysis.status == "failed" and not analysis.remote_book_id,
+                "can_retry": analysis.status == "failed",
             } if analysis else {"status": "not_started", "progress": 0, "error_msg": ""}
 
         return {

@@ -1,12 +1,15 @@
+import asyncio
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
 from webserver.models import MyNexusBookAnalysis, MyNexusChatSession
 from webserver.services import mynexus_service
 from webserver.services.mynexus_service import MyNexusClient, MyNexusError
-from webserver.handlers.mynexus import routes
+from webserver.handlers import mynexus as mynexus_handler
+from webserver.handlers.mynexus import routes, _analysis_dict, _failed_task_id
 
 
 @pytest.mark.parametrize("language", ["en", "zh-TW"])
@@ -94,3 +97,91 @@ def test_client_reports_remote_auth_failure(monkeypatch):
 
     assert exc_info.value.status_code == 401
     assert exc_info.value.message == "response body"
+
+
+def test_client_retries_remote_task(monkeypatch):
+    client = MyNexusClient("http://localhost:3000", "api-token")
+    calls = {}
+
+    def fake_request(method, url, **kwargs):
+        calls.update(method=method, url=url, kwargs=kwargs)
+        return FakeResponse(status_code=202, body={"id": "task-1", "status": "pending"})
+
+    monkeypatch.setattr(mynexus_service.requests, "request", fake_request)
+    assert client.retry_task("task-1")["status"] == "pending"
+    assert calls["method"] == "POST"
+    assert calls["url"] == "http://localhost:3000/api/v1/tasks/task-1/retry"
+
+
+def test_failed_analysis_is_always_retryable():
+    analysis = MyNexusBookAnalysis(42, status="failed")
+    analysis.remote_book_id = "remote-book"
+    analysis.error_msg = "ingest failed"
+
+    payload = _analysis_dict(analysis)
+
+    assert payload["status"] == "failed"
+    assert payload["can_retry"] is True
+
+
+def test_failed_task_id_prefers_the_failed_stage():
+    assert _failed_task_id({
+        "ingest_task": {"id": "ingest-1", "status": "failed"},
+        "summarize_task": {"id": "summarize-1", "status": "completed"},
+    }) == "ingest-1"
+    assert _failed_task_id({
+        "ingest_task": {"id": "ingest-1", "status": "completed"},
+        "summarize_task": {"id": "summarize-1", "status": "canceled"},
+    }) == "summarize-1"
+    assert _failed_task_id({
+        "ingest_task": {"id": "ingest-1", "status": "completed"},
+        "summarize_task": None,
+    }) is None
+
+
+def test_retry_remote_analysis_retries_the_failed_task(monkeypatch):
+    analysis = MyNexusBookAnalysis(42, status="failed")
+    analysis.remote_book_id = "remote-book"
+    analysis.error_msg = "ingest failed"
+    retried = []
+    polls = []
+
+    class FakeClient:
+        def analysis_status(self, book_id):
+            return {
+                "analysis_status": "failed",
+                "book_id": "remote-book",
+                "ingest_task": {"id": "ingest-1", "status": "failed"},
+            }
+
+        def retry_task(self, task_id):
+            retried.append(task_id)
+
+    class FakeSession:
+        def commit(self):
+            pass
+
+    async def fake_run_in_threadpool(func, *args, **kwargs):
+        return func(*args, **kwargs)
+
+    handler = SimpleNamespace(
+        sqlite_session=FakeSession(),
+        settings={"ScopedSession": object()},
+    )
+    monkeypatch.setattr(mynexus_handler.utils, "run_in_threadpool", fake_run_in_threadpool)
+    monkeypatch.setattr(
+        mynexus_handler, "_ensure_status_poll",
+        lambda book_id, session: polls.append(book_id),
+    )
+
+    handled = asyncio.run(
+        mynexus_handler.MyNexusBookHandler._retry_remote_analysis(
+            handler, FakeClient(), 42, analysis
+        )
+    )
+
+    assert handled is True
+    assert retried == ["ingest-1"]
+    assert polls == [42]
+    assert analysis.status == "pending"
+    assert analysis.error_msg == ""

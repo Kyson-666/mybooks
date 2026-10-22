@@ -96,6 +96,9 @@ class MyNexusClient:
     def analysis_status(self, book_id):
         return self.request_json("GET", "/books/by-mybooks-id/%s" % book_id)
 
+    def retry_task(self, task_id):
+        return self.request_json("POST", "/tasks/%s/retry" % task_id)
+
     def test_connection(self):
         return self.request_json("GET", "/system/health")
 

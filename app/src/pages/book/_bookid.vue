@@ -609,7 +609,7 @@
                                     rounded
                                     color="deep-purple"
                                     class="white--text"
-                                    :disabled="!mynexusHasSupportedFormat || mynexusRequesting || ['pending', 'processing', 'submitting'].includes(mynexusStatus) || (mynexusStatus === 'failed' && !(book.mynexus_analysis && book.mynexus_analysis.can_retry))"
+                                    :disabled="!mynexusHasSupportedFormat || mynexusRequesting || mynexusIsActive"
                                     :title="mynexusHasSupportedFormat ? '' : $t('book.mynexusUnsupportedFormat')"
                                     @click="startMyNexusAnalysis"
                                 >
