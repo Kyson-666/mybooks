@@ -65,6 +65,7 @@ _MAX_SELECTION_CHARS = 2000
 _MAX_TITLE_CHARS = 200
 _MAX_HREF_CHARS = 500
 _MAX_CFI_CHARS = 500
+_MAX_SNIPPET_CHARS = 50
 _MAX_CONTEXT_BYTES = 8192
 
 
@@ -102,6 +103,7 @@ def _normalize_context(raw):
             "progress_fraction": _context_fraction(reading.get("progress_fraction")),
             "page": _context_int(reading.get("page")),
             "cfi": _context_text(reading.get("cfi"), _MAX_CFI_CHARS),
+            "snippet": _context_text(reading.get("snippet"), _MAX_SNIPPET_CHARS),
         }
     if isinstance(selection, dict):
         text = _context_text(selection.get("text"), _MAX_SELECTION_CHARS)
@@ -419,9 +421,9 @@ class MyNexusSessionHandler(BaseHandler):
         sent_reading = sent_context.get("reading") or {}
         sent_selection = sent_context.get("selection") or {}
         logging.info(
-            "[MyNexus] chat context book=%s chapter=%s section=%s selection_len=%d",
+            "[MyNexus] chat context book=%s chapter=%s section=%s snippet_len=%d selection_len=%d",
             book_id, sent_reading.get("chapter_title", ""), sent_reading.get("section_index"),
-            len(sent_selection.get("text", "")),
+            len(sent_reading.get("snippet", "")), len(sent_selection.get("text", "")),
         )
         try:
             client = MyNexusClient()

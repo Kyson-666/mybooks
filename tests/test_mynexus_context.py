@@ -13,6 +13,7 @@ def test_normalize_context_keeps_valid_fields():
             "progress_fraction": 0.421,
             "page": 118,
             "cfi": "epubcfi(/6/26!/4/2/2[c03])",
+            "snippet": "长安一片月，万户捣衣声",
         },
         "selection": {"text": "长安一片月", "page": 118, "chapter_title": "第三章 巳正"},
     }
@@ -20,6 +21,7 @@ def test_normalize_context_keeps_valid_fields():
     assert out["reading"]["chapter_title"] == "第三章 巳正"
     assert out["reading"]["section_index"] == 3
     assert out["reading"]["progress_fraction"] == 0.421
+    assert out["reading"]["snippet"] == "长安一片月，万户捣衣声"
     assert out["selection"]["text"] == "长安一片月"
 
 
