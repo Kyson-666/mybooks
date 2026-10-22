@@ -1271,8 +1271,9 @@ const SEARCH_ALIASES = {
     统计: ["HOMEPAGE_CONFIG", "ALLOW_USER_DISABLE_STATISTIC"], banner: ["HOMEPAGE_CONFIG"], 阅读统计: ["HOMEPAGE_CONFIG"],
     在读: ["HOMEPAGE_CONFIG"], 正在阅读: ["HOMEPAGE_CONFIG"],
     书单: ["HOMEPAGE_CONFIG", "BOOK_NAV"], 书单推荐: ["HOMEPAGE_CONFIG"],
-    // 书单封面自动滚动：用户通常按「动效/轮播/动画」这类词找它（提示文案里就写着「减少动效」），
-    // 而标签只有「书单封面自动滚动」，不含这几个词，故显式登记
+    // 书单封面自动滚动：用户通常按「动效/轮播/动画」这类词找它（访客系统要求减少动效时，
+    // 这个功能本身也会自动停，所以「减少动效」同样是常见查询词），而标签只有
+    // 「书单封面自动滚动」，不含这几个词，故显式登记
     动效: ["ENABLE_BOOKLIST_COVER_SCROLL"], 减少动效: ["ENABLE_BOOKLIST_COVER_SCROLL"], 减弱动态效果: ["ENABLE_BOOKLIST_COVER_SCROLL"],
     动画: ["ENABLE_BOOKLIST_COVER_SCROLL"], 轮播: ["ENABLE_BOOKLIST_COVER_SCROLL"], 自动滚动: ["ENABLE_BOOKLIST_COVER_SCROLL"],
     封面滚动: ["ENABLE_BOOKLIST_COVER_SCROLL"], 书单封面: ["ENABLE_BOOKLIST_COVER_SCROLL"],
@@ -1571,7 +1572,9 @@ const SEARCH_ALIASES = {
     stats: ["HOMEPAGE_CONFIG", "ALLOW_USER_DISABLE_STATISTIC"], statistics: ["HOMEPAGE_CONFIG", "ALLOW_USER_DISABLE_STATISTIC"], "reading stats": ["HOMEPAGE_CONFIG"], banner: ["HOMEPAGE_CONFIG"],
     "currently reading": ["HOMEPAGE_CONFIG"], "reading now": ["HOMEPAGE_CONFIG"], "in progress": ["HOMEPAGE_CONFIG"],
     booklist: ["HOMEPAGE_CONFIG", "BOOK_NAV"], "book list": ["HOMEPAGE_CONFIG", "BOOK_NAV"], collections: ["HOMEPAGE_CONFIG"], featured: ["HOMEPAGE_CONFIG"],
-    // The tips text talks about "reduced motion", which is how people search for this switch
+    // People look for this switch with words like "motion" / "animation" (the animation also stops
+    // when the visitor's system requests reduced motion), while the label only says
+    // "Auto-scroll booklist covers"
     motion: ["ENABLE_BOOKLIST_COVER_SCROLL"], "reduced motion": ["ENABLE_BOOKLIST_COVER_SCROLL"], animation: ["ENABLE_BOOKLIST_COVER_SCROLL"], animations: ["ENABLE_BOOKLIST_COVER_SCROLL"], animate: ["ENABLE_BOOKLIST_COVER_SCROLL"],
     marquee: ["ENABLE_BOOKLIST_COVER_SCROLL"], carousel: ["ENABLE_BOOKLIST_COVER_SCROLL"], autoscroll: ["ENABLE_BOOKLIST_COVER_SCROLL"], "auto scroll": ["ENABLE_BOOKLIST_COVER_SCROLL"], "cover scroll": ["ENABLE_BOOKLIST_COVER_SCROLL"], "cover strip": ["ENABLE_BOOKLIST_COVER_SCROLL"],
     "recommend to others": ["ENABLE_BOOK_RECOMMEND_TO_OTHERS", "HOMEPAGE_CONFIG"], "share books": ["ENABLE_BOOK_RECOMMEND_TO_OTHERS", "HOMEPAGE_CONFIG"], "memo": ["ENABLE_USER_MEMOS"],

@@ -1165,7 +1165,7 @@
     "enable_shared_notes": "阅读时支持查看其他用户的划线与笔记",
     "enable_homepage_booklists": "在首页展示书单推荐",
     "booklist_cover_scroll": "书单封面自动滚动",
-    "booklist_cover_scroll_tips": "关闭后书单卡片的封面条不再自动轮播，只保留手动横向滑动；访客的操作系统或浏览器开启了「减少动效」（无障碍偏好）时，即使这里开着也不会自动滚动",
+    "booklist_cover_scroll_tips": "关闭后书单卡片的封面条不再自动轮播，只保留手动横向滑动",
     "reader_dicts": "MyReader 网页版词典",
     "reader_dicts_tips": "仅对内嵌的 MyReader 网页版生效：作为用户词典列表的默认启停状态及自定义MyDict词典",
     "reader_dict_mybooks": "MyBooks 词典",
