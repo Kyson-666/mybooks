@@ -1879,7 +1879,6 @@ export default {
                 key: "ENABLE_BOOKLIST_COVER_SCROLL",
                 label: "settings.booklist_cover_scroll",
                 type: "checkbox",
-                tips: "settings.booklist_cover_scroll_tips",
               },
               {
                 icon: "mdi-book-multiple",

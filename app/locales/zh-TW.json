@@ -1160,7 +1160,6 @@
     "enable_shared_notes": "閱讀時支援查看其他用戶的劃線與筆記",
     "enable_homepage_booklists": "在首頁展示書單推薦",
     "booklist_cover_scroll": "書單封面自動捲動",
-    "booklist_cover_scroll_tips": "關閉後書單卡片的封面條不再自動輪播，只保留手動橫向滑動",
     "reader_dicts": "MyReader 網頁版詞典",
     "reader_dicts_tips": "僅對內嵌的 MyReader 網頁版生效：作為使用者詞典列表的預設啟停狀態，及自定義MyDict詞典。",
     "reader_dict_mybooks": "MyBooks 詞典",
