@@ -18,7 +18,7 @@
                 class="mynexus-chat-message"
                 :class="message.role === 'user' ? 'mynexus-chat-user' : 'mynexus-chat-assistant'"
             >
-                <div class="text-caption font-weight-bold mb-1">{{ message.role === 'user' ? $t('book.mynexusYou') : '✴' }}</div>
+                <div class="text-caption font-weight-bold mb-1" v-if="message.role !== 'user'">✴</div>
                 <template v-if="message.role !== 'user' && !message.content && mynexusChatLoading && index === mynexusMessages.length - 1">
                     <span class="thinking-dots"><span></span><span></span><span></span></span>
                 </template>
