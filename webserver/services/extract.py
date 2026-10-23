@@ -23,14 +23,21 @@ def load_txt_content_index(content_path):
     "content.json 存在"是阅读器唯一的就绪信号，一旦里面是半截 json（旧版本
     非原子写入、进程被杀、磁盘写满），阅读接口就会永久 500 且没有任何自愈
     路径。这里把"读不动"退化成"没解析过"，代价只是重扫一次。
+
+    读侧要与写侧（store_txt_content）用同一套判据：toc 不是非空 list 时前端
+    拿到的是 null，而文件存在就算"就绪"，那本书等于永远打不开。
     """
     if not os.path.isfile(content_path):
         return None
     try:
         with open(content_path, 'r', encoding='utf8') as f:
             meta = json.loads(f.read())
-        return {"content": meta['toc'], "encoding": meta['encoding']}
-    except (OSError, ValueError, KeyError) as e:
+        content = meta["toc"]
+        encoding = meta["encoding"]
+        if not isinstance(content, list) or not content:
+            raise ValueError("toc is not a non-empty list")
+        return {"content": content, "encoding": encoding}
+    except (OSError, ValueError, KeyError, TypeError) as e:
         logging.warning("Broken txt content index, rebuilding: %s (%s)", content_path, e)
         try:
             os.remove(content_path)
@@ -87,8 +94,10 @@ class ExtractService(AsyncService):
         if not overwrite and os.path.isfile(content_path):
             logging.debug(f"书籍<{bid}>已有目录索引, {content_path} exists")
             return False
-        # 每条写入用独立临时名：两个写入方（目录提取 / 阅读器首读）可能同时写同一本
-        tmp = "%s.%d.tmp" % (content_path, threading.get_ident())
+        # 每条写入用独立临时名：两个写入方（目录提取 / 阅读器首读）可能同时写同一本。
+        # 带上 pid：多个实例共享同一个 extract_path 时（NAS 上跑两份容器），
+        # 两进程的主线程 ident 常常相同，只靠 ident 会撞到同一个临时文件。
+        tmp = "%s.%d.%d.tmp" % (content_path, os.getpid(), threading.get_ident())
         try:
             os.makedirs(os.path.dirname(content_path), exist_ok=True)
             with open(tmp, "w", encoding="utf8") as f:
@@ -117,10 +126,12 @@ class ExtractService(AsyncService):
 
     @AsyncService.register_service
     def parse_txt_content(self, bid, fpath):
-        '''从TXT文件中提取目录并存储为json'''
-        content_path = self.txt_content_path(bid)
-        if os.path.isfile(content_path):
-            logging.debug(f"书籍<{bid}>已转换, {content_path} exists")
+        '''从TXT文件中提取目录并存储为json（读者首读走的通道）'''
+        # 判「可用」而不是「存在」：坏索引若因文件被占用/只读挂载而删不掉，
+        # 只看 isfile 会让这里立刻返回 False，读者端永远停在"解析中"。
+        # 走到下面的分支就说明没有可用索引，落盘用 overwrite 覆盖残骸。
+        if self.has_txt_content_index(bid):
+            logging.debug(f"书籍<{bid}>已有可用索引, {self.txt_content_path(bid)}")
             return False
 
         try:
@@ -129,10 +140,10 @@ class ExtractService(AsyncService):
             logging.info(f"TXT convert error: {e}")
             logging.error(traceback.format_exc())
             return False
-        return self.store_txt_content(bid, ret)
+        return self.store_txt_content(bid, ret, overwrite=True)
 
     @AsyncService.register_service
-    def preheat_txt_content(self, bid, fpath):
+    def preheat_txt_content(self, bid, fpath, force=False):
         '''离线预热：给一本书生成阅读器目录索引，走预热专用队列
 
         与 parse_txt_content 干同一件事，区别只在**队列**：那个服务是读者
@@ -144,10 +155,13 @@ class ExtractService(AsyncService):
         大任务锁是**按任务**获取释放的，一本一任务意味着读者请求最坏只等
         一本的解析时间，而不是整批。
 
+        force=True 用于 TXT 文件刚被替换/追加的场景：旧索引里的 start/end
+        是旧文件的字节偏移，阅读器按它 seek 会读到别的段落，必须重算。
+
         调用方（扫描导入 / 目录提取）已确认文件存在；这里再验一次是因为
         排队期间书可能被删。
         '''
-        if self.has_txt_content_index(bid):
+        if not force and self.has_txt_content_index(bid):
             return False
         if not fpath or not os.path.isfile(fpath):
             return False
@@ -157,7 +171,7 @@ class ExtractService(AsyncService):
             # 预热失败无人可报：留日志即可，读者首读时还会再试一次
             logging.info(f"[preheat] txt index skipped book={bid}: {e}")
             return False
-        return self.store_txt_content(bid, ret)
+        return self.store_txt_content(bid, ret, overwrite=force)
 
     def txt_parse_timeout(self, fpath):
         """按文件体积放宽的子进程超时；解析耗时随体积线性增长，慢机器上大文件
