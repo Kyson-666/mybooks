@@ -253,7 +253,7 @@ function M.show(api, book)
             end,
         },
     }
-    UIManager:show(page)
+    UIManager:show(page, "ui")
     return page
 end
 

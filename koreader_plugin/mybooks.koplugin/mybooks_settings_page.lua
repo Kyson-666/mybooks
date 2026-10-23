@@ -157,7 +157,7 @@ function M.show(api)
         title = I18N.T("settings"),
         items = build(),
     }
-    UIManager:show(page)
+    UIManager:show(page, "ui")
     return page
 end
 

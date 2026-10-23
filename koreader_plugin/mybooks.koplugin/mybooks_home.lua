@@ -109,7 +109,7 @@ function HomePage:open_book(book)
         Download.open_file(path)
         return
     end
-    require("mybooks_detail").show(self.api, book)
+    Download.start(self.api, book)
 end
 
 function HomePage:open_section(kind, title)
@@ -435,7 +435,7 @@ function M.show(api, opts)
         api = api,
         on_close = opts.on_close,
     }
-    UIManager:show(page)
+    UIManager:show(page, "ui")
     local cached = page.data ~= nil
     if not cached then
         Toast.loading(I18N.T("loading"))

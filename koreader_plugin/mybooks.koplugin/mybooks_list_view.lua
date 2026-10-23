@@ -138,7 +138,7 @@ function M.show(opts)
     }
     page.header_buttons = opts.header_buttons or {}
 
-    UIManager:show(page)
+    UIManager:show(page, "ui")
     load(state.page_no)
     return page, load
 end

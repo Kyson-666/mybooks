@@ -121,18 +121,18 @@ local function request_lib(url)
     return http
 end
 
-local function normalize_http_result(ok, code, headers, status)
-    if not ok or code == nil or code == false then
-        return nil, headers, status
+local function sanitize(value)
+    if type(value) ~= "table" then
+        return value
     end
-    if code == true or code == 1 then
-        return 200, headers, status
+    for key, item in pairs(value) do
+        if type(item) == "userdata" then
+            value[key] = nil
+        elseif type(item) == "table" then
+            sanitize(item)
+        end
     end
-    local as_num = tonumber(code)
-    if as_num then
-        return as_num, headers, status
-    end
-    return code, headers, status
+    return value
 end
 
 function Api:request(method, path, opts)
@@ -154,15 +154,16 @@ function Api:request(method, path, opts)
         req.source = ltn12.source.string(encoded)
     end
     socketutil:set_timeout(self.block_timeout, self.total_timeout)
-    local ok, code, headers, status = pcall(request_lib(url).request, req)
+    local ok, err, code, rheaders, rstatus = pcall(request_lib(url).request, req)
     socketutil:reset_timeout()
     if not ok then
-        logger.warn("MyBooks: request failed", code)
+        logger.warn("MyBooks: request failed", err)
         return nil, "network", nil
     end
-    local http_code, http_headers, http_status = normalize_http_result(ok, code, headers, status)
+    local http_code = tonumber(code)
+    local http_status = type(rstatus) == "string" and rstatus or nil
     if not http_code then
-        logger.warn("MyBooks: network error", headers)
+        logger.warn("MyBooks: network error", rheaders)
         return nil, "network", nil
     end
     local text = table.concat(chunks)
@@ -184,6 +185,7 @@ function Api:request(method, path, opts)
         logger.warn("MyBooks: invalid json", "url", url, "status", http_code, "body", (text or ""):sub(1, 500))
         return nil, "json", http_code, text
     end
+    sanitize(data)
     if data.err and data.err ~= "ok" then
         return data, data.err, http_code, text
     end
@@ -268,7 +270,7 @@ function Api:download(book_id, fmt, dest_path, part_path, progress_cb, resume, e
         return 1
     end
     socketutil:set_timeout(self.block_timeout, 3600)
-    local ok, code, rheaders = pcall(request_lib(url).request, {
+    local ok, err, code, rheaders = pcall(request_lib(url).request, {
         url = url,
         method = "GET",
         headers = headers,
@@ -277,15 +279,16 @@ function Api:download(book_id, fmt, dest_path, part_path, progress_cb, resume, e
     socketutil:reset_timeout()
     close_file()
     if not ok then
-        logger.warn("MyBooks: download failed", code)
+        logger.warn("MyBooks: download failed", err)
         return nil, "network"
     end
-    local http_code, http_headers = normalize_http_result(ok, code, rheaders, nil)
-    if not http_code then
-        return nil, "network"
-    end
+    local http_code = tonumber(code)
+    local http_headers = type(rheaders) == "table" and rheaders or nil
     if write_error then
         return nil, write_error
+    end
+    if not http_code then
+        return nil, "network"
     end
     if http_code ~= 200 and http_code ~= 206 then
         if http_code == 401 then
@@ -344,7 +347,7 @@ function Api:fetch_file(url, dest_path)
         return 1
     end
     socketutil:set_timeout(self.block_timeout, 300)
-    local ok, code, rheaders, status = pcall(request_lib(url).request, {
+    local ok, _, code = pcall(request_lib(url).request, {
         url = url,
         method = "GET",
         headers = headers,
@@ -356,16 +359,14 @@ function Api:fetch_file(url, dest_path)
         pcall(os.remove, dest_path)
         return nil, "network"
     end
-    -- LuaSocket reports a successful transfer as `1`, not 200, so normalize
-    -- the status before deciding whether the file is valid.
-    local http_code = normalize_http_result(ok, code, rheaders, status)
-    if not http_code then
-        pcall(os.remove, dest_path)
-        return nil, "network"
-    end
     if write_error then
         pcall(os.remove, dest_path)
         return nil, write_error
+    end
+    local http_code = tonumber(code)
+    if not http_code then
+        pcall(os.remove, dest_path)
+        return nil, "network"
     end
     if http_code ~= 200 then
         pcall(os.remove, dest_path)

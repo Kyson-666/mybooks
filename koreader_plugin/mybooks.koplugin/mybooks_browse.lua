@@ -176,7 +176,7 @@ function M.show_meta(api, meta, on_close)
         return rows
     end
     page:set_items(build(), true)
-    UIManager:show(page)
+    UIManager:show(page, "ui")
     return page
 end
 
@@ -330,7 +330,7 @@ function M.show_tree(api, on_close)
         items = rows,
         on_close = on_close,
     }
-    UIManager:show(page)
+    UIManager:show(page, "ui")
     return page
 end
 

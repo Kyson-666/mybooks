@@ -142,7 +142,7 @@ function M.show(opts)
             end,
         },
     }
-    UIManager:show(page)
+    UIManager:show(page, "ui")
     return page
 end
 
