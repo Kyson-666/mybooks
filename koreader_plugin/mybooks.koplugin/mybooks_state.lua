@@ -47,7 +47,11 @@ function M.load()
         local content = file:read("*a")
         file:close()
         local chunk = loadstring or load
-        local loaded, data = pcall(chunk, content, "mybooks_state")
+        local fn = chunk(content, "mybooks_state")
+        local loaded, data = false, nil
+        if fn then
+            loaded, data = pcall(fn)
+        end
         if loaded and type(data) == "table" then
             for key, value in pairs(data) do
                 state[key] = value

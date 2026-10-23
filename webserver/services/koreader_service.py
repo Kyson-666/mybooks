@@ -24,7 +24,7 @@ from webserver.models import (
 import tornado.ioloop
 
 from webserver.services import reading_dashboard_service
-from webserver.services.cfi_gen.launcher import CfiBatchError, generate_cfis
+from webserver.services.cfi_gen.launcher import CfiBatchError, convert_xpointers, generate_cfis
 from webserver.services.reading_stats_service import FINISH_PROGRESS_THRESHOLD, MANUAL_READING_MAX_SECONDS, ReadingStatsService
 from webserver.services.sync_service import MyReaderSyncService
 from webserver.version import VERSION
@@ -549,6 +549,10 @@ async def update_progress(handler, payload):
 
     if xpointer is not None or percent is not None:
         applied, position = _save_position(session, reader_id, book_id, fmt, xpointer, percent, client_ts, device)
+        if xpointer and progress:
+            tornado.ioloop.IOLoop.current().spawn_callback(
+                _bridge_progress, handler, reader_id, book_id, fmt, xpointer, progress, client_ts
+            )
         if not applied:
             state = await _state_for(handler, book_id)
             return {
@@ -585,6 +589,51 @@ async def update_progress(handler, payload):
         "total_seconds": state.get("total_seconds", 0),
         "server_time": int(time.time()),
     }
+
+
+async def _bridge_progress(handler, uid, book_id, fmt, xpointer, progress, client_ts):
+    def _path():
+        for candidate in (fmt, "epub", "EPUB"):
+            try:
+                path = handler.calibre_db_cache.format_abspath(book_id, candidate)
+            except Exception:
+                continue
+            if path:
+                return path
+        return None
+
+    path = await handler.run_calibre_read_async(_path)
+    if not path:
+        return
+    try:
+        results = await convert_xpointers(path, [{"id": "position", "xpointer": xpointer}])
+    except CfiBatchError as e:
+        logging.warning("[koreader] xpointer conversion failed for book %s: %s", book_id, e)
+        return
+    cfi = next((r.get("cfi") for r in results if r.get("status") == "ok" and r.get("cfi")), None)
+    if not cfi:
+        return
+    ts = client_ts or int(time.time() * 1000)
+    book_hash = _book_hash(book_id, fmt)
+    config = {
+        "id": book_hash,
+        "book_hash": book_hash,
+        "updated_at": ts,
+        "updatedAt": ts,
+        "deleted_at": None,
+        "progress": [int(progress[0]), int(progress[1])],
+        "location": cfi,
+        "xpointer": xpointer,
+    }
+    db = ReadingRecord._session()
+    try:
+        MyReaderSyncService._push_book_records(db, uid, book_hash, "configs", [config])
+        MyReaderSyncService.flush_now()
+    except Exception as e:
+        db.rollback()
+        logging.error("[koreader] progress config bridge failed for user %s book %s: %s", uid, book_id, e, exc_info=True)
+        return
+    MyReaderSyncService.broadcast_changed(uid, "configs", book_hash)
 
 
 async def update_reading_seconds(handler, payload):

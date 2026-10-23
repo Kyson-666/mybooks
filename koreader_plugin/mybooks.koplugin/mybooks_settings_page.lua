@@ -114,10 +114,6 @@ function M.show(api)
                 State.set_setting("auto_open", not State.setting("auto_open", true))
                 page:set_items(build(), true)
             end),
-            toggle_row(I18N.T("confirm_overwrite"), State.setting("confirm_overwrite", true), function()
-                State.set_setting("confirm_overwrite", not State.setting("confirm_overwrite", true))
-                page:set_items(build(), true)
-            end),
 
             MenuUI.header(I18N.T("sync_section")),
             toggle_row(I18N.T("sync_progress"), State.setting("sync_progress", true), function()

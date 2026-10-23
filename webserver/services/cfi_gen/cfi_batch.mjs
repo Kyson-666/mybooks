@@ -395,10 +395,11 @@ async function main() {
     return
   }
 
-  const { epubPath, onAmbiguous = 'error', anchors = [] } = request
+  const { epubPath, onAmbiguous = 'error', anchors = [], xpointers = [] } = request
   if (!epubPath) fail('missing epubPath')
-  if (!Array.isArray(anchors) || anchors.length === 0) fail('anchors must be a non-empty array')
-  if (anchors.length > MAX_ANCHORS) fail(`too many anchors: ${anchors.length} > ${MAX_ANCHORS}`)
+  if (!Array.isArray(anchors) || !Array.isArray(xpointers)) fail('anchors/xpointers must be arrays')
+  if (anchors.length === 0 && xpointers.length === 0) fail('anchors or xpointers must be a non-empty array')
+  if (anchors.length + xpointers.length > MAX_ANCHORS) fail(`too many items: ${anchors.length + xpointers.length} > ${MAX_ANCHORS}`)
   if (onAmbiguous !== 'error' && onAmbiguous !== 'first_match') fail(`invalid onAmbiguous: ${onAmbiguous}`)
 
   let files, pkg
@@ -430,6 +431,13 @@ async function main() {
   }
 
   const results = []
+  for (const item of xpointers) {
+    try {
+      results.push(resolveXPointer(item.id, item.xpointer, pkg))
+    } catch (e) {
+      results.push({ id: item.id, status: 'error', error: e.message })
+    }
+  }
   for (const anchor of anchors) {
     const { id, text, chapterHint } = anchor
     try {
@@ -447,6 +455,81 @@ async function main() {
     results,
     meta: { spineCount: pkg.spine.length, sectionParseErrors },
   }))
+}
+
+function findTextNodeAtOffset(root, target) {
+  const nodes = []
+  const walk = node => {
+    for (const child of Array.from(node.childNodes)) {
+      if (child.nodeType === 3) {
+        if (child.nodeValue) nodes.push(child)
+      } else if (child.nodeType === 1) {
+        walk(child)
+      }
+    }
+  }
+  walk(root)
+  let sum = 0
+  for (const node of nodes) {
+    const length = node.nodeValue.length
+    if (sum + length >= target) return { node, offset: target - sum }
+    sum += length
+  }
+  if (!nodes.length) return null
+  const last = nodes[nodes.length - 1]
+  return { node: last, offset: last.nodeValue.length }
+}
+
+function resolveXPointer(id, xpointer, pkg) {
+  const match = /^\/body(?:\[\d+\])?\/DocFragment\[(\d+)\]\/body(?:\[\d+\])?(.*)$/.exec(xpointer ?? '')
+  if (!match) throw new Error(`invalid xpointer: ${xpointer}`)
+  const spineIndex = parseInt(match[1], 10) - 1
+  const item = pkg.spine.find(s => s.index === spineIndex) ?? pkg.spine[spineIndex]
+  if (!item) throw new Error(`spine index out of range: ${spineIndex}`)
+
+  let rest = match[2]
+  let textIndex = null
+  let textOffset = null
+  const textMatch = /\/text\(\)(?:\[(\d+)\])?\.(\d+)$/.exec(rest)
+  if (textMatch) {
+    textIndex = textMatch[1] ? parseInt(textMatch[1], 10) : null
+    textOffset = parseInt(textMatch[2], 10)
+    rest = rest.slice(0, textMatch.index)
+  }
+
+  const doc = parseSectionDoc(pkg.files, item.zipPath)
+  let element = doc.body
+  for (const segment of rest.split('/').filter(Boolean)) {
+    const step = /^(\w+)(?:\[(\d+)\])?$/.exec(segment)
+    if (!step) throw new Error(`invalid xpointer segment: ${segment}`)
+    const tag = step[1].toLowerCase()
+    const index = step[2] ? parseInt(step[2], 10) : 1
+    const children = Array.from(element.children).filter(c => c.tagName.toLowerCase() === tag)
+    if (index < 1 || index > children.length) throw new Error(`element not found: ${segment}`)
+    element = children[index - 1]
+  }
+
+  let node = element
+  let offset = 0
+  if (textOffset !== null) {
+    if (textIndex !== null) {
+      const texts = Array.from(element.childNodes).filter(n => n.nodeType === 3)
+      node = texts[textIndex - 1]
+      if (!node) throw new Error(`text node not found: text()[${textIndex}]`)
+      offset = Math.min(textOffset, node.nodeValue.length)
+    } else {
+      const found = findTextNodeAtOffset(element, textOffset)
+      if (!found) throw new Error(`text offset not found: ${textOffset}`)
+      node = found.node
+      offset = found.offset
+    }
+  }
+
+  const range = doc.createRange()
+  range.setStart(node, offset)
+  range.collapse(true)
+  const cfi = CFI.joinIndir(item.baseCfi, CFI.fromRange(range))
+  return { id, status: 'ok', cfi }
 }
 
 function resolveTextAnchor(id, text, pkg, getSectionIndex, onAmbiguous) {

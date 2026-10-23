@@ -19,7 +19,10 @@ function M.snapshot(ui)
         return nil
     end
     local doc_settings = ui.doc_settings
-    local xpointer = doc_settings and doc_settings:readSetting("last_xpointer")
+    local xpointer = ui.rolling and ui.rolling.xpointer
+    if (not xpointer or xpointer == "") and doc_settings then
+        xpointer = doc_settings:readSetting("last_xpointer")
+    end
     local percent
     local source = ui.paging or ui.rolling
     if source and type(source.getLastPercent) == "function" then

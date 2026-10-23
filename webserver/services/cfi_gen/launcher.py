@@ -79,11 +79,35 @@ async def generate_cfis(
         return []
     if len(anchors) > MAX_ANCHORS:
         raise CfiBatchError(f"too many anchors: {len(anchors)} > {MAX_ANCHORS}")
+    request = {"epubPath": epub_path, "onAmbiguous": on_ambiguous, "anchors": anchors}
+    return await _run_batch(epub_path, request, len(anchors), timeout, node_bin)
 
-    request = json.dumps(
-        {"epubPath": epub_path, "onAmbiguous": on_ambiguous, "anchors": anchors},
-        ensure_ascii=False,
-    ).encode("utf-8")
+
+async def convert_xpointers(
+    epub_path: str,
+    xpointers: List[dict],
+    timeout: float = DEFAULT_TIMEOUT_SECONDS,
+    node_bin: Optional[str] = None,
+) -> List[CfiResult]:
+    """Converts KOReader xpointers to epubcfi strings via the same Node
+    subprocess. Each item must contain `id` and `xpointer`.
+    """
+    if not xpointers:
+        return []
+    if len(xpointers) > MAX_ANCHORS:
+        raise CfiBatchError(f"too many xpointers: {len(xpointers)} > {MAX_ANCHORS}")
+    request = {"epubPath": epub_path, "xpointers": xpointers}
+    return await _run_batch(epub_path, request, len(xpointers), timeout, node_bin)
+
+
+async def _run_batch(
+    epub_path: str,
+    request_obj: dict,
+    expected_len: int,
+    timeout: float,
+    node_bin: Optional[str],
+) -> List[CfiResult]:
+    request = json.dumps(request_obj, ensure_ascii=False).encode("utf-8")
 
     try:
         proc = await asyncio.create_subprocess_exec(
@@ -122,7 +146,7 @@ async def generate_cfis(
         raise CfiBatchError(f"cfi_batch.mjs produced invalid JSON: {e}") from e
 
     results = response.get("results")
-    if not isinstance(results, list) or len(results) != len(anchors):
+    if not isinstance(results, list) or len(results) != expected_len:
         raise CfiBatchError("cfi_batch.mjs returned a malformed/mismatched result list")
 
     meta = response.get("meta") or {}

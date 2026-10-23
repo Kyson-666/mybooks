@@ -107,6 +107,28 @@ local function md5_of(path)
     return nil
 end
 
+local function remember(book, fmt, path)
+    local md5 = md5_of(path)
+    local existing = State.link(path)
+    State.set_download(book.id, fmt, path, md5)
+    State.set_book(book.id, {
+        title = book.title,
+        author = book.author,
+        img = book.img,
+        thumb = book.thumb,
+        formats = formats_of(book),
+    })
+    State.set_link(path, {
+        book_id = book.id,
+        format = fmt,
+        title = book.title,
+        author = book.author,
+        md5 = md5,
+        path = path,
+        pushed_at = existing and existing.pushed_at or 0,
+    })
+end
+
 local function download(api, book, fmt, expected)
     local dir = DeviceInfo.download_dir()
     DeviceInfo.ensure_dir(dir)
@@ -142,23 +164,7 @@ local function download(api, book, fmt, expected)
             Toast.error(I18N.T("download_failed", ListView.error_text(err)))
             return
         end
-        State.set_download(book.id, fmt, saved, md5_of(saved))
-        State.set_book(book.id, {
-            title = book.title,
-            author = book.author,
-            img = book.img,
-            thumb = book.thumb,
-            formats = formats_of(book),
-        })
-        State.set_link(saved, {
-            book_id = book.id,
-            format = fmt,
-            title = book.title,
-            author = book.author,
-            md5 = md5_of(saved),
-            path = saved,
-            pushed_at = 0,
-        })
+        remember(book, fmt, saved)
         Toast.show(I18N.T("download_done"))
         if State.setting("auto_open", true) then
             M.open_file(saved)
@@ -166,25 +172,8 @@ local function download(api, book, fmt, expected)
     end
 
     if DeviceInfo.file_exists(path) then
-        local function choices()
-            DialogUI.choose(I18N.T("exists_open"), {
-                { text = I18N.T("open_existing"), value = "open" },
-                { text = I18N.T("overwrite_download"), value = "download" },
-            }, function(value)
-                if value == "open" then
-                    M.open_file(path)
-                else
-                    pcall(os.remove, part)
-                    proceed()
-                end
-            end)
-        end
-        if State.setting("confirm_overwrite", true) then
-            choices()
-        else
-            pcall(os.remove, part)
-            proceed()
-        end
+        remember(book, fmt, path)
+        M.open_file(path)
         return
     end
     proceed()
