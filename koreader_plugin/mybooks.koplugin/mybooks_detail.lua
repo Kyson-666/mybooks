@@ -192,6 +192,7 @@ function M.show(api, book)
     page = Page:new{
         title = detail.title or "",
         items = build(),
+        footer_button_rows = 2,
     }
     local function is_on(key)
         local value = (detail.state or {})[key]

@@ -18,6 +18,7 @@ local Page = InputContainer:extend{
     mode = "list",
     header_buttons = {},
     footer_buttons = {},
+    footer_button_rows = 1,
     pager = nil,
 }
 
@@ -25,7 +26,8 @@ function Page:init()
     local w, h = Metrics.screen_size()
     self.dimen = Geom:new{ x = 0, y = 0, w = w, h = h }
     self.header_h = Metrics.dp(48)
-    self.footer_h = Metrics.dp(34)
+    self.footer_row_h = Metrics.dp(34)
+    self.footer_h = self.footer_row_h * math.max(1, self.footer_button_rows or 1)
     self.pad = Metrics.dp(8)
     self.row_h = Metrics.row_height()
     self.list_h = h - self.header_h - self.footer_h
@@ -206,19 +208,31 @@ function Page:paintTo(bb, x, y)
     for _, btn in ipairs(self.footer_buttons) do
         cells[#cells + 1] = btn
     end
-    local cell_w = math.floor(w / math.max(1, #cells))
-    local fx = x
-    for _, cell in ipairs(cells) do
-        if cell.pager then
-            local label = string.format("%d/%d", self.pager.page or 1, self.pager.pages or 1)
-            local text = TextWidget:new{ text = label, face = Metrics.small_face(), fgcolor = Metrics.color.muted }
-            local size = text:getSize()
-            text:paintTo(bb, fx + math.floor((cell_w - size.w) / 2), footer_y + math.floor((self.footer_h - size.h) / 2))
-            text:free()
-        else
-            self:_draw_button(bb, cell, fx, footer_y, cell_w, self.footer_h)
+    local rows = math.max(1, self.footer_button_rows or 1)
+    local row_h = math.floor(self.footer_h / rows)
+    local per_row = math.ceil(#cells / rows)
+    for row = 0, rows - 1 do
+        local first = row * per_row + 1
+        local last = math.min(#cells, first + per_row - 1)
+        local count = last - first + 1
+        if count > 0 then
+            local cell_w = math.floor(w / count)
+            local fx = x + math.floor((w - cell_w * count) / 2)
+            local row_y = footer_y + row * row_h
+            for index = first, last do
+                local cell = cells[index]
+                if cell.pager then
+                    local label = string.format("%d/%d", self.pager.page or 1, self.pager.pages or 1)
+                    local text = TextWidget:new{ text = label, face = Metrics.small_face(), fgcolor = Metrics.color.muted }
+                    local size = text:getSize()
+                    text:paintTo(bb, fx + math.floor((cell_w - size.w) / 2), row_y + math.floor((row_h - size.h) / 2))
+                    text:free()
+                else
+                    self:_draw_button(bb, cell, fx, row_y, cell_w, row_h)
+                end
+                fx = fx + cell_w
+            end
         end
-        fx = fx + cell_w
     end
 end
 

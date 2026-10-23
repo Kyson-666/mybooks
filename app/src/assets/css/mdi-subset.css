@@ -274,10 +274,6 @@
   content: "\F0B76";
 }
 
-.mdi-card-plus-outline::before {
-  content: "\F1200";
-}
-
 .mdi-cart::before {
   content: "\F0110";
 }

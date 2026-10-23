@@ -58,12 +58,21 @@ class KoreaderSearch(SearchBook):
         if not koreader_service.is_enabled():
             self.write(koreader_service.disabled_error())
             return
+        # KOReader 插件用 q/sort 传参，这里转换成 SearchBook 使用的 name/order。
+        # 注意 get_argument() 读取的是 request.arguments（请求解析时已生成），
+        # 只改 query_arguments 不生效，必须同步写入。
+        name = self.get_argument("name", "").strip()
         q = self.get_argument("q", "").strip()
-        if q and not self.get_argument("name", "").strip():
-            self.request.query_arguments.setdefault("name", [q.encode("utf-8")])
+        if q and not name:
+            encoded = q.encode("utf-8")
+            self.request.arguments["name"] = [encoded]
+            self.request.query_arguments["name"] = [encoded]
+        order = self.get_argument("order", "").strip()
         sort = self.get_argument("sort", "").strip()
-        if sort and not self.get_argument("order", "").strip():
-            self.request.query_arguments.setdefault("order", [sort.encode("utf-8")])
+        if sort and not order:
+            encoded = sort.encode("utf-8")
+            self.request.arguments["order"] = [encoded]
+            self.request.query_arguments["order"] = [encoded]
         rsp = await super().get()
         if isinstance(rsp, dict) and not self._write_buffer:
             self.set_header("Content-Type", "application/json; charset=UTF-8")

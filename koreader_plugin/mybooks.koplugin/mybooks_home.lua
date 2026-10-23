@@ -181,16 +181,20 @@ function HomePage:_paint_stats(bb, x, y, w)
     end
 
     local left = x + pad + avatar + pad
-    local pill_text = I18N.T("streak_days", streak.current or 0)
-    local pill = UI.text(pill_text, { face = Metrics.small_face(), color = Metrics.color.muted, padding = 0 })
-    local pill_size = pill:getSize()
-    local pill_w = pill_size.w + Metrics.dp(14)
-    local pill_h = math.min(avatar, pill_size.h + Metrics.dp(10))
-    local pill_x = x + w - pad - pill_w
-    local pill_y = y + math.floor((avatar - pill_h) / 2)
-    UI.card(bb, pill_x, pill_y, pill_w, pill_h, { radius = math.floor(pill_h / 2), shadow = false })
-    pill:paintTo(bb, pill_x + math.floor((pill_w - pill_size.w) / 2), pill_y + math.floor((pill_h - pill_size.h) / 2))
-    pill:free()
+    local streak_days = tonumber(streak.current) or 0
+    local pill_w = 0
+    if streak_days > 0 then
+        local pill_text = I18N.T("streak_days", streak_days)
+        local pill = UI.text(pill_text, { face = Metrics.small_face(), color = Metrics.color.muted, padding = 0 })
+        local pill_size = pill:getSize()
+        pill_w = pill_size.w + Metrics.dp(14)
+        local pill_h = math.min(avatar, pill_size.h + Metrics.dp(10))
+        local pill_x = x + w - pad - pill_w
+        local pill_y = y + math.floor((avatar - pill_h) / 2)
+        UI.card(bb, pill_x, pill_y, pill_w, pill_h, { radius = math.floor(pill_h / 2), shadow = false })
+        pill:paintTo(bb, pill_x + math.floor((pill_w - pill_size.w) / 2), pill_y + math.floor((pill_h - pill_size.h) / 2))
+        pill:free()
+    end
 
     local name = UI.text(profile.nickname or I18N.T("not_logged_in"), {
         width = math.max(Metrics.dp(60), w - (left - x) - pad - pill_w - pad),
@@ -341,7 +345,7 @@ function HomePage:paintContent(bb, x, y)
     local _, _, card_h = self:reading_metrics(w)
     local reading_h = Metrics.dp(30) + card_h
     local content_h = pad + self:stats_height() + self:divider_h() + reading_h
-        + self:divider_h() + Metrics.dp(30) + rows_count * row_h + pad
+        + Metrics.dp(8) + self:divider_h() + Metrics.dp(30) + rows_count * row_h + pad
     self._content_h = content_h
     self.offset = math.min(self.offset, math.max(0, content_h - self.list_h))
 
@@ -349,6 +353,7 @@ function HomePage:paintContent(bb, x, y)
     top = top + self:_paint_stats(bb, x, top, w)
     top = top + self:_paint_divider(bb, x, top, w)
     top = top + self:_paint_reading(bb, x, top, w)
+    top = top + Metrics.dp(8)
     top = top + self:_paint_divider(bb, x, top, w)
 
     local header_h = Metrics.dp(30)
