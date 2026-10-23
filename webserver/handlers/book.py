@@ -39,7 +39,7 @@ from webserver.services.ai_fillinfo import AIFillInfoService
 from webserver.services.catalog import CatalogExtractService
 from webserver.services.book_search import BookSearch
 from webserver.services.converter import ConverterService
-from webserver.services.extract import ExtractService
+from webserver.services.extract import ExtractService, load_txt_content_index
 from webserver.services.mail import MailService
 from webserver.handlers.base import BaseHandler, ListHandler, auth, js, throttle
 from webserver.models import BookReadingStats as BookFormatReadingStatsModel, Item, MyNexusBookAnalysis, Reading, ReadingState, Reader, ScanFile
@@ -3994,13 +3994,13 @@ class BookTxtParser(BaseHandler):
         content_path = fdir + "/content.json"
         is_ready = os.path.isfile(content_path)
         if is_ready:
-            with open(content_path, 'r', encoding='utf8') as f:
-                meta = json.loads(f.read())
-            return {"err": "ok", "msg": _("parsed"), "data": {
-                "content": meta['toc'],
-                "encoding": meta['encoding'],
-                "name": book["title"]
-            }}
+            cached = load_txt_content_index(content_path)
+            if cached:
+                return {"err": "ok", "msg": _("parsed"), "data": {
+                    "content": cached["content"],
+                    "encoding": cached["encoding"],
+                    "name": book["title"]
+                }}
         if test_ready != "0":
             return {"err": "ok", "msg": _("not parsed")}
 
