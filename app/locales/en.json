@@ -576,7 +576,7 @@
     "sec_users_reg": "Registration & Invitation",
     "sec_users_default": "Default Permissions & Quota",
     "sec_imp_upload": "Upload",
-    "sec_imp_rules": "Import Rules",
+    "sec_imp_rules": "Import",
     "sec_imp_auto": "Auto Import",
     "sec_imp_store": "Storage Layout",
     "sec_push_tpl": "Push Email Templates",

@@ -2155,11 +2155,11 @@ export default {
         title: "settings.group_import",
         sections: [
           {
+            // 只放「把文件送进服务器」这一层：体积/分片、暂存、入库前的同书校验、实体书清单
             id: "imp-upload",
             icon: "mdi-upload",
             title: "settings.sec_imp_upload",
             fields: [
-              { icon: "mdi-import", key: "scan_upload_path", label: "settings.scan_upload_path" },
               {
                 icon: "mdi-information",
                 color: "red",
@@ -2173,34 +2173,38 @@ export default {
                 label: "settings.chunk_upload_size",
               },
               {
-                icon: "mdi-translate",
-                key: "DEFAULT_LANGUAGE",
-                label: "settings.default_language",
-                type: "select",
-                items: languageOptions.map((lang) => ({
-                  text: lang.name,
-                  value: lang.code,
-                })),
-              },
-              {
                 icon: "mdi-file-lock-outline",
                 key: "KEEP_UPLOAD_SOURCE_FILE",
                 label: "settings.keep_upload_source_file",
                 type: "checkbox",
               },
               {
-                icon: "mdi-delete-circle-outline",
-                key: "REMOVE_IMPORTED_FILE",
-                label: "settings.remove_imported_file",
+                icon: "mdi-file-document-outline",
+                key: "UPLOAD_IGNORE_TITLE_CHECKING",
+                label: "settings.upload_ignore_title_checking",
+                type: "checkbox",
+              },
+              {
+                icon: "mdi-checkbox-marked-circle-plus-outline",
+                key: "BATCH_ADD_IN_FORCE",
+                label: "settings.batch_add_in_force",
                 type: "checkbox",
               },
             ],
           },
           {
+            // 扫描目录 → 解析规则 → 收尾（删源文件、补默认语言）→ 自动导入（压最下方）
             id: "imp-rules",
             icon: "mdi-import",
             title: "settings.sec_imp_rules",
             fields: [
+              { icon: "mdi-import", key: "scan_upload_path", label: "settings.scan_upload_path" },
+              {
+                icon: "mdi-server",
+                key: "ENABLE_SERVER_FILE_IMPORT",
+                label: "settings.enable_server_file_import",
+                type: "checkbox",
+              },
               {
                 icon: "mdi-file-pdf-box",
                 key: "PDF_TILE_WITH_FILE_NAME",
@@ -2215,41 +2219,36 @@ export default {
                 type: "checkbox",
               },
               {
-                icon: "mdi-server",
-                key: "ENABLE_SERVER_FILE_IMPORT",
-                label: "settings.enable_server_file_import",
-                type: "checkbox",
-              },
-              {
-                icon: "mdi-checkbox-marked-circle-plus-outline",
-                key: "BATCH_ADD_IN_FORCE",
-                label: "settings.batch_add_in_force",
-                type: "checkbox",
-              },
-              {
                 icon: "mdi-shape-plus",
                 key: "IMPORT_CATEGORY_WITH_FOLDER",
                 label: "settings.category_with_folder",
                 type: "checkbox",
               },
               {
-                icon: "mdi-pause-octagon",
-                key: "auto_fill_pause_on_throttle",
-                label: "settings.auto_fill_pause_on_throttle",
+                icon: "mdi-delete-circle-outline",
+                key: "REMOVE_IMPORTED_FILE",
+                label: "settings.remove_imported_file",
                 type: "checkbox",
               },
               {
-                icon: "mdi-file-document-outline",
-                key: "UPLOAD_IGNORE_TITLE_CHECKING",
-                label: "settings.upload_ignore_title_checking",
-                type: "checkbox",
+                icon: "mdi-translate",
+                key: "DEFAULT_LANGUAGE",
+                label: "settings.default_language",
+                type: "select",
+                items: languageOptions.map((lang) => ({
+                  text: lang.name,
+                  value: lang.code,
+                })),
+              },
+              // 小标题：把下面的目录监控和上面的单次导入规则分开（subtitle 不是真设置，
+              // 键名带连字符，不会被 ensureSettingKeysReactive 当成可保存项）
+              {
+                icon: "mdi-crosshairs-gps",
+                key: "imp-auto-heading",
+                label: "settings.sec_imp_auto",
+                type: "subtitle",
               },
             ],
-          },
-          {
-            id: "imp-auto",
-            icon: "mdi-crosshairs-gps",
-            title: "settings.sec_imp_auto",
             groups: [
               {
                 icon: "mdi-crosshairs-gps",
@@ -2313,6 +2312,12 @@ export default {
                 icon: "mdi-timer-sand",
                 key: "auto_fill_qpm",
                 label: "settings.auto_fill_qpm",
+              },
+              {
+                icon: "mdi-pause-octagon",
+                key: "auto_fill_pause_on_throttle",
+                label: "settings.auto_fill_pause_on_throttle",
+                type: "checkbox",
               },
               {
                 icon: "mdi-source-branch",

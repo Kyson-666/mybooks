@@ -858,7 +858,7 @@
     "sec_users_reg": "註冊與邀請",
     "sec_users_default": "預設權限與配額",
     "sec_imp_upload": "上傳",
-    "sec_imp_rules": "匯入規則",
+    "sec_imp_rules": "匯入",
     "sec_imp_auto": "自動匯入",
     "sec_imp_store": "儲存布局",
     "sec_push_tpl": "郵件推送模板",
