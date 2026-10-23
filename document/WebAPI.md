@@ -192,9 +192,10 @@
       "sync": true,
       "book_review": true,
       "book_recommend": true,
-      "shared_notes": true
+      "shared_notes": true,
+      "user_memos": true
     },
-    "sidebar_items": ["audiobooks", "printbooks", "tags", "series", "memo"]
+    "sidebar_items": ["audiobooks", "tags", "series"]
   },
   "user": {
     "id": 1,
@@ -245,7 +246,6 @@ sys中为基础系统信息，title为网站标题, books为在库书籍数量�
 |---|---|---|
 | `none` | —— | **哨兵值，不是导航项**：数组仅含本值时全部隐藏（设置页全不勾选时写入）；消费方需按未知值容错处理 |
 | `audiobooks` | 有声书 | |
-| `printbooks` | 实体书 | 还需 `sys.allow.physical_books` 为 true |
 | `authors` | 作者 | |
 | `publishers` | 出版社 | |
 | `folders` | 文件夹浏览 | 还需 `sys.allow.folder` 为 true |
@@ -258,6 +258,8 @@ sys中为基础系统信息，title为网站标题, books为在库书籍数量�
 | `friends` | 友情链接 | 还需已配置友情链接（`sys.friends` 非空） |
 
 > 站内留言不受 `SIDEBAR_ITEMS` 控制：是否显示由 `sys.allow.user_memos`（配置项 `ENABLE_USER_MEMOS`）决定。
+>
+> 实体书同样不受 `SIDEBAR_ITEMS` 控制：侧边栏入口是否显示只看 `sys.allow.physical_books`（配置项 `ENABLE_PHYSICAL_BOOKS`），打开即显示、关闭即隐藏。即使侧边栏设为「全部隐藏」（数组仅含 `none`），实体书入口仍随该开关显示；要连它一起隐藏就关掉开关。存量配置里残留的 `printbooks` 值会被原样下发，但已无人消费。
 
 登录用户的 `user` 字段：
 

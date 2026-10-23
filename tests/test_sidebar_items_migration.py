@@ -49,6 +49,17 @@ class TestNormalizeSidebarItems(unittest.TestCase):
         for key in NEW_KEYS:
             self.assertIn(key, served)
 
+    def test_physical_books_is_not_a_sidebar_item(self):
+        """实体书不再是「侧边栏显示项目」，入口由 ENABLE_PHYSICAL_BOOKS 唯一决定。
+
+        AppHeader 已改为只读 sys.allow.physical_books。若把 printbooks 重新写回默认列表，
+        就又变成「功能开关 + 勾选项」两处判据（勾选项一旦没有该值，开关打开也不显示入口，
+        且设置页无处补勾），本测试是防回归锚点。
+        """
+        self.assertNotIn("printbooks", SIDEBAR_DEFAULT_ITEMS)
+        # 旧默认列表里带的 printbooks 在归一化后应被丢弃，存量配置不再参与显隐
+        self.assertNotIn("printbooks", normalize_sidebar_items(list(LEGACY_ITEMS)))
+
     def test_legacy_default_in_shuffled_order_is_still_migrated(self):
         """集合相同即认定陈旧（保存顺序可能因历史版本而异）。"""
         shuffled = list(reversed(LEGACY_ITEMS))

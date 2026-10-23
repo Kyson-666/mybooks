@@ -1889,6 +1889,7 @@ export default {
                 key: "ENABLE_PHYSICAL_BOOKS",
                 label: "settings.enable_physical_books",
                 type: "checkbox",
+                tips: "settings.enable_physical_books_tips",
                 fields: [
                   {
                     icon: "mdi-swap-horizontal",

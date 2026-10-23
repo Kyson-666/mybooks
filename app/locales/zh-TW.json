@@ -1013,6 +1013,7 @@
     "lite_group_resources": "節省系統資源",
     "lite_group_resources_hint": "同時處理的搜尋與首頁請求設上限，超出時提示稍後重試；縮小執行緒池、調整垃圾回收、放寬資料庫同步；日誌只記錄警告與錯誤。部分項目需重新啟動生效。",
     "enable_physical_books": "啟用實體書登記與管理功能",
+    "enable_physical_books_tips": "開啟後側邊欄始終顯示實體書入口；關閉後入口及所有實體書相關操作一併隱藏。該入口只由本開關決定，不再出現在上方「側邊欄顯示項目」裡",
     "enable_folder_browse": "啟用以目錄進行多層級分類的功能",
     "enable_book_type_convert_directly": "允許直接轉換類型，不檢查是否已有檔案及 ISBN 等條件",
     "enable_data_sync": "啟用MyReader數據同步功能 (開啟後使用MyReader帳號登錄的用戶可以同步閱讀數據)",

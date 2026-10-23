@@ -37,11 +37,14 @@ SIDEBAR_ITEMS_MIGRATED_KEY = "SIDEBAR_ITEMS_MIGRATED"
 SIDEBAR_NO_ITEM = "none"
 
 # 当前默认列表（与 webserver/handlers/admin.py 里空值时写入的默认列表逐项同序，勿改顺序）。
-# 注意：memo 已不在列表中——「站内留言」改由 ENABLE_USER_MEMOS 开关独立控制，不再属于
-# 「侧边栏显示项目」。历史旧默认列表里仍带 memo，仅用于识别升级前的陈旧配置。
+# 注意：memo 与 printbooks 已不在列表中——
+# - 「站内留言」改由 ENABLE_USER_MEMOS 开关独立控制；
+# - 「实体书」改由 ENABLE_PHYSICAL_BOOKS 开关独立控制（AppHeader 只看该开关，不再读
+#   SIDEBAR_ITEMS 里的 printbooks）。
+# 两者都不再属于「侧边栏显示项目」。历史旧默认列表里仍带 memo / printbooks，仅用于识别
+# 升级前的陈旧配置；存量配置里残留的这两个值会被读取期保留但无人消费，无副作用。
 SIDEBAR_DEFAULT_ITEMS = [
     "audiobooks",
-    "printbooks",
     "publishers",
     "folders",
     "tags",
