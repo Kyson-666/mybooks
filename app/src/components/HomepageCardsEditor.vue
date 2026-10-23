@@ -39,100 +39,99 @@
         <v-list-item-content>
           <v-list-item-title class="text--secondary">{{ sectionTitle(section) }}</v-list-item-title>
         </v-list-item-content>
-        <v-list-item-action class="d-flex flex-row">
-          <v-btn icon x-small :disabled="idx === 0" @click="moveSection(section, -1)">
+        <div class="homepage-section-actions">
+          <v-btn
+            v-if="!isBuiltin(section)"
+            icon
+            x-small
+            color="error"
+            class="homepage-section-delete"
+            :title="$t('settings.homepage_card_delete')"
+            @click.stop="removeCardBySection(section)"
+          >
+            <v-icon small>mdi-delete-outline</v-icon>
+          </v-btn>
+          <v-btn icon x-small :disabled="idx === 0" :title="$t('settings.homepage_move_up')" @click="moveSection(section, -1)">
             <v-icon small>mdi-chevron-up</v-icon>
           </v-btn>
-          <v-btn icon x-small :disabled="idx === local.order.length - 1" @click="moveSection(section, 1)">
+          <v-btn icon x-small :disabled="idx === local.order.length - 1" :title="$t('settings.homepage_move_down')" @click="moveSection(section, 1)">
             <v-icon small>mdi-chevron-down</v-icon>
           </v-btn>
-        </v-list-item-action>
+        </div>
       </v-list-item>
     </v-list>
 
-    <div class="d-flex align-center mt-4 mb-2">
-      <v-icon small class="mr-2">mdi-card-plus-outline</v-icon>
-      <span class="text-body-1">{{ $t("settings.homepage_custom") }}</span>
-      <v-spacer></v-spacer>
-      <v-btn small color="primary" text :disabled="local.custom.length >= maxCustomCards" @click="addCard">
-        <v-icon left small>mdi-plus</v-icon>{{ $t("settings.homepage_add_card") }}
-      </v-btn>
-    </div>
-
-    <p v-if="local.custom.length === 0" class="grey--text text-body-2">
-      {{ $t("settings.homepage_custom_empty") }}
+    <p class="text-caption grey--text mt-2 mb-0">
+      {{ $t("settings.homepage_order_hint") }}
     </p>
 
-    <v-card
-      v-for="card in local.custom"
-      :key="card.id"
-      outlined
-      class="homepage-custom-card mb-3"
-    >
-      <v-card-text class="pb-2">
+    <v-card outlined class="homepage-custom-add mt-6">
+      <v-card-text class="pb-3">
+        <div class="d-flex align-center mb-3">
+          <v-icon small class="mr-2">mdi-plus-circle-outline</v-icon>
+          <span class="text-body-2">{{ $t("settings.homepage_add_card") }}</span>
+          <v-spacer></v-spacer>
+          <v-btn small color="primary" :disabled="!canAdd" @click="addCard">
+            <v-icon left small>mdi-plus</v-icon>{{ $t("settings.homepage_add_confirm") }}
+          </v-btn>
+        </div>
         <v-row dense>
           <v-col cols="12" sm="4">
             <v-select
-              v-model="card.type"
+              v-model="draft.type"
               :items="typeOptions"
               :label="$t('settings.homepage_card_type')"
               dense
               outlined
               hide-details
-              @change="onTypeChange(card)"
+              @change="onTypeChange"
             ></v-select>
           </v-col>
           <v-col cols="12" sm="8">
             <v-combobox
-              v-if="card.type === 'author' || card.type === 'tag' || card.type === 'series'"
-              v-model="card.value"
-              :items="valueItems(card)"
+              v-if="valueFromList"
+              v-model="draft.value"
+              :items="valueItems"
               :label="$t('settings.homepage_card_value')"
-              :error="!card.value"
               dense
               outlined
-              hide-details="auto"
+              hide-details
               clearable
-              @focus="ensureSeriesLoaded(card)"
-              @update:search-input="(q) => onValueSearch(card, q)"
+              @focus="onValueFocus"
+              @update:search-input="onDraftSearch"
             ></v-combobox>
             <v-select
-              v-else-if="card.type === 'language'"
-              v-model="card.value"
+              v-else-if="draft.type === 'language'"
+              v-model="draft.value"
               :items="languageItems"
               :label="$t('settings.homepage_card_value')"
-              :error="!card.value"
               dense
               outlined
-              hide-details="auto"
+              hide-details
             ></v-select>
             <v-select
               v-else
-              v-model="card.value"
+              v-model="draft.value"
               :items="ratingItems"
               :label="$t('settings.homepage_card_value')"
-              :error="!card.value"
               dense
               outlined
-              hide-details="auto"
+              hide-details
             ></v-select>
-            <p v-if="!card.value" class="error--text text-caption mb-0 mt-1">
-              {{ $t("settings.homepage_card_value_required") }}
-            </p>
           </v-col>
-          <v-col cols="6" sm="4">
+          <v-col cols="6" sm="6">
             <v-select
-              v-model="card.sort"
-              :items="sortOptions(card)"
+              v-model="draft.sort"
+              :items="sortOptions"
               :label="$t('settings.homepage_card_sort')"
               dense
               outlined
               hide-details
             ></v-select>
           </v-col>
-          <v-col cols="6" sm="4">
+          <v-col cols="6" sm="6">
             <v-select
-              v-model="card.limit"
+              v-model="draft.limit"
               :items="limitOptions"
               :label="$t('settings.homepage_card_limit')"
               dense
@@ -140,18 +139,9 @@
               hide-details
             ></v-select>
           </v-col>
-          <v-col cols="12" sm="2" class="d-flex align-center justify-end">
-            <v-btn icon small color="error" @click="removeCard(card)">
-              <v-icon small>mdi-delete-outline</v-icon>
-            </v-btn>
-          </v-col>
         </v-row>
       </v-card-text>
     </v-card>
-
-    <p class="text-caption grey--text mt-2">
-      {{ $t("settings.homepage_order_hint") }}
-    </p>
   </div>
 </template>
 
@@ -162,6 +152,7 @@ import {
   CUSTOM_SORTS,
   CUSTOM_TYPES,
   MAX_CUSTOM_CARDS,
+  MAX_VALUE_LEN,
   SECTION_META,
   cardSectionKey,
   defaultSortFor,
@@ -192,20 +183,45 @@ export default {
       dragSection: null,
       dragOverSection: null,
       maxCustomCards: MAX_CUSTOM_CARDS,
+      // 底部填写区只用于新增，加完即清空
+      draft: {
+        type: "author",
+        value: "",
+        sort: "new",
+        limit: 12,
+      },
       authorItems: [],
       tagItems: [],
       seriesItems: [],
       seriesLoaded: false,
+      seriesLoading: false,
       languageItems: [],
       searchTimers: {},
       searchSeq: { author: 0, tag: 0 },
     };
   },
   computed: {
+    canAdd() {
+      return this.local.custom.length < this.maxCustomCards && !!String(this.draft.value || "").trim();
+    },
+    valueFromList() {
+      return ["author", "tag", "series"].includes(this.draft.type);
+    },
+    valueItems() {
+      if (this.draft.type === "tag") return this.tagItems;
+      if (this.draft.type === "series") return this.seriesItems;
+      return this.authorItems;
+    },
     typeOptions() {
       return CUSTOM_TYPES.map((type) => ({
         value: type,
         text: this.$t("settings.homepage_type_" + type),
+      }));
+    },
+    sortOptions() {
+      return CUSTOM_SORTS.filter((sort) => sort !== "series" || this.draft.type === "series").map((sort) => ({
+        value: sort,
+        text: this.$t("settings.homepage_sort_" + sort),
       }));
     },
     limitOptions() {
@@ -242,13 +258,18 @@ export default {
     },
   },
   mounted() {
-    // 丛书列表可能上千条（/series?show=all 一次返回全部），等到真正编辑丛书卡时再拉
     this.loadLanguages();
   },
   beforeDestroy() {
     Object.keys(this.searchTimers).forEach((key) => clearTimeout(this.searchTimers[key]));
   },
   methods: {
+    isBuiltin(section) {
+      return BUILTIN_SECTIONS.includes(section);
+    },
+    typeIcon(type) {
+      return TYPE_ICONS[type] || "mdi-card-outline";
+    },
     sectionTitle(section) {
       if (BUILTIN_SECTIONS.includes(section)) {
         const meta = SECTION_META[section];
@@ -263,7 +284,7 @@ export default {
         return meta ? meta.icon : "mdi-view-grid-outline";
       }
       const card = this.cardForSection(section);
-      return card ? TYPE_ICONS[card.type] || "mdi-card-outline" : "mdi-card-outline";
+      return card ? this.typeIcon(card.type) : "mdi-card-outline";
     },
     cardForSection(section) {
       if (!section.startsWith("custom:")) return null;
@@ -323,27 +344,24 @@ export default {
       this.dragSection = null;
       this.dragOverSection = null;
     },
-    onTypeChange(card) {
-      card.value = "";
-      card.sort = defaultSortFor(card.type);
+    onTypeChange() {
+      // 换类型后原来的取值没有意义，排序也回到该类型的默认值
+      this.draft.value = "";
+      this.draft.sort = defaultSortFor(this.draft.type);
       this.searchSeq.author += 1;
       this.searchSeq.tag += 1;
     },
-    sortOptions(card) {
-      return CUSTOM_SORTS.filter((sort) => sort !== "series" || card.type === "series").map((sort) => ({
-        value: sort,
-        text: this.$t("settings.homepage_sort_" + sort),
-      }));
+    onValueFocus() {
+      // 丛书下拉一次性拉全量，只有选中「丛书」时才值得发这个请求
+      if (this.draft.type === "series") this.loadSeries();
     },
-    valueItems(card) {
-      if (card.type === "tag") return this.tagItems;
-      if (card.type === "series") return this.seriesItems;
-      return this.authorItems;
+    onDraftSearch(query) {
+      this.onValueSearch(this.draft.type, query);
     },
-    onValueSearch(card, query) {
+    onValueSearch(type, query) {
+      if (type !== "author" && type !== "tag") return;
       if (!query || query.length < 1) return;
-      if (card.type !== "author" && card.type !== "tag") return;
-      const key = card.type;
+      const key = type;
       if (this.searchTimers[key]) clearTimeout(this.searchTimers[key]);
       const seq = this.searchSeq[key] + 1;
       this.searchSeq[key] = seq;
@@ -352,7 +370,7 @@ export default {
           ? "/authors/search?limit=30&q=" + encodeURIComponent(query)
           : "/tags/search?limit=30&q=" + encodeURIComponent(query);
         this.$backend(url).then((rsp) => {
-          if (seq !== this.searchSeq[key] || card.type !== key) return;
+          if (seq !== this.searchSeq[key]) return;
           if (rsp.err !== "ok") return;
           const items = key === "author" ? rsp.authors : rsp.tags;
           const names = (items || []).map((item) => item.name);
@@ -363,16 +381,18 @@ export default {
         });
       }, 300);
     },
-    ensureSeriesLoaded(card) {
-      if (!card || card.type !== "series" || this.seriesLoaded) return;
-      this.seriesLoaded = true;
-      this.loadSeries();
-    },
     loadSeries() {
+      // 丛书列表可能上千条（/series?show=all 一次返回全部），第一次用到再拉，失败允许重试
+      if (this.seriesLoaded || this.seriesLoading) return;
+      this.seriesLoading = true;
       this.$backend("/series?show=all").then((rsp) => {
-        if (rsp.err === "ok") this.seriesItems = (rsp.items || []).map((item) => item.name);
+        this.seriesLoading = false;
+        if (rsp.err === "ok") {
+          this.seriesItems = (rsp.items || []).map((item) => item.name);
+          this.seriesLoaded = true;
+        }
       }).catch(() => {
-        this.seriesLoaded = false;
+        this.seriesLoading = false;
       });
     },
     loadLanguages() {
@@ -383,18 +403,28 @@ export default {
       });
     },
     addCard() {
-      if (this.local.custom.length >= this.maxCustomCards) return;
+      if (!this.canAdd) return;
       const id = "c" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
-      this.local.custom = this.local.custom.concat([
-        {
-          id,
-          type: "author",
-          value: "",
-          sort: "new",
-          limit: 12,
-        },
-      ]);
-      this.local.order = this.local.order.concat([cardSectionKey({ id })]);
+      const card = {
+        id,
+        type: this.draft.type,
+        value: String(this.draft.value || "").trim().slice(0, MAX_VALUE_LEN),
+        sort: this.draft.sort,
+        limit: this.draft.limit,
+      };
+      this.local.custom = this.local.custom.concat([card]);
+      this.local.order = this.local.order.concat([cardSectionKey(card)]);
+      // 加完清空内容，保留类型/排序/数量方便连续添加同类卡片
+      this.draft = {
+        type: card.type,
+        value: "",
+        sort: card.sort,
+        limit: card.limit,
+      };
+    },
+    removeCardBySection(section) {
+      const card = this.cardForSection(section);
+      if (card) this.removeCard(card);
     },
     removeCard(card) {
       const section = cardSectionKey(card);
@@ -419,12 +449,26 @@ export default {
   cursor: grabbing;
 }
 
+/* 顺序列表右侧操作区：删除（仅自定义卡片）+ 上移/下移，统一排成一行 */
+.homepage-section-actions {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  flex: 0 0 auto;
+  margin-left: auto;
+  white-space: nowrap;
+}
+
+.homepage-section-delete {
+  margin-right: 4px;
+}
+
 .homepage-section-drag-over {
   outline: 2px dashed #1976d2;
   outline-offset: -2px;
 }
 
-.homepage-custom-card {
+.homepage-custom-add {
   border-radius: 8px;
 }
 </style>

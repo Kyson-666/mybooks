@@ -1271,6 +1271,12 @@ const SEARCH_ALIASES = {
     统计: ["HOMEPAGE_CONFIG", "ALLOW_USER_DISABLE_STATISTIC"], banner: ["HOMEPAGE_CONFIG"], 阅读统计: ["HOMEPAGE_CONFIG"],
     在读: ["HOMEPAGE_CONFIG"], 正在阅读: ["HOMEPAGE_CONFIG"],
     书单: ["HOMEPAGE_CONFIG", "BOOK_NAV"], 书单推荐: ["HOMEPAGE_CONFIG"],
+    // 书单封面自动滚动：用户通常按「动效/轮播/动画」这类词找它（访客系统要求减少动效时，
+    // 这个功能本身也会自动停，所以「减少动效」同样是常见查询词），而标签只有
+    // 「书单封面自动滚动」，不含这几个词，故显式登记
+    动效: ["ENABLE_BOOKLIST_COVER_SCROLL"], 减少动效: ["ENABLE_BOOKLIST_COVER_SCROLL"], 减弱动态效果: ["ENABLE_BOOKLIST_COVER_SCROLL"],
+    动画: ["ENABLE_BOOKLIST_COVER_SCROLL"], 轮播: ["ENABLE_BOOKLIST_COVER_SCROLL"], 自动滚动: ["ENABLE_BOOKLIST_COVER_SCROLL"],
+    封面滚动: ["ENABLE_BOOKLIST_COVER_SCROLL"], 书单封面: ["ENABLE_BOOKLIST_COVER_SCROLL"],
     推荐给他人: ["ENABLE_BOOK_RECOMMEND_TO_OTHERS", "HOMEPAGE_CONFIG"], 他人推荐: ["ENABLE_BOOK_RECOMMEND_TO_OTHERS", "HOMEPAGE_CONFIG"], "留言": ["ENABLE_USER_MEMOS"],
     实体书: ["ENABLE_PHYSICAL_BOOKS", "ENABLE_BOOKS_TYPE_CONVERT_DIRECT"], 纸书: ["ENABLE_PHYSICAL_BOOKS"], 纸质书: ["ENABLE_PHYSICAL_BOOKS"], 书架: ["ENABLE_PHYSICAL_BOOKS"], 印刷: ["ENABLE_PHYSICAL_BOOKS"],
     类型转换: ["ENABLE_BOOKS_TYPE_CONVERT_DIRECT"], 直接转换: ["ENABLE_BOOKS_TYPE_CONVERT_DIRECT"],
@@ -1418,6 +1424,9 @@ const SEARCH_ALIASES = {
     統計: ["HOMEPAGE_CONFIG", "ALLOW_USER_DISABLE_STATISTIC"], banner: ["HOMEPAGE_CONFIG"], 閱讀統計: ["HOMEPAGE_CONFIG"],
     在讀: ["HOMEPAGE_CONFIG"], 正在閱讀: ["HOMEPAGE_CONFIG"],
     書單: ["HOMEPAGE_CONFIG", "BOOK_NAV"], 書單推薦: ["HOMEPAGE_CONFIG"], 推薦書單: ["HOMEPAGE_CONFIG"],
+    動效: ["ENABLE_BOOKLIST_COVER_SCROLL"], 減少動效: ["ENABLE_BOOKLIST_COVER_SCROLL"], 減弱動態效果: ["ENABLE_BOOKLIST_COVER_SCROLL"],
+    動畫: ["ENABLE_BOOKLIST_COVER_SCROLL"], 輪播: ["ENABLE_BOOKLIST_COVER_SCROLL"], 自動捲動: ["ENABLE_BOOKLIST_COVER_SCROLL"],
+    封面捲動: ["ENABLE_BOOKLIST_COVER_SCROLL"], 書單封面: ["ENABLE_BOOKLIST_COVER_SCROLL"],
     推薦給他人: ["ENABLE_BOOK_RECOMMEND_TO_OTHERS", "HOMEPAGE_CONFIG"], 他人推薦: ["ENABLE_BOOK_RECOMMEND_TO_OTHERS", "HOMEPAGE_CONFIG"], "留言": ["ENABLE_USER_MEMOS"],
     實體書: ["ENABLE_PHYSICAL_BOOKS", "ENABLE_BOOKS_TYPE_CONVERT_DIRECT"], 紙書: ["ENABLE_PHYSICAL_BOOKS"], 紙本書: ["ENABLE_PHYSICAL_BOOKS"], 書架: ["ENABLE_PHYSICAL_BOOKS"], 印刷: ["ENABLE_PHYSICAL_BOOKS"],
     類型轉換: ["ENABLE_BOOKS_TYPE_CONVERT_DIRECT"], 直接轉換: ["ENABLE_BOOKS_TYPE_CONVERT_DIRECT"], 格式轉換: ["ENABLE_BOOKS_TYPE_CONVERT_DIRECT", "ENABLE_TXT_TO_TXTZ_PLUGIN"],
@@ -1563,6 +1572,11 @@ const SEARCH_ALIASES = {
     stats: ["HOMEPAGE_CONFIG", "ALLOW_USER_DISABLE_STATISTIC"], statistics: ["HOMEPAGE_CONFIG", "ALLOW_USER_DISABLE_STATISTIC"], "reading stats": ["HOMEPAGE_CONFIG"], banner: ["HOMEPAGE_CONFIG"],
     "currently reading": ["HOMEPAGE_CONFIG"], "reading now": ["HOMEPAGE_CONFIG"], "in progress": ["HOMEPAGE_CONFIG"],
     booklist: ["HOMEPAGE_CONFIG", "BOOK_NAV"], "book list": ["HOMEPAGE_CONFIG", "BOOK_NAV"], collections: ["HOMEPAGE_CONFIG"], featured: ["HOMEPAGE_CONFIG"],
+    // People look for this switch with words like "motion" / "animation" (the animation also stops
+    // when the visitor's system requests reduced motion), while the label only says
+    // "Auto-scroll booklist covers"
+    motion: ["ENABLE_BOOKLIST_COVER_SCROLL"], "reduced motion": ["ENABLE_BOOKLIST_COVER_SCROLL"], animation: ["ENABLE_BOOKLIST_COVER_SCROLL"], animations: ["ENABLE_BOOKLIST_COVER_SCROLL"], animate: ["ENABLE_BOOKLIST_COVER_SCROLL"],
+    marquee: ["ENABLE_BOOKLIST_COVER_SCROLL"], carousel: ["ENABLE_BOOKLIST_COVER_SCROLL"], autoscroll: ["ENABLE_BOOKLIST_COVER_SCROLL"], "auto scroll": ["ENABLE_BOOKLIST_COVER_SCROLL"], "cover scroll": ["ENABLE_BOOKLIST_COVER_SCROLL"], "cover strip": ["ENABLE_BOOKLIST_COVER_SCROLL"],
     "recommend to others": ["ENABLE_BOOK_RECOMMEND_TO_OTHERS", "HOMEPAGE_CONFIG"], "share books": ["ENABLE_BOOK_RECOMMEND_TO_OTHERS", "HOMEPAGE_CONFIG"], "memo": ["ENABLE_USER_MEMOS"],
     physical: ["ENABLE_PHYSICAL_BOOKS", "ENABLE_BOOKS_TYPE_CONVERT_DIRECT"], hardcopy: ["ENABLE_PHYSICAL_BOOKS"], print: ["ENABLE_PHYSICAL_BOOKS"], printed: ["ENABLE_PHYSICAL_BOOKS"], "paper books": ["ENABLE_PHYSICAL_BOOKS"], shelf: ["ENABLE_PHYSICAL_BOOKS"], bookshelf: ["ENABLE_PHYSICAL_BOOKS"],
     convert: ["ENABLE_BOOKS_TYPE_CONVERT_DIRECT", "ENABLE_TXT_TO_TXTZ_PLUGIN"], conversion: ["ENABLE_BOOKS_TYPE_CONVERT_DIRECT", "ENABLE_TXT_TO_TXTZ_PLUGIN"],
@@ -1865,7 +1879,6 @@ export default {
                 key: "ENABLE_BOOKLIST_COVER_SCROLL",
                 label: "settings.booklist_cover_scroll",
                 type: "checkbox",
-                tips: "settings.booklist_cover_scroll_tips",
               },
               {
                 icon: "mdi-book-multiple",
@@ -2143,11 +2156,11 @@ export default {
         title: "settings.group_import",
         sections: [
           {
+            // 只放「把文件送进服务器」这一层：体积/分片、暂存、入库前的同书校验、实体书清单
             id: "imp-upload",
             icon: "mdi-upload",
             title: "settings.sec_imp_upload",
             fields: [
-              { icon: "mdi-import", key: "scan_upload_path", label: "settings.scan_upload_path" },
               {
                 icon: "mdi-information",
                 color: "red",
@@ -2161,34 +2174,38 @@ export default {
                 label: "settings.chunk_upload_size",
               },
               {
-                icon: "mdi-translate",
-                key: "DEFAULT_LANGUAGE",
-                label: "settings.default_language",
-                type: "select",
-                items: languageOptions.map((lang) => ({
-                  text: lang.name,
-                  value: lang.code,
-                })),
-              },
-              {
                 icon: "mdi-file-lock-outline",
                 key: "KEEP_UPLOAD_SOURCE_FILE",
                 label: "settings.keep_upload_source_file",
                 type: "checkbox",
               },
               {
-                icon: "mdi-delete-circle-outline",
-                key: "REMOVE_IMPORTED_FILE",
-                label: "settings.remove_imported_file",
+                icon: "mdi-file-document-outline",
+                key: "UPLOAD_IGNORE_TITLE_CHECKING",
+                label: "settings.upload_ignore_title_checking",
+                type: "checkbox",
+              },
+              {
+                icon: "mdi-checkbox-marked-circle-plus-outline",
+                key: "BATCH_ADD_IN_FORCE",
+                label: "settings.batch_add_in_force",
                 type: "checkbox",
               },
             ],
           },
           {
+            // 扫描目录 → 解析规则 → 收尾（删源文件、补默认语言）→ 自动导入（压最下方）
             id: "imp-rules",
             icon: "mdi-import",
             title: "settings.sec_imp_rules",
             fields: [
+              { icon: "mdi-import", key: "scan_upload_path", label: "settings.scan_upload_path" },
+              {
+                icon: "mdi-server",
+                key: "ENABLE_SERVER_FILE_IMPORT",
+                label: "settings.enable_server_file_import",
+                type: "checkbox",
+              },
               {
                 icon: "mdi-file-pdf-box",
                 key: "PDF_TILE_WITH_FILE_NAME",
@@ -2203,41 +2220,36 @@ export default {
                 type: "checkbox",
               },
               {
-                icon: "mdi-server",
-                key: "ENABLE_SERVER_FILE_IMPORT",
-                label: "settings.enable_server_file_import",
-                type: "checkbox",
-              },
-              {
-                icon: "mdi-checkbox-marked-circle-plus-outline",
-                key: "BATCH_ADD_IN_FORCE",
-                label: "settings.batch_add_in_force",
-                type: "checkbox",
-              },
-              {
                 icon: "mdi-shape-plus",
                 key: "IMPORT_CATEGORY_WITH_FOLDER",
                 label: "settings.category_with_folder",
                 type: "checkbox",
               },
               {
-                icon: "mdi-pause-octagon",
-                key: "auto_fill_pause_on_throttle",
-                label: "settings.auto_fill_pause_on_throttle",
+                icon: "mdi-delete-circle-outline",
+                key: "REMOVE_IMPORTED_FILE",
+                label: "settings.remove_imported_file",
                 type: "checkbox",
               },
               {
-                icon: "mdi-file-document-outline",
-                key: "UPLOAD_IGNORE_TITLE_CHECKING",
-                label: "settings.upload_ignore_title_checking",
-                type: "checkbox",
+                icon: "mdi-translate",
+                key: "DEFAULT_LANGUAGE",
+                label: "settings.default_language",
+                type: "select",
+                items: languageOptions.map((lang) => ({
+                  text: lang.name,
+                  value: lang.code,
+                })),
+              },
+              // 小标题：把下面的目录监控和上面的单次导入规则分开（subtitle 不是真设置，
+              // 键名带连字符，不会被 ensureSettingKeysReactive 当成可保存项）
+              {
+                icon: "mdi-crosshairs-gps",
+                key: "imp-auto-heading",
+                label: "settings.sec_imp_auto",
+                type: "subtitle",
               },
             ],
-          },
-          {
-            id: "imp-auto",
-            icon: "mdi-crosshairs-gps",
-            title: "settings.sec_imp_auto",
             groups: [
               {
                 icon: "mdi-crosshairs-gps",
@@ -2301,6 +2313,12 @@ export default {
                 icon: "mdi-timer-sand",
                 key: "auto_fill_qpm",
                 label: "settings.auto_fill_qpm",
+              },
+              {
+                icon: "mdi-pause-octagon",
+                key: "auto_fill_pause_on_throttle",
+                label: "settings.auto_fill_pause_on_throttle",
+                type: "checkbox",
               },
               {
                 icon: "mdi-source-branch",
