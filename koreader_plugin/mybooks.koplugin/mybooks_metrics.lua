@@ -25,6 +25,9 @@ M.color = {
     bg = Blitbuffer.COLOR_WHITE,
     invert_text = Blitbuffer.COLOR_WHITE,
     accent = Blitbuffer.COLOR_BLACK,
+    -- 3D / card helpers
+    shadow = Blitbuffer.COLOR_GRAY_D,
+    edge = Blitbuffer.COLOR_GRAY_B,
 }
 
 function M.title_face()
@@ -55,6 +58,11 @@ function M.format_duration(seconds)
         return string.format("%dm", minutes)
     end
     return "0m"
+end
+
+function M.format_hours(seconds)
+    seconds = math.max(0, tonumber(seconds) or 0)
+    return string.format("%.2f", seconds / 3600)
 end
 
 function M.format_percent(value)

@@ -47,7 +47,13 @@ function Api:resolve(url)
         return nil
     end
     if url:match("^https?://") then
-        return (url:gsub("^http://", "https://"))
+        -- Keep the scheme the server handed us, but upgrade plain http to https
+        -- when the configured server itself is https (reverse proxy setups),
+        -- so we never downgrade a secure site.
+        if self.server_url:match("^https://") then
+            return (url:gsub("^http://", "https://"))
+        end
+        return url
     end
     if url:sub(1, 1) == "/" then
         return self.server_url .. url
@@ -115,6 +121,20 @@ local function request_lib(url)
     return http
 end
 
+local function normalize_http_result(ok, code, headers, status)
+    if not ok or code == nil or code == false then
+        return nil, headers, status
+    end
+    if code == true or code == 1 then
+        return 200, headers, status
+    end
+    local as_num = tonumber(code)
+    if as_num then
+        return as_num, headers, status
+    end
+    return code, headers, status
+end
+
 function Api:request(method, path, opts)
     opts = opts or {}
     local url = opts.url or self:url(path, opts.params)
@@ -140,32 +160,34 @@ function Api:request(method, path, opts)
         logger.warn("MyBooks: request failed", code)
         return nil, "network", nil
     end
-    if not code then
+    local http_code, http_headers, http_status = normalize_http_result(ok, code, headers, status)
+    if not http_code then
         logger.warn("MyBooks: network error", headers)
         return nil, "network", nil
     end
     local text = table.concat(chunks)
-    if code ~= 200 then
-        logger.warn("MyBooks: http status", code, status)
+    if http_code ~= 200 then
+        local body_snippet = text and text:sub(1, 500) or ""
+        logger.warn("MyBooks: http status", http_code, http_status, "url", url, "body", body_snippet)
         local reason = "http"
-        if code == 401 then
+        if http_code == 401 then
             reason = "auth"
-        elseif code == 403 then
+        elseif http_code == 403 then
             reason = "forbidden"
-        elseif code == 404 then
+        elseif http_code == 404 then
             reason = "missing"
         end
-        return nil, reason, code, text
+        return nil, reason, http_code, text
     end
     local decoded, data = pcall(rapidjson.decode, text)
     if not decoded or type(data) ~= "table" then
-        logger.warn("MyBooks: invalid json", text:sub(1, 200))
-        return nil, "json", code, text
+        logger.warn("MyBooks: invalid json", "url", url, "status", http_code, "body", (text or ""):sub(1, 500))
+        return nil, "json", http_code, text
     end
     if data.err and data.err ~= "ok" then
-        return data, data.err, code, text
+        return data, data.err, http_code, text
     end
-    return data, nil, code, text
+    return data, nil, http_code, text
 end
 
 function Api:get(path, params)
@@ -258,29 +280,30 @@ function Api:download(book_id, fmt, dest_path, part_path, progress_cb, resume, e
         logger.warn("MyBooks: download failed", code)
         return nil, "network"
     end
+    local http_code, http_headers = normalize_http_result(ok, code, rheaders, nil)
+    if not http_code then
+        return nil, "network"
+    end
     if write_error then
         return nil, write_error
     end
-    if not code then
-        return nil, "network"
-    end
-    if code ~= 200 and code ~= 206 then
-        if code == 401 then
-            return nil, "auth", code
-        elseif code == 403 then
-            return nil, "forbidden", code
-        elseif code == 404 then
-            return nil, "missing", code
+    if http_code ~= 200 and http_code ~= 206 then
+        if http_code == 401 then
+            return nil, "auth", http_code
+        elseif http_code == 403 then
+            return nil, "forbidden", http_code
+        elseif http_code == 404 then
+            return nil, "missing", http_code
         end
-        return nil, "http", code
+        return nil, "http", http_code
     end
-    if offset > 0 and code == 200 then
+    if offset > 0 and http_code == 200 then
         pcall(os.remove, part_path)
         logger.warn("MyBooks: server ignored Range, restarting download")
         return self:download(book_id, fmt, dest_path, part_path, progress_cb, false, expected)
     end
-    if not total and rheaders and rheaders["content-length"] then
-        total = tonumber(rheaders["content-length"])
+    if not total and http_headers and http_headers["content-length"] then
+        total = tonumber(http_headers["content-length"])
     end
     local renamed = os.rename(part_path, dest_path)
     if not renamed then
@@ -303,12 +326,14 @@ function Api:fetch_file(url, dest_path)
             file:close()
         end
     end
+    local write_error = nil
     local sink = function(chunk, err)
         if chunk then
             local wrote = file:write(chunk)
             if not wrote then
+                write_error = "write"
                 close_file()
-                return nil, "write"
+                return nil, write_error
             end
             return 1
         end
@@ -319,7 +344,7 @@ function Api:fetch_file(url, dest_path)
         return 1
     end
     socketutil:set_timeout(self.block_timeout, 300)
-    local ok, code = pcall(request_lib(url).request, {
+    local ok, code, rheaders, status = pcall(request_lib(url).request, {
         url = url,
         method = "GET",
         headers = headers,
@@ -327,9 +352,24 @@ function Api:fetch_file(url, dest_path)
     })
     socketutil:reset_timeout()
     close_file()
-    if not ok or code ~= 200 then
+    if not ok then
         pcall(os.remove, dest_path)
-        return nil, ok and "http" or "network", code
+        return nil, "network"
+    end
+    -- LuaSocket reports a successful transfer as `1`, not 200, so normalize
+    -- the status before deciding whether the file is valid.
+    local http_code = normalize_http_result(ok, code, rheaders, status)
+    if not http_code then
+        pcall(os.remove, dest_path)
+        return nil, "network"
+    end
+    if write_error then
+        pcall(os.remove, dest_path)
+        return nil, write_error
+    end
+    if http_code ~= 200 then
+        pcall(os.remove, dest_path)
+        return nil, "http", http_code
     end
     return dest_path
 end

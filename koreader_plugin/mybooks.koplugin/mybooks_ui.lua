@@ -57,4 +57,56 @@ function M.contains(rect, pos)
     return pos.x >= rect.x1 and pos.x <= rect.x2 and pos.y >= rect.y1 and pos.y <= rect.y2
 end
 
+-- Paints a filled rectangle with rounded corners, row by row, so it works on
+-- every BlitBuffer type (including 8-bit grayscale e-ink screens).
+function M.round_rect(bb, x, y, w, h, radius, color)
+    x, y = math.floor(x), math.floor(y)
+    w, h = math.floor(w), math.floor(h)
+    if w <= 0 or h <= 0 then
+        return
+    end
+    radius = math.max(0, math.floor(radius or 0))
+    radius = math.min(radius, math.floor(math.min(w, h) / 2))
+    if radius <= 0 then
+        bb:paintRect(x, y, w, h, color)
+        return
+    end
+    for dy = 0, h - 1 do
+        local inset = 0
+        if dy < radius then
+            local d = radius - dy - 0.5
+            inset = radius - math.floor(math.sqrt(math.max(0, radius * radius - d * d)))
+        elseif dy >= h - radius then
+            local d = dy - (h - radius) + 0.5
+            inset = radius - math.floor(math.sqrt(math.max(0, radius * radius - d * d)))
+        end
+        if inset < 0 then
+            inset = 0
+        end
+        bb:paintRect(x + inset, y + dy, w - inset * 2, 1, color)
+    end
+end
+
+-- A small raised card: soft drop shadow + light border + white fill.
+function M.card(bb, x, y, w, h, opts)
+    opts = opts or {}
+    local radius = opts.radius or Metrics.dp(5)
+    local border = opts.border or Metrics.color.line
+    local fill = opts.fill or Metrics.color.bg
+    if opts.shadow ~= false then
+        M.round_rect(bb, x + 2, y + 2, w, h, radius, Metrics.color.shadow)
+    end
+    M.round_rect(bb, x, y, w, h, radius, border)
+    M.round_rect(bb, x + 1, y + 1, w - 2, h - 2, math.max(0, radius - 1), fill)
+end
+
+-- An embossed (3D) horizontal divider: a darker top edge fading into a light
+-- ridge, so it reads as a raised separator on white and on e-ink alike.
+function M.divider(bb, x, y, w)
+    bb:paintRect(x, y, w, 1, Metrics.color.faint)
+    bb:paintRect(x, y + 1, w, 1, Metrics.color.shadow)
+    bb:paintRect(x, y + 2, w, 1, Metrics.color.edge)
+    bb:paintRect(x, y + 3, w, 1, Metrics.color.bg)
+end
+
 return M

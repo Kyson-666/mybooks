@@ -67,7 +67,7 @@ pytest: lint
 	pytest tests
 
 PLUGIN_DIR := koreader_plugin/mybooks.koplugin
-PLUGIN_OUT := koreader_plugin/dist/mybooks.zip
+PLUGIN_OUT := koreader_plugin/dist/mybooks_koplugin.zip
 
 plugin:
 	@mkdir -p $(dir $(PLUGIN_OUT))

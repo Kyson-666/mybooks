@@ -122,63 +122,155 @@ function HomePage:open_section(kind, title)
     end
 end
 
+function HomePage:stat_card_h()
+    if not self._stat_card_h then
+        local label = UI.text("0.00", { face = Metrics.small_face(), padding = 0 })
+        local value = UI.text("0.00", { face = Metrics.body_face(), bold = true, padding = 0 })
+        self._stat_label_h = label:getSize().h
+        self._stat_value_h = value:getSize().h
+        label:free()
+        value:free()
+        self._stat_card_h = self._stat_label_h + self._stat_value_h + Metrics.dp(12)
+    end
+    return self._stat_card_h
+end
+
+function HomePage:stats_height()
+    return math.floor(Metrics.dp(44)) + Metrics.dp(8) + self:stat_card_h() * 2 + Metrics.dp(6)
+end
+
+function HomePage:_paint_stat_card(bb, x, y, w, h, label, value, unit)
+    UI.card(bb, x, y, w, h, { radius = Metrics.dp(5) })
+    local inner = Metrics.dp(7)
+    local label_text = UI.text(label, { face = Metrics.small_face(), color = Metrics.color.muted, padding = 0 })
+    label_text:paintTo(bb, x + inner, y + Metrics.dp(5))
+    label_text:free()
+
+    local value_text = UI.text(value, { face = Metrics.body_face(), bold = true, padding = 0 })
+    local value_size = value_text:getSize()
+    local vy = y + h - value_size.h - Metrics.dp(5)
+    value_text:paintTo(bb, x + inner, vy)
+    value_text:free()
+
+    if unit and unit ~= "" then
+        local unit_text = UI.text(unit, { face = Metrics.small_face(), color = Metrics.color.muted, padding = 0 })
+        local unit_size = unit_text:getSize()
+        unit_text:paintTo(bb, x + inner + value_size.w + Metrics.dp(3), vy + value_size.h - unit_size.h - Metrics.dp(1))
+        unit_text:free()
+    end
+end
+
 function HomePage:_paint_stats(bb, x, y, w)
     local pad = self.pad
     local profile = self.data.profile or {}
     local stats = self.data.stats or {}
+    local status = stats.book_status or {}
+    local streak = stats.streak or {}
+
     local avatar = math.floor(Metrics.dp(44))
-    local cy = y + Metrics.dp(4)
     local path = DeviceInfo.cache_dir() .. "/avatar.jpg"
     if DeviceInfo.file_exists(path) then
-        UI.paint_cover(bb, path, x + pad, cy, avatar, avatar)
+        UI.paint_cover(bb, path, x + pad, y, avatar, avatar)
     else
         local cx = x + pad + math.floor(avatar / 2)
-        UI.circle(bb, cx, cy + math.floor(avatar / 2), math.floor(avatar / 2) - 1, Metrics.color.line)
+        UI.circle(bb, cx, y + math.floor(avatar / 2), math.floor(avatar / 2) - 1, Metrics.color.line)
         local text = UI.text(first_char(profile.nickname), { face = Metrics.title_face() })
         local size = text:getSize()
-        text:paintTo(bb, cx - math.floor(size.w / 2), cy + math.floor((avatar - size.h) / 2))
+        text:paintTo(bb, cx - math.floor(size.w / 2), y + math.floor((avatar - size.h) / 2))
         text:free()
     end
 
     local left = x + pad + avatar + pad
+    local pill_text = I18N.T("streak_days", streak.current or 0)
+    local pill = UI.text(pill_text, { face = Metrics.small_face(), color = Metrics.color.muted, padding = 0 })
+    local pill_size = pill:getSize()
+    local pill_w = pill_size.w + Metrics.dp(14)
+    local pill_h = math.min(avatar, pill_size.h + Metrics.dp(10))
+    local pill_x = x + w - pad - pill_w
+    local pill_y = y + math.floor((avatar - pill_h) / 2)
+    UI.card(bb, pill_x, pill_y, pill_w, pill_h, { radius = math.floor(pill_h / 2), shadow = false })
+    pill:paintTo(bb, pill_x + math.floor((pill_w - pill_size.w) / 2), pill_y + math.floor((pill_h - pill_size.h) / 2))
+    pill:free()
+
     local name = UI.text(profile.nickname or I18N.T("not_logged_in"), {
-        width = w - (left - x) - pad,
+        width = math.max(Metrics.dp(60), w - (left - x) - pad - pill_w - pad),
         bold = true,
     })
     local name_size = name:getSize()
-    name:paintTo(bb, left, cy)
+    name:paintTo(bb, left, y + math.floor((avatar - name_size.h) / 2))
     name:free()
 
-    local status = stats.book_status or {}
-    local line = string.format(
-        "%s · %s %d · %s %d · %s %d",
-        Metrics.format_duration(stats.total_seconds or 0),
-        I18N.T("reading"), status.reading or 0,
-        I18N.T("finished"), status.finished or 0,
-        I18N.T("to_read"), status.to_read or 0
-    )
-    local sub = UI.text(line, { face = Metrics.small_face(), color = Metrics.color.muted, width = w - (left - x) - pad })
-    sub:paintTo(bb, left, cy + name_size.h + Metrics.dp(2))
-    sub:free()
-
-    self.hit_rows[#self.hit_rows + 1] = UI.hit_rect(x, y, math.floor(w * 0.6), Metrics.dp(56), function()
+    self.hit_rows[#self.hit_rows + 1] = UI.hit_rect(x, y, w, avatar, function()
         require("mybooks_settings_page").show(self.api)
     end)
-    self.hit_rows[#self.hit_rows + 1] = UI.hit_rect(left, cy + name_size.h, w - (left - x) - pad, Metrics.dp(24), function()
-        local streak = stats.streak or {}
-        Toast.show(string.format(
-            "%s · %s",
-            I18N.T("today_reading", Metrics.format_duration(stats.today_seconds or 0)),
-            I18N.T("streak_days", streak.current or 0)
-        ))
-    end)
-    return Metrics.dp(56)
+
+    local card_w = math.floor((w - pad * 4) / 3)
+    local card_h = self:stat_card_h()
+    local row1 = y + avatar + Metrics.dp(8)
+
+    local time_cards = {
+        {
+            label = I18N.T("reading_time"),
+            value = Metrics.format_hours(stats.total_seconds or 0),
+            unit = I18N.T("unit_hours"),
+            hit = function()
+                Toast.show(string.format(
+                    "%s · %s",
+                    I18N.T("today_reading", Metrics.format_duration(stats.today_seconds or 0)),
+                    I18N.T("streak_days", streak.current or 0)
+                ))
+            end,
+        },
+        {
+            label = I18N.T("today"),
+            value = Metrics.format_hours(stats.today_seconds or 0),
+            unit = I18N.T("unit_hours"),
+        },
+        {
+            label = I18N.T("streak"),
+            value = tostring(streak.current or 0),
+            unit = I18N.T("unit_days"),
+        },
+    }
+    for index, card in ipairs(time_cards) do
+        local cx = x + pad + (index - 1) * (card_w + pad)
+        self:_paint_stat_card(bb, cx, row1, card_w, card_h, card.label, card.value, card.unit)
+        if card.hit then
+            self.hit_rows[#self.hit_rows + 1] = UI.hit_rect(cx, row1, card_w, card_h, card.hit)
+        end
+    end
+
+    local row2 = row1 + card_h + Metrics.dp(6)
+    local status_cards = {
+        { label = I18N.T("reading"), value = status.reading or 0, kind = "reading", title = I18N.T("reading_now") },
+        { label = I18N.T("finished"), value = status.finished or 0, kind = "read_done", title = I18N.T("my_read") },
+        { label = I18N.T("to_read"), value = status.to_read or 0, kind = "wants", title = I18N.T("my_wishlist") },
+    }
+    for index, card in ipairs(status_cards) do
+        local cx = x + pad + (index - 1) * (card_w + pad)
+        self:_paint_stat_card(bb, cx, row2, card_w, card_h, card.label, tostring(card.value or 0), nil)
+        local kind, title = card.kind, card.title
+        self.hit_rows[#self.hit_rows + 1] = UI.hit_rect(cx, row2, card_w, card_h, function()
+            self:open_section(kind, title)
+        end)
+    end
+
+    return self:stats_height()
+end
+
+function HomePage:divider_h()
+    return Metrics.dp(20)
+end
+
+function HomePage:_paint_divider(bb, x, y, w)
+    UI.divider(bb, x + self.pad, y + Metrics.dp(8), w - self.pad * 2)
+    return self:divider_h()
 end
 
 function HomePage:reading_metrics(w)
     local pad = self.pad
     local card_w = math.floor((w - pad * 4) / 3)
-    local cover_h = math.min(math.floor(card_w * 1.4), Metrics.dp(180))
+    local cover_h = math.min(math.floor(card_w * 4 / 3), Metrics.dp(220))
     return card_w, cover_h, cover_h + Metrics.dp(40)
 end
 
@@ -211,20 +303,21 @@ function HomePage:_paint_reading(bb, x, y, w)
         local book = books[index]
         local cx = x + pad + (index - 1) * (card_w + pad)
         local cy = y + header_h
+        UI.card(bb, cx, cy, card_w, cover_h, { radius = Metrics.dp(3) })
         UI.paint_cover(bb, Thumbnails.get(book), cx, cy, card_w, cover_h)
         local label = UI.text(book.title, {
             face = Metrics.small_face(),
             width = card_w,
             padding = 0,
         })
-        label:paintTo(bb, cx, cy + cover_h + Metrics.dp(2))
+        label:paintTo(bb, cx, cy + cover_h + Metrics.dp(4))
         label:free()
         local percent = UI.text(Metrics.format_percent(book.progress_percent or 0), {
             face = Metrics.small_face(),
             color = Metrics.color.muted,
             padding = 0,
         })
-        percent:paintTo(bb, cx, cy + cover_h + Metrics.dp(20))
+        percent:paintTo(bb, cx, cy + cover_h + Metrics.dp(22))
         percent:free()
         local rect = UI.hit_rect(cx, cy, card_w, card_h, function()
             self:open_book(book)
@@ -246,14 +339,17 @@ function HomePage:paintContent(bb, x, y)
     local row_h = Metrics.dp(48)
     local rows_count = 8
     local _, _, card_h = self:reading_metrics(w)
-    local content_h = Metrics.dp(56) + Metrics.dp(30) + card_h + Metrics.dp(30)
-        + rows_count * row_h + pad * 2
+    local reading_h = Metrics.dp(30) + card_h
+    local content_h = pad + self:stats_height() + self:divider_h() + reading_h
+        + self:divider_h() + Metrics.dp(30) + rows_count * row_h + pad
     self._content_h = content_h
     self.offset = math.min(self.offset, math.max(0, content_h - self.list_h))
 
     local top = y + pad - self.offset
     top = top + self:_paint_stats(bb, x, top, w)
+    top = top + self:_paint_divider(bb, x, top, w)
     top = top + self:_paint_reading(bb, x, top, w)
+    top = top + self:_paint_divider(bb, x, top, w)
 
     local header_h = Metrics.dp(30)
     local section = UI.text(I18N.T("browse_section"), { bold = true })
