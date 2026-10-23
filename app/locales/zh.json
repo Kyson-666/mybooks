@@ -1818,6 +1818,10 @@
     "invalidNumber": "请输入不小于 0 的数字",
     "password": "提取码（可选）",
     "create": "创建分享",
+    "createAndCopy": "创建分享并复制",
+    "createCopied": "已创建，链接已复制",
+    "createCopyFailed": "分享已创建，但自动复制失败，请手动复制链接",
+    "copyFailed": "复制失败，请手动选中链接复制",
     "cancelShare": "取消分享",
     "cancelConfirm": "取消后现有链接将立即失效，确定要取消分享吗？",
     "state": {

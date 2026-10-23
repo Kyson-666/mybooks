@@ -1811,6 +1811,10 @@
     "invalidNumber": "請輸入不小於 0 的數字",
     "password": "提取碼（可選）",
     "create": "建立分享",
+    "createAndCopy": "建立分享並複製",
+    "createCopied": "已建立，連結已複製",
+    "createCopyFailed": "分享已建立，但自動複製失敗，請手動複製連結",
+    "copyFailed": "複製失敗，請手動選取連結複製",
     "cancelShare": "取消分享",
     "cancelConfirm": "取消後現有連結將立即失效，確定要取消分享嗎？",
     "state": {

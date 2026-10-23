@@ -85,6 +85,7 @@
 
 <script>
 import { siteBaseUrl } from '~/utils/siteUrl';
+import { copyText } from '~/utils/clipboard';
 
 export default {
   data() {
@@ -153,10 +154,12 @@ export default {
         });
     },
     async copyLink(item) {
-      try {
-        await navigator.clipboard.writeText(siteBaseUrl(this.$store) + item.path);
+      // 走统一实现：http 部署下 navigator.clipboard 不可用，util 里会退到 execCommand
+      const ok = await copyText(siteBaseUrl(this.$store) + item.path);
+      if (ok) {
         this.$alert('success', this.$t('share.copied'));
-      } catch (e) {
+      } else {
+        // 列表里没有可见的链接文本，不能用「请手动选中链接复制」那句，只能让人重试
         this.$alert('error', this.$t('message.operationFailed'));
       }
     },
