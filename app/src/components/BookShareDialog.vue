@@ -6,7 +6,7 @@
             :title="$t('share.dialogTitle')"
             icon="mdi-cloud-outline"
             max-width="900"
-            :confirm-text="isActive ? $t('common.save') : $t('share.create')"
+            :confirm-text="isActive ? $t('common.save') : $t('share.createAndCopy')"
             :confirm-loading="submitting"
             :confirm-disabled="loading || (!form.allow_read && !form.allow_download)"
             @confirm="submit"
@@ -23,14 +23,24 @@
                 <v-col cols="12" md="7">
                     <v-progress-linear v-if="loading" indeterminate></v-progress-linear>
                     <template v-else>
+                        <!-- 提示行放在 isActive 判断之外：复制失败的提醒本身就是"链接没能送到手里"，
+                             要是它也被 isActive 关着，就变成点了没反应 -->
+                        <div v-if="hint" class="text-caption mb-2 d-flex align-center" :class="hintType === 'error' ? 'error--text' : 'success--text'">
+                            <v-icon small class="mr-1" :color="hintType">{{ hintType === 'error' ? 'mdi-alert-circle-outline' : 'mdi-check-circle-outline' }}</v-icon>{{ hint }}
+                        </div>
                         <template v-if="isActive">
                             <v-text-field
                                 :value="shareUrl"
                                 :label="$t('share.link')"
                                 readonly
-                                append-icon="mdi-content-copy"
-                                @click:append="copy(shareUrl)"
-                            ></v-text-field>
+                                @focus="$event.target.select()"
+                            >
+                                <template v-slot:append-outer>
+                                    <v-btn small text color="primary" class="mt-1" @click="copy(shareUrl)">
+                                        <v-icon left small>mdi-content-copy</v-icon>{{ $t('share.copyLink') }}
+                                    </v-btn>
+                                </template>
+                            </v-text-field>
                             <div class="mb-4 text-caption grey--text">
                                 {{ viewsText }}
                                 <v-chip v-if="share.state !== 'active'" x-small color="orange darken-4" text-color="white" class="ml-2">{{ $t('share.state.' + share.state) }}</v-chip>
@@ -86,6 +96,7 @@
 <script>
 import { downloadImage, renderBookShareCard, shareCardFileName } from '~/utils/bookShareCard';
 import { siteBaseUrl } from '~/utils/siteUrl';
+import { copyText } from '~/utils/clipboard';
 
 const DEFAULT_EXPIRE_DAYS = 7;
 
@@ -106,6 +117,9 @@ export default {
             cardImageUrl: null,
             cardGenerating: false,
             cardSeq: 0,
+            hint: '',
+            hintType: 'success',
+            hintTimer: null,
         };
     },
     computed: {
@@ -161,6 +175,19 @@ export default {
         defaultForm() {
             return { allow_read: true, allow_download: false, expire_days: DEFAULT_EXPIRE_DAYS, max_views: '', password: '' };
         },
+        // 弹窗内的提示行。ttl 为空表示常驻到下次操作，给 ttl 则到点自动清掉
+        setHint(text, type, ttl) {
+            this.hint = text || '';
+            this.hintType = type || 'success';
+            clearTimeout(this.hintTimer);
+            this.hintTimer = null;
+            if (this.hint && ttl) {
+                this.hintTimer = setTimeout(() => {
+                    this.hint = '';
+                    this.hintTimer = null;
+                }, ttl);
+            }
+        },
         applyShare(share) {
             this.share = share;
             if (share && share.status === 1) {
@@ -177,6 +204,7 @@ export default {
         },
         async load() {
             this.loading = true;
+            this.setHint('');
             try {
                 const rsp = await this.$backend(`/admin/share/book/${this.bookId}`);
                 if (rsp.err === 'ok') {
@@ -223,6 +251,8 @@ export default {
         async submit() {
             if (this.submitting) return;
             this.submitting = true;
+            // applyShare() 之后 isActive 就变 true 了，同步/编辑要提前记下来
+            const wasActive = this.isActive;
             try {
                 const payload = {
                     allow_read: this.form.allow_read,
@@ -235,8 +265,22 @@ export default {
                 if (rsp.err === 'ok') {
                     this.applyShare(rsp.share);
                     this.$emit('changed', true);
-                    this.$alert('success', rsp.msg || this.$t('message.operationSuccess'));
-                    this.internalValue = false;
+                    if (wasActive) {
+                        // 编辑已有分享：链接没变，弹窗里没有新东西可看，按原行为提示后关闭
+                        this.$alert('success', rsp.msg || this.$t('message.operationSuccess'));
+                        this.internalValue = false;
+                    } else {
+                        // 首次创建：顺手把链接复制走再关窗，省掉「再跑去分享管理复制」这一步
+                        const copied = await copyText(this.shareUrl).catch(() => false);
+                        if (copied) {
+                            this.$alert('success', this.$t('share.createCopied'));
+                            this.internalValue = false;
+                        } else {
+                            // 复制失败就不关窗：链接行此刻已经渲染出来了，
+                            // 把产物留在眼前让用户手动选中复制，别替他把链接藏了
+                            this.setHint(this.$t('share.createCopyFailed'), 'error');
+                        }
+                    }
                 } else {
                     this.$alert('error', rsp.msg || this.$t('message.operationFailed'));
                 }
@@ -268,13 +312,18 @@ export default {
             }
         },
         async copy(text) {
-            try {
-                await navigator.clipboard.writeText(text);
-                this.$alert('success', this.$t('share.copied'));
-            } catch (e) {
-                this.$alert('error', this.$t('message.operationFailed'));
+            const ok = await copyText(text);
+            // 弹窗此刻是开着的，成功失败都走内联提示：$alert 是 persistent 模态框，
+            // 叠上来正好把链接和复制按钮盖住 —— 而复制失败时用户恰恰最需要看到链接
+            if (ok) {
+                this.setHint(this.$t('share.copied'), 'success', 2000);
+            } else {
+                this.setHint(this.$t('share.copyFailed'), 'error');
             }
         },
+    },
+    beforeDestroy() {
+        clearTimeout(this.hintTimer);
     },
 };
 </script>
