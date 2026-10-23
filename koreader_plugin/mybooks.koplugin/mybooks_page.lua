@@ -163,14 +163,26 @@ function Page:paintTo(bb, x, y)
     end
     local title_left = x + (self.show_back and self.header_h or self.pad)
     local buttons_w = #self.header_buttons * self.header_h
+    local note = nil
+    local note_w = 0
+    if self.header_note and self.header_note ~= "" then
+        note = UI.text(self.header_note, { face = Metrics.small_face(), color = Metrics.color.muted, padding = 0 })
+        note_w = note:getSize().w + Metrics.dp(6)
+    end
     local title = TextWidget:new{
         text = self.title or "",
         face = Metrics.title_face(),
-        max_width = math.max(Metrics.dp(40), w - (title_left - x) - buttons_w - self.pad),
+        max_width = math.max(Metrics.dp(40), w - (title_left - x) - buttons_w - self.pad - note_w),
     }
     local title_size = title:getSize()
-    title:paintTo(bb, title_left, y + math.floor((self.header_h - title_size.h) / 2))
+    local title_y = y + math.floor((self.header_h - title_size.h) / 2)
+    title:paintTo(bb, title_left, title_y)
     title:free()
+    if note then
+        local note_size = note:getSize()
+        note:paintTo(bb, title_left + title_size.w + Metrics.dp(6), title_y + title_size.h - note_size.h)
+        note:free()
+    end
 
     local bx = x + w - buttons_w
     for _, btn in ipairs(self.header_buttons) do
@@ -332,7 +344,7 @@ function Page:_paint_row(bb, item, x, y, w, h)
     local text_w = math.max(Metrics.dp(60), w - (left - x) - right_pad)
     local title = TextWidget:new{
         text = item.title or "",
-        face = Metrics.body_face(),
+        face = item.small and Metrics.tiny_face() or Metrics.body_face(),
         max_width = text_w,
         bold = item.bold,
     }

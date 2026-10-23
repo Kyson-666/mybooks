@@ -73,6 +73,7 @@ local function meta_item(label, value, hit)
         kind = "row",
         title = I18N.T(label),
         sub = tostring(as_text(value)),
+        small = true,
         hit = hit,
     }
 end

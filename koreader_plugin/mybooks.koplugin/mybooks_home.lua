@@ -52,7 +52,8 @@ end
 
 function HomePage:init()
     Page.init(self)
-    self.title = I18N.T("app_title")
+    self.title = State.setting("site_title", I18N.T("app_title"))
+    self.header_note = State.setting("site_version", "")
     self.footer_h = 0
     self.list_h = self.dimen.h - self.header_h
     self.header_buttons = {
@@ -72,7 +73,21 @@ function HomePage:init()
     self.data = State.home()
 end
 
+function HomePage:load_site_info()
+    local rsp = self.api:get_abs("/api/user/info")
+    local sys = rsp and rsp.sys or {}
+    if sys.title and sys.title ~= "" then
+        self.title = tostring(sys.title)
+        State.set_setting("site_title", self.title)
+    end
+    if sys.version then
+        self.header_note = tostring(sys.version)
+        State.set_setting("site_version", self.header_note)
+    end
+end
+
 function HomePage:load_home()
+    self:load_site_info()
     local rsp, err = self.api:get("/home")
     if err then
         logger.warn("MyBooks: home load failed", err)
@@ -124,7 +139,7 @@ end
 
 function HomePage:stat_card_h()
     if not self._stat_card_h then
-        local label = UI.text("0.00", { face = Metrics.small_face(), padding = 0 })
+        local label = UI.text("0.00", { face = Metrics.tiny_face(), padding = 0 })
         local value = UI.text("0.00", { face = Metrics.body_face(), bold = true, padding = 0 })
         self._stat_label_h = label:getSize().h
         self._stat_value_h = value:getSize().h
@@ -142,7 +157,7 @@ end
 function HomePage:_paint_stat_card(bb, x, y, w, h, label, value, unit)
     UI.card(bb, x, y, w, h, { radius = Metrics.dp(5) })
     local inner = Metrics.dp(7)
-    local label_text = UI.text(label, { face = Metrics.small_face(), color = Metrics.color.muted, padding = 0 })
+    local label_text = UI.text(label, { face = Metrics.tiny_face(), color = Metrics.color.muted, padding = 0 })
     label_text:paintTo(bb, x + inner, y + Metrics.dp(5))
     label_text:free()
 
@@ -181,23 +196,9 @@ function HomePage:_paint_stats(bb, x, y, w)
     end
 
     local left = x + pad + avatar + pad
-    local streak_days = tonumber(streak.current) or 0
-    local pill_w = 0
-    if streak_days > 0 then
-        local pill_text = I18N.T("streak_days", streak_days)
-        local pill = UI.text(pill_text, { face = Metrics.small_face(), color = Metrics.color.muted, padding = 0 })
-        local pill_size = pill:getSize()
-        pill_w = pill_size.w + Metrics.dp(14)
-        local pill_h = math.min(avatar, pill_size.h + Metrics.dp(10))
-        local pill_x = x + w - pad - pill_w
-        local pill_y = y + math.floor((avatar - pill_h) / 2)
-        UI.card(bb, pill_x, pill_y, pill_w, pill_h, { radius = math.floor(pill_h / 2), shadow = false })
-        pill:paintTo(bb, pill_x + math.floor((pill_w - pill_size.w) / 2), pill_y + math.floor((pill_h - pill_size.h) / 2))
-        pill:free()
-    end
 
     local name = UI.text(profile.nickname or I18N.T("not_logged_in"), {
-        width = math.max(Metrics.dp(60), w - (left - x) - pad - pill_w - pad),
+        width = math.max(Metrics.dp(60), w - (left - x) - pad * 2),
         bold = true,
     })
     local name_size = name:getSize()

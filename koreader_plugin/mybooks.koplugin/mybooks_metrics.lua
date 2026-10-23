@@ -19,7 +19,7 @@ end
 
 M.color = {
     text = Blitbuffer.COLOR_BLACK,
-    muted = Blitbuffer.COLOR_DARK_GRAY,
+    muted = Blitbuffer.Color8(26),
     faint = Blitbuffer.COLOR_GRAY,
     line = Blitbuffer.COLOR_LIGHT_GRAY,
     bg = Blitbuffer.COLOR_WHITE,
@@ -40,6 +40,10 @@ end
 
 function M.small_face()
     return M.face("smallinfofont")
+end
+
+function M.tiny_face()
+    return M.face("xx_smallinfofont")
 end
 
 function M.row_height()
