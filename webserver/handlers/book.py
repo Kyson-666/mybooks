@@ -3992,15 +3992,15 @@ class BookTxtParser(BaseHandler):
         fdir = os.path.join(CONF["extract_path"], str(book["id"]))
         # txt 解析出的目录文件
         content_path = fdir + "/content.json"
-        is_ready = os.path.isfile(content_path)
-        if is_ready:
-            cached = load_txt_content_index(content_path)
-            if cached:
-                return {"err": "ok", "msg": _("parsed"), "data": {
-                    "content": cached["content"],
-                    "encoding": cached["encoding"],
-                    "name": book["title"]
-                }}
+        # 坏索引（旧版本非原子写入 / 进程被杀 / 磁盘满）会在 load_txt_content_index
+        # 里被删掉并返回 None，于是这次读取退化成「没解析过」，由下面入队重建
+        cached = load_txt_content_index(content_path)
+        if cached:
+            return {"err": "ok", "msg": _("parsed"), "data": {
+                "content": cached["content"],
+                "encoding": cached["encoding"],
+                "name": book["title"]
+            }}
         if test_ready != "0":
             return {"err": "ok", "msg": _("not parsed")}
 

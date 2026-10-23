@@ -75,44 +75,43 @@ class TestWarmTxtReaderCache(TempDirMixin, unittest.TestCase):
         self.extract_cls.return_value.txt_content_path.side_effect = \
             lambda bid: os.path.join(self.extract_dir, str(bid), "content.json")
 
-    def test_enqueues_for_txt_books(self):
+    def test_enqueues_on_preheat_channel(self):
+        """预热必须走预热专用队列：读者可见的 que 只统计 parse_txt_content"""
         path = self.make_temp_file()
-        self.cache.formats.return_value = ["TXT"]
         self.service.db.format_abspath.return_value = path
 
         self.assertTrue(self.service._warm_txt_reader_cache(1))
-        self.extract_cls.return_value.parse_txt_content.assert_called_once_with(1, path)
+        self.extract_cls.return_value.preheat_txt_content.assert_called_once_with(1, path)
+        self.extract_cls.return_value.parse_txt_content.assert_not_called()
 
     def test_existing_index_is_not_enqueued_again(self):
-        """目录提取刚同步写好的索引不该再排一个只会空跑的任务（队列长度会展示给读者）"""
+        """目录提取刚同步写好的索引不该再排一个只会空跑的任务"""
         os.makedirs(os.path.join(self.extract_dir, "1"), exist_ok=True)
         with open(os.path.join(self.extract_dir, "1", "content.json"), "w", encoding="utf8") as f:
             json.dump(TXT_TOC, f)
-        self.cache.formats.return_value = ["TXT"]
 
         self.assertFalse(self.service._warm_txt_reader_cache(1))
-        self.extract_cls.return_value.parse_txt_content.assert_not_called()
+        self.extract_cls.return_value.preheat_txt_content.assert_not_called()
 
     def test_skips_books_without_txt_format(self):
-        self.cache.formats.return_value = ["EPUB", "PDF"]
+        """没有 TXT 格式时 format_abspath 抛异常（NoSuchFormat），当跳过处理"""
+        self.service.db.format_abspath.side_effect = RuntimeError("No TXT format")
 
         self.assertFalse(self.service._warm_txt_reader_cache(1))
-        self.extract_cls.return_value.parse_txt_content.assert_not_called()
-        self.service.db.format_abspath.assert_not_called()
+        self.extract_cls.return_value.preheat_txt_content.assert_not_called()
 
     def test_skips_missing_file(self):
-        self.cache.formats.return_value = ["TXT"]
         self.service.db.format_abspath.return_value = "/no/such/book.txt"
 
         self.assertFalse(self.service._warm_txt_reader_cache(1))
-        self.extract_cls.return_value.parse_txt_content.assert_not_called()
+        self.extract_cls.return_value.preheat_txt_content.assert_not_called()
 
     def test_lookup_error_is_swallowed(self):
         """预热只是优化，查库异常不能冒泡打断目录提取"""
-        self.cache.formats.side_effect = RuntimeError("db closed")
+        self.service.db.format_abspath.side_effect = RuntimeError("db closed")
 
         self.assertFalse(self.service._warm_txt_reader_cache(1))
-        self.extract_cls.return_value.parse_txt_content.assert_not_called()
+        self.extract_cls.return_value.preheat_txt_content.assert_not_called()
 
 
 class TestCacheTxtReaderIndex(unittest.TestCase):
@@ -138,6 +137,76 @@ class TestCacheTxtReaderIndex(unittest.TestCase):
     def test_write_error_is_swallowed(self, extract_cls):
         extract_cls.return_value.store_txt_content.side_effect = OSError("disk full")
         self.assertFalse(self.service._cache_txt_reader_index(7, TXT_TOC))
+
+
+class TestPreheatChannel(unittest.TestCase):
+    """预热必须走自己的服务队列。
+
+    parse_txt_content 的队列长度是读者可见的（/api/book/txt/parser 的 que），
+    批量预热的几千个任务绝不能挤进去；两个函数不同 → _service_key 不同 →
+    两条队列两条线程，读者请求不会排在预热后面。
+    """
+
+    def _enqueue(self, method_name, *args):
+        queue = mock.Mock()
+        with mock.patch.object(AsyncService, "setup", return_value=False):
+            with mock.patch.object(AsyncService, "async_mode", return_value=True):
+                with mock.patch.object(AsyncService, "start_service", return_value=queue) as start:
+                    getattr(ExtractService(), method_name)(*args)
+        return start.call_args[0][0], queue
+
+    def test_preheat_uses_its_own_service(self):
+        preheat_func, preheat_queue = self._enqueue("preheat_txt_content", 3, "/lib/3/f.txt")
+        parse_func, _ = self._enqueue("parse_txt_content", 3, "/lib/3/f.txt")
+
+        self.assertEqual(preheat_func.__name__, "preheat_txt_content")
+        self.assertEqual(parse_func.__name__, "parse_txt_content")
+        self.assertIsNot(preheat_func, parse_func)
+        preheat_queue.put.assert_called_once_with(((3, "/lib/3/f.txt"), {}))
+
+
+class TestPreheatTxtContent(TempDirMixin, unittest.TestCase):
+    """预热本体：幂等、失败不留痕（读者首读时还会再试一次）"""
+
+    def setUp(self):
+        self.service = object.__new__(ExtractService)
+        self.extract_dir = self.make_temp_dir()
+        self.path = os.path.join(self.extract_dir, "7", "content.json")
+        patcher = mock.patch.dict("webserver.services.extract.CONF",
+                                  {"extract_path": self.extract_dir})
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.txt_path = self.make_temp_file()
+
+    def _preheat(self, fpath=None):
+        # async_mode=False 让 register_service 同步执行服务本体，不用起线程
+        with mock.patch.object(AsyncService, "setup", return_value=False):
+            with mock.patch.object(AsyncService, "async_mode", return_value=False):
+                return self.service.preheat_txt_content(7, self.txt_path if fpath is None else fpath)
+
+    def test_writes_index(self):
+        with mock.patch.object(ExtractService, "parse_txt_toc", return_value=TXT_TOC):
+            self.assertTrue(self._preheat())
+        with open(self.path, encoding="utf8") as f:
+            self.assertEqual(json.load(f), TXT_TOC)
+
+    def test_existing_index_is_reused(self):
+        with mock.patch.object(ExtractService, "parse_txt_toc", return_value=TXT_TOC):
+            self._preheat()
+        with mock.patch.object(ExtractService, "parse_txt_toc") as parse:
+            self.assertFalse(self._preheat())
+        parse.assert_not_called()
+
+    def test_missing_source_is_skipped(self):
+        with mock.patch.object(ExtractService, "parse_txt_toc") as parse:
+            self.assertFalse(self._preheat(fpath="/no/such/book.txt"))
+        parse.assert_not_called()
+        self.assertFalse(os.path.exists(self.path))
+
+    def test_parse_failure_writes_nothing(self):
+        with mock.patch.object(ExtractService, "parse_txt_toc", side_effect=RuntimeError("boom")):
+            self.assertFalse(self._preheat())
+        self.assertFalse(os.path.exists(self.path))
 
 
 class TestLoadTxtContentIndex(TempDirMixin, unittest.TestCase):
@@ -209,6 +278,13 @@ class TestStoreTxtContent(TempDirMixin, unittest.TestCase):
         """阅读器裸取 meta['toc']，结构不对宁可写不进去"""
         self.assertFalse(self._store(parsed={"encoding": "utf-8"}))
         self.assertFalse(os.path.exists(self.path))
+
+    def test_rejects_non_list_toc(self):
+        """toc 不是非空 list 会写出一条 content=null 的"就绪"索引，阅读器永久打不开"""
+        for toc in (None, "", {}, []):
+            with self.subTest(toc=toc):
+                self.assertFalse(self._store(parsed={"encoding": "utf-8", "toc": toc}))
+                self.assertFalse(os.path.exists(self.path))
 
     def test_write_failure_returns_false_and_cleans_tmp(self):
         with mock.patch("os.replace", side_effect=OSError("disk full")):
@@ -338,6 +414,15 @@ class TestExtractOneEntryWarms(unittest.TestCase):
                 self._call(method_name, {"err": "book.not_found"})
                 self.service._warm_txt_reader_cache.assert_not_called()
 
+    def test_failed_extraction_is_not_warmed(self):
+        """刚解析失败的书不能重排预热：超时那本会把单线程解析队列占住最长 2 小时"""
+        for method_name in ("extract_one", "extract_one_async"):
+            for ret in ({"err": "catalog.not_found", "msg": "TXT格式解析超时"},
+                        {"err": "internal"}):
+                with self.subTest(method=method_name, err=ret["err"]):
+                    self._call(method_name, ret)
+                    self.service._warm_txt_reader_cache.assert_not_called()
+
 
 class TestBatchWarmsSkippedBooks(unittest.TestCase):
     """全库模式会跳过已有目录的书，但这些书的阅读索引同样要预热"""
@@ -378,6 +463,18 @@ class TestBatchWarmsSkippedBooks(unittest.TestCase):
         self._run_batch([11])
 
         self.service._warm_txt_reader_cache.assert_not_called()
+        self.assertEqual(self.service.count_txt_warm, 0)
+
+    def test_failed_book_not_warmed(self):
+        """解析失败的书不排预热（同一份输入只会再失败一次，还占住队列）"""
+        self.service._extract_one = mock.Mock(return_value={
+            "err": "catalog.not_found", "skipped": False, "msg": "TXT格式解析超时"})
+        self.service._warm_txt_reader_cache = mock.Mock(return_value=True)
+
+        self._run_batch([11])
+
+        self.service._warm_txt_reader_cache.assert_not_called()
+        self.assertEqual(self.service.count_fail, 1)
         self.assertEqual(self.service.count_txt_warm, 0)
 
 

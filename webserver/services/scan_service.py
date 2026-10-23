@@ -1853,8 +1853,11 @@ class ScanService(AsyncService):
     def _prepare_txt_contents(self, book_ids):
         """Schedule TXT chapter-index (content.json) generation for freshly imported books, so the
         built-in TXT reader opens instantly instead of parsing on the first read. Only books that
-        actually carry a TXT format are enqueued, and ExtractService.parse_txt_content is idempotent
-        (an already cached index is reused), so this is safe to call for every imported book."""
+        actually carry a TXT format are enqueued, and preheat_txt_content is idempotent (an already
+        cached index is reused), so this is safe to call for every imported book.
+
+        Enqueue on the preheat channel rather than parse_txt_content: the latter is the queue a
+        reader waits on, and its length is reported back to the browser."""
         for bid in book_ids:
             try:
                 txt_path = self.db.format_abspath(bid, "TXT", index_is_id=True)
@@ -1862,7 +1865,7 @@ class ScanService(AsyncService):
                 logging.debug("[IMPORT] txt path lookup failed for book=%s: %s", bid, e)
                 continue
             if txt_path and os.path.isfile(txt_path):
-                ExtractService().parse_txt_content(bid, txt_path)
+                ExtractService().preheat_txt_content(bid, txt_path)
 
     def do_import_internal(self, filelist, visited=None, file_dir=None, opts=None):
         """

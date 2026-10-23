@@ -22,6 +22,18 @@ MAX_TITLE_LENGTH = 200
 MAX_CATALOG_LEN = 204800
 
 
+def _extract_service():
+    """延迟导入 ExtractService。
+
+    catalog 在 webserver.services 包的初始化依赖链上，而 extract 会拉起
+    子进程解析脚本路径与 TxtParser，放到模块顶层会把这些拖进启动依赖。
+    收成一个入口，省得三个方法各写一遍 import。
+    """
+    from webserver.services.extract import ExtractService
+
+    return ExtractService()
+
+
 class CatalogExtractService(AsyncService):
     def __init__(self):
         AsyncService.__init__(self)
@@ -129,9 +141,7 @@ class CatalogExtractService(AsyncService):
         走 ExtractService.parse_txt_toc 而不是进程内 TxtParser：整本扫描是纯
         Python 循环，extract_one 跑在 IOLoop 线程上时会把接口拖到秒级。
         """
-        from webserver.services.extract import ExtractService
-
-        result = ExtractService().parse_txt_toc(fpath)
+        result = _extract_service().parse_txt_toc(fpath)
         lines = []
         for item in result.get("toc", []):
             line = self._md_line(item.get("title"), 0)
@@ -161,10 +171,7 @@ class CatalogExtractService(AsyncService):
         if not parsed:
             return False
         try:
-            # 延迟导入：避免 catalog 模块加载时就拉起 parser/extract 依赖
-            from webserver.services.extract import ExtractService
-
-            return ExtractService().store_txt_content(book_id, parsed, overwrite=True)
+            return _extract_service().store_txt_content(book_id, parsed, overwrite=True)
         except Exception as e:
             # 写索引只是附带优化，失败不能影响目录提取本身
             logging.debug("[Catalog] write txt reader index skipped book=%s: %s", book_id, e)
@@ -175,25 +182,25 @@ class CatalogExtractService(AsyncService):
 
         目录提取写的是 calibre 列 #catalog，内建 TXT 阅读器读的却是
         extract_path/<id>/content.json，两套缓存互不相干。这里把后者顺带
-        预热掉，批量提取跑完后 TXT 打开即出目录。parse_txt_content 幂等
-        且异步入队，不阻塞本次提取。
+        预热掉，批量提取跑完后 TXT 打开即出目录。
+
+        走 preheat_txt_content（预热专用队列）而不是 parse_txt_content：
+        后者的队列长度是读者可见的（/api/book/txt/parser 的 que），全库
+        预热动辄几千本，挤进去会让正在等书的读者排在整批后面。
         """
         try:
-            # 延迟导入：避免 catalog 模块加载时就拉起 parser/extract 依赖
-            from webserver.services.extract import ExtractService
-
-            extract_service = ExtractService()
-            # 刚才的目录提取可能已经同步写好索引，别再排一个只会空跑的任务：
-            # 队列长度会直接显示给读者（/api/book/txt/parser 的 que），虚高会误导人
+            extract_service = _extract_service()
+            # 刚才的目录提取可能已经同步写好索引，别再排一个只会空跑的任务
             if os.path.isfile(extract_service.txt_content_path(book_id)):
                 return False
-            cache = self.db.new_api
-            if "TXT" not in set(cache.formats(book_id, verify_formats=False) or []):
-                return False
+            # 只查 TXT 一个格式：没有该格式时 format_abspath 会抛异常，
+            # 比先 formats() 再 abspath 少一次 calibre 查询（全库批量省一半）
             fpath = self.db.format_abspath(book_id, "TXT", index_is_id=True)
             if not fpath or not os.path.isfile(fpath):
                 return False
-            extract_service.parse_txt_content(book_id, fpath)
+            extract_service.preheat_txt_content(book_id, fpath)
+            # register_service 在异步模式下返回 None，所以不拿返回值做判断：
+            # 走到这里已经确认「含 TXT 且没有索引」，按入队计
             return True
         except Exception as e:
             # 预热只是优化，失败不能影响目录提取本身
@@ -259,14 +266,17 @@ class CatalogExtractService(AsyncService):
     def extract_one(self, book_id, force=True):
         """提取单本书籍的目录，默认强制重新提取"""
         ret = self._extract_one(book_id, force)
-        if ret.get("err") != "book.not_found":
+        # 只给「这次提取真的成功」的书预热。catalog.not_found / internal 意味着
+        # 刚刚的 TXT 扫描已经失败（超时或解析异常），再排一次预热只会拿同样的
+        # 输入再失败一遍 —— 超时那本还会把单线程的解析队列占住最长 2 小时。
+        if ret.get("err") == "ok":
             self._warm_txt_reader_cache(book_id)
         return ret
 
     @AsyncService.register_service
     def extract_one_async(self, book_id, force=True):
         ret = self._extract_one(book_id, force)
-        if ret.get("err") != "book.not_found":
+        if ret.get("err") == "ok":
             self._warm_txt_reader_cache(book_id)
 
     @AsyncService.register_service
@@ -320,8 +330,9 @@ class CatalogExtractService(AsyncService):
                 else:
                     self.count_done += 1
 
-                # 已跳过（目录已存在）的书同样要预热阅读索引，否则老书依旧要等首读
-                if ret.get("err") != "book.not_found" and self._warm_txt_reader_cache(book_id):
+                # 已跳过（目录已存在）的书同样要预热阅读索引，否则老书依旧要等首读；
+                # 但提取失败的书不排 —— 它刚刚就失败了，重排只是占用解析队列
+                if ret.get("err") == "ok" and self._warm_txt_reader_cache(book_id):
                     self.count_txt_warm += 1
 
                 if (index + 1) % 100 == 0:

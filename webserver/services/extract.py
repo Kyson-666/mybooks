@@ -66,7 +66,9 @@ class ExtractService(AsyncService):
         overwrite=True 用于强制重新提取目录的场景 —— 此时手上就是刚解析出的
         最新结果，旧的 start/end 偏移必须一起刷新，否则目录与正文会错位。
         """
-        if not parsed or "toc" not in parsed:
+        # 阅读接口裸取 toc 直接给前端渲染：结构不对宁可写不进去，也别落一个
+        # content 为 null 的索引 —— 那个"就绪"信号会让阅读器永久打不开书。
+        if not parsed or not isinstance(parsed.get("toc"), list) or not parsed["toc"]:
             return False
         content_path = self.txt_content_path(bid)
         if not overwrite and os.path.isfile(content_path):
@@ -113,6 +115,34 @@ class ExtractService(AsyncService):
         except Exception as e:
             logging.info(f"TXT convert error: {e}")
             logging.error(traceback.format_exc())
+            return False
+        return self.store_txt_content(bid, ret)
+
+    @AsyncService.register_service
+    def preheat_txt_content(self, bid, fpath):
+        '''离线预热：给一本书生成阅读器目录索引，走预热专用队列
+
+        与 parse_txt_content 干同一件事，区别只在**队列**：那个服务是读者
+        首读时同步等待的对象，队列长度会直接回给前端（/api/book/txt/parser
+        的 que）。批量预热动辄几千本，挤进同一条单线程队列会让真实读者看到
+        「前方等待几千个」，实际等待按本数线性放大。
+
+        拆成独立服务还有第二个作用：极速模式（LITE_ONE_HEAVY_TASK）的全局
+        大任务锁是**按任务**获取释放的，一本一任务意味着读者请求最坏只等
+        一本的解析时间，而不是整批。
+
+        调用方（扫描导入 / 目录提取）已确认文件存在；这里再验一次是因为
+        排队期间书可能被删。
+        '''
+        if os.path.isfile(self.txt_content_path(bid)):
+            return False
+        if not fpath or not os.path.isfile(fpath):
+            return False
+        try:
+            ret = self.parse_txt_toc(fpath)
+        except Exception as e:
+            # 预热失败无人可报：留日志即可，读者首读时还会再试一次
+            logging.info(f"[preheat] txt index skipped book={bid}: {e}")
             return False
         return self.store_txt_content(bid, ret)
 
