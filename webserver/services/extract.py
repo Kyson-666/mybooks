@@ -58,6 +58,16 @@ class ExtractService(AsyncService):
         """TXT 阅读器章节索引的落盘路径"""
         return os.path.join(CONF["extract_path"], str(bid), "content.json")
 
+    def has_txt_content_index(self, bid):
+        """索引是否**可用** —— 不是"文件是否存在"。
+
+        坏索引（旧版本非原子写入 / 进程被杀 / 磁盘满）在 load_txt_content_index
+        里会被删掉并返回 None，等于顺手做完了自愈的第一步。调用方据此决定要不要
+        重排解析：只判 isfile 的话，这类书会被全库批量一直跳过，索引永远修不好，
+        "批量跑完打开即出目录"对它们不成立。
+        """
+        return load_txt_content_index(self.txt_content_path(bid)) is not None
+
     def store_txt_content(self, bid, parsed, overwrite=False):
         """把已解析出的目录写成阅读器索引。
 
@@ -65,6 +75,9 @@ class ExtractService(AsyncService):
         拿到的 `{encoding, toc}` 与这里完全同构，直接落盘就不用再排一次解析。
         overwrite=True 用于强制重新提取目录的场景 —— 此时手上就是刚解析出的
         最新结果，旧的 start/end 偏移必须一起刷新，否则目录与正文会错位。
+
+        刻意不做 fsync：索引是可重建的缓存，掉电留下的空/半截文件会被
+        load_txt_content_index 删掉重建，比每次写入多付一次落盘代价划算。
         """
         # 阅读接口裸取 toc 直接给前端渲染：结构不对宁可写不进去，也别落一个
         # content 为 null 的索引 —— 那个"就绪"信号会让阅读器永久打不开书。
@@ -134,7 +147,7 @@ class ExtractService(AsyncService):
         调用方（扫描导入 / 目录提取）已确认文件存在；这里再验一次是因为
         排队期间书可能被删。
         '''
-        if os.path.isfile(self.txt_content_path(bid)):
+        if self.has_txt_content_index(bid):
             return False
         if not fpath or not os.path.isfile(fpath):
             return False

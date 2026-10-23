@@ -138,8 +138,11 @@ class CatalogExtractService(AsyncService):
     def _extract_txt_toc(self, fpath):
         """返回 (markdown, 解析结果)。后者用于顺带写阅读器索引，避免二次全扫。
 
-        走 ExtractService.parse_txt_toc 而不是进程内 TxtParser：整本扫描是纯
-        Python 循环，extract_one 跑在 IOLoop 线程上时会把接口拖到秒级。
+        走 ExtractService.parse_txt_toc 而不是进程内 TxtParser：整本扫描放到
+        子进程，不再和后台线程抢 GIL（也不再把超大文件拖成进程内死循环）。
+        注意这**不缩短** IOLoop 的阻塞时长 —— extract_one 是 register_function
+        （同步），单本提取接口仍要等这次解析跑完；要根治得把接口改成异步任务
+        再轮询，属于另一件事。
         """
         result = _extract_service().parse_txt_toc(fpath)
         lines = []
@@ -190,8 +193,11 @@ class CatalogExtractService(AsyncService):
         """
         try:
             extract_service = _extract_service()
-            # 刚才的目录提取可能已经同步写好索引，别再排一个只会空跑的任务
-            if os.path.isfile(extract_service.txt_content_path(book_id)):
+            # 判「索引可用」而不是「文件存在」：坏索引会被顺手删掉再重新入队。
+            # 全库批量里被跳过的书（已有 #catalog）也要走这一趟 —— 否则坏索引
+            # 永远没人修，只能等读者真打开那次自愈，"跑完即出目录"就不成立。
+            # 代价是每本已索引的书读一次 content.json，量级远小于本批的整本扫描。
+            if extract_service.has_txt_content_index(book_id):
                 return False
             # 只查 TXT 一个格式：没有该格式时 format_abspath 会抛异常，
             # 比先 formats() 再 abspath 少一次 calibre 查询（全库批量省一半）

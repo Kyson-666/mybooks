@@ -74,6 +74,10 @@ class TestWarmTxtReaderCache(TempDirMixin, unittest.TestCase):
         # 让短路检查拿到的是一条真实的（默认不存在的）路径，而不是 Mock
         self.extract_cls.return_value.txt_content_path.side_effect = \
             lambda bid: os.path.join(self.extract_dir, str(bid), "content.json")
+        # 复刻真实实现：判的是「可用」而非「存在」，坏文件会被删掉
+        self.extract_cls.return_value.has_txt_content_index.side_effect = \
+            lambda bid: load_txt_content_index(
+                os.path.join(self.extract_dir, str(bid), "content.json")) is not None
 
     def test_enqueues_on_preheat_channel(self):
         """预热必须走预热专用队列：读者可见的 que 只统计 parse_txt_content"""
@@ -92,6 +96,20 @@ class TestWarmTxtReaderCache(TempDirMixin, unittest.TestCase):
 
         self.assertFalse(self.service._warm_txt_reader_cache(1))
         self.extract_cls.return_value.preheat_txt_content.assert_not_called()
+
+    def test_broken_index_is_rebuilt(self):
+        """半截 json 不能被当成"已有索引"：force=False 全库批量会一直跳过它，
+        索引就只能等读者真打开才自愈 —— 这里要求预热顺手重建"""
+        os.makedirs(os.path.join(self.extract_dir, "1"), exist_ok=True)
+        broken = os.path.join(self.extract_dir, "1", "content.json")
+        with open(broken, "w", encoding="utf8") as f:
+            f.write('{"encoding": "utf-8", "toc": [')
+        path = self.make_temp_file()
+        self.service.db.format_abspath.return_value = path
+
+        self.assertTrue(self.service._warm_txt_reader_cache(1))
+        self.extract_cls.return_value.preheat_txt_content.assert_called_once_with(1, path)
+        self.assertFalse(os.path.exists(broken))
 
     def test_skips_books_without_txt_format(self):
         """没有 TXT 格式时 format_abspath 抛异常（NoSuchFormat），当跳过处理"""
@@ -196,6 +214,18 @@ class TestPreheatTxtContent(TempDirMixin, unittest.TestCase):
         with mock.patch.object(ExtractService, "parse_txt_toc") as parse:
             self.assertFalse(self._preheat())
         parse.assert_not_called()
+
+    def test_broken_index_is_rebuilt(self):
+        """坏索引要当成「没有索引」重扫，而不是被 isfile 挡在门外"""
+        os.makedirs(os.path.dirname(self.path), exist_ok=True)
+        with open(self.path, "w", encoding="utf8") as f:
+            f.write('{"encoding": "utf-8", "toc": [')
+
+        with mock.patch.object(ExtractService, "parse_txt_toc", return_value=TXT_TOC):
+            self.assertTrue(self._preheat())
+
+        with open(self.path, encoding="utf8") as f:
+            self.assertEqual(json.load(f), TXT_TOC)
 
     def test_missing_source_is_skipped(self):
         with mock.patch.object(ExtractService, "parse_txt_toc") as parse:
