@@ -235,18 +235,21 @@ function M.show(api, book)
     page.footer_buttons = {
         {
             text = I18N.T(is_on("favorite") and "unfavorite" or "favorite"),
+            icon = "favorites",
             hit = function()
                 apply_state({ favorite = not is_on("favorite") })
             end,
         },
         {
             text = I18N.T(is_on("wants") and "unwant" or "to_read"),
+            icon = "wants",
             hit = function()
                 apply_state({ wants = not is_on("wants") })
             end,
         },
         {
             text = I18N.T((detail.state or {}).read_state == 2 and "mark_unread" or "mark_read"),
+            icon = "read_done",
             hit = function()
                 local finished = (detail.state or {}).read_state == 2
                 apply_state({ read_state = finished and 0 or 2 })
@@ -254,12 +257,14 @@ function M.show(api, book)
         },
         {
             text = I18N.T("download"),
+            icon = "download",
             hit = function()
                 require("mybooks_download").start(api, detail)
             end,
         },
         {
-            text = I18N.T("open"),
+            text = I18N.T("read"),
+            icon = "read",
             hit = function()
                 local Download = require("mybooks_download")
                 local path = Download.local_path(detail)

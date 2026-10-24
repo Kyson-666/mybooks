@@ -140,7 +140,7 @@ end
 
 function Page:_draw_button(bb, btn, x, y, w, h, boxed)
     if boxed then
-        Button.draw(bb, x, y, w, h, btn.text, { face = btn.face })
+        Button.draw(bb, x, y, w, h, btn.text, { face = btn.face, icon = btn.icon })
     else
         local text = TextWidget:new{
             text = btn.text or "",

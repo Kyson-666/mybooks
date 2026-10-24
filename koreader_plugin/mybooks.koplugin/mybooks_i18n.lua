@@ -27,6 +27,7 @@ local strings = {
     download = { zh = "下载", en = "Download" },
     download_open = { zh = "下载并打开", en = "Download and open" },
     open = { zh = "打开", en = "Open" },
+    read = { zh = "阅读", en = "Read" },
     open_home = { zh = "打开 MyBooks 首页", en = "Open MyBooks home" },
     details = { zh = "详情", en = "Details" },
     favorite = { zh = "收藏", en = "Favorite" },
