@@ -272,14 +272,14 @@
                 </template>
                 <template #item="{ item }">
                   <v-img
-                    :src="`${site_url}/logo/${item.image_file}.ico`"
+                    :src="siteIconSrc(item)"
                     max-width="32"
                     max-height="32"
                   />
                 </template>
                 <template #selection="{ item }">
                   <v-img
-                    :src="`${site_url}/logo/${item.image_file}.ico`"
+                    :src="siteIconSrc(item)"
                     max-width="32"
                     max-height="32"
                   />
@@ -1782,6 +1782,9 @@ export default {
                 items: Array.from({ length: 9 }, (_, i) => ({
                   image_file: "favicon_" + i.toString(),
                   value: "favicon_" + i.toString(),
+                  // favicon_0 表示「沿用当前图标」：预览读取站点当前的 favicon.ico，
+                  // 而不是自带的默认 favicon_0.ico（后者不会随选择更新）
+                  is_current: i === 0,
                 })),
               },
               { icon: "mdi-copyright", key: "HEADER", label: "settings.site_header", type: "textarea" },
@@ -2597,6 +2600,8 @@ export default {
       this.sns_items = rsp.sns;
       this.settings = rsp.settings;
       this.site_url = rsp.site_url;
+      // 当前图标的预览要绕过浏览器缓存，否则保存过新图标后仍显示旧图
+      this.siteIconStamp = Date.now();
 
       if (this.settings) {
         this.$set(
@@ -2688,6 +2693,8 @@ export default {
     bookNavSnapshot: [],
     savingDefaultReadRange: false,
     site_url: "",
+    // 读取设置时的时间戳，用于给「当前图标」预览做缓存失效（favicon.ico 会被覆盖）
+    siteIconStamp: 0,
     groups: [],
     activeGroup: "site",
     searchQ: "",
@@ -3095,6 +3102,15 @@ export default {
     }
   },
   methods: {
+    // 网站图标下拉的预览地址。favicon_0 表示「沿用当前图标」，要展示站点此刻真正
+    // 生效的 /logo/favicon.ico（保存其它图标时它会被覆盖），因此带时间戳绕过缓存；
+    // 其余选项展示随附的 favicon_N.ico。
+    siteIconSrc(item) {
+      if (item && item.is_current) {
+        return `${this.site_url}/logo/favicon.ico?t=${this.siteIconStamp}`;
+      }
+      return `${this.site_url}/logo/${item.image_file}.ico`;
+    },
     // lockOn 指定的总开关开启后，该字段失去意义：置灰显示为未勾选且不可点选
     // （与后端一致——REQUIRE_LOGIN 下各项访客权限恒按 False 处理），
     // 但不回写 settings，保留用户原先保存的访客权限值，关掉总开关后原样恢复。

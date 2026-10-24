@@ -184,6 +184,8 @@ export default {
 
 <style>
 .book-nav-card .book-nav-name-field {
+  flex: 0 1 140px;
+  min-width: 0;
   font-size: 1.1rem;
   font-weight: 500;
 }
