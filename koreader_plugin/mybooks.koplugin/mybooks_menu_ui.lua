@@ -6,6 +6,11 @@ function M.header(title)
     return { kind = "header", title = title }
 end
 
+function M.section(title, opts)
+    opts = opts or {}
+    return { kind = "section", title = title, divider = opts.divider }
+end
+
 function M.space(height)
     return { kind = "space", h = height or Metrics.dp(8) }
 end

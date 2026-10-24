@@ -66,6 +66,9 @@ function Page:item_height(item)
     if item.kind == "header" then
         return Metrics.dp(30)
     end
+    if item.kind == "section" then
+        return Metrics.dp(50)
+    end
     if item.kind == "space" then
         return item.h or self.pad
     end
@@ -291,6 +294,19 @@ function Page:_paint_list(bb, x, y)
                 }
                 text:paintTo(bb, x + self.pad, top + Metrics.dp(4))
                 text:free()
+            elseif item.kind == "section" then
+                if item.divider then
+                    bb:paintRect(x + self.pad, top + Metrics.dp(6), self.dimen.w - self.pad * 2, 1, Metrics.color.edge)
+                end
+                local text = TextWidget:new{
+                    text = item.title or "",
+                    face = Metrics.body_face(),
+                    bold = true,
+                    max_width = self.dimen.w - self.pad * 2,
+                    fgcolor = Metrics.color.text,
+                }
+                text:paintTo(bb, x + self.pad, top + Metrics.dp(18))
+                text:free()
             elseif item.kind == "space" then
                 -- spacer only
             elseif item.kind == "text" then
@@ -349,7 +365,7 @@ function Page:_paint_row(bb, item, x, y, w, h)
     local text_w = math.max(Metrics.dp(60), w - (left - x) - right_pad)
     local title = TextWidget:new{
         text = item.title or "",
-        face = Metrics.body_face(),
+        face = item.face or Metrics.body_face(),
         max_width = text_w,
         bold = item.bold,
     }
@@ -363,7 +379,7 @@ function Page:_paint_row(bb, item, x, y, w, h)
     if item.sub and item.sub ~= "" then
         local sub = TextWidget:new{
             text = item.sub,
-            face = Metrics.small_face(),
+            face = item.sub_face or Metrics.small_face(),
             max_width = text_w,
             fgcolor = Metrics.color.muted,
         }

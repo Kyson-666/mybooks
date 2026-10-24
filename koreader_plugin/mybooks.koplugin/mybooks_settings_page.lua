@@ -21,6 +21,8 @@ local function value_row(title, value, hit)
         kind = "row",
         title = title,
         sub = value,
+        face = Metrics.small_face(),
+        sub_face = Metrics.meta_face(),
         hit = hit,
     }
 end
@@ -29,6 +31,8 @@ local function toggle_row(title, enabled, hit)
     return {
         kind = "row",
         title = title,
+        face = Metrics.small_face(),
+        sub_face = Metrics.meta_face(),
         badge = enabled and I18N.T("on") or I18N.T("off"),
         hit = hit,
     }
@@ -49,10 +53,8 @@ function M.show(api)
     local page
     local function build()
         local cred = State.credentials()
-        local session = State.session() or {}
-        local server = session.server or {}
         local rows = {
-            MenuUI.header(I18N.T("account_section")),
+            MenuUI.section(I18N.T("account_section")),
             value_row(I18N.T("server_address"), cred.server_url or "—"),
             value_row(I18N.T("username"), cred.username or "—"),
             value_row(I18N.T("re_login"), "", function()
@@ -75,7 +77,7 @@ function M.show(api)
             end),
             MenuUI.header(I18N.T("password_plain_hint")),
 
-            MenuUI.header(I18N.T("interface_section")),
+            MenuUI.section(I18N.T("interface_section"), { divider = true }),
             value_row(I18N.T("ui_language"), language_label(), function()
                 DialogUI.choose(I18N.T("ui_language"), {
                     { text = I18N.T("lang_auto"), value = "auto" },
@@ -89,7 +91,7 @@ function M.show(api)
                 end)
             end),
 
-            MenuUI.header(I18N.T("browse_settings")),
+            MenuUI.section(I18N.T("browse_settings"), { divider = true }),
             value_row(I18N.T("view_mode"), I18N.T(State.setting("view_mode", "list") == "grid" and "view_grid" or "view_list"), function()
                 DialogUI.choose(I18N.T("view_mode"), {
                     { text = I18N.T("view_list"), value = "list" },
@@ -114,7 +116,7 @@ function M.show(api)
                 Toast.show(I18N.T("cache_cleared") .. " (" .. tostring(removed) .. ")")
             end),
 
-            MenuUI.header(I18N.T("download_settings")),
+            MenuUI.section(I18N.T("download_settings"), { divider = true }),
             value_row(I18N.T("download_dir"), DeviceInfo.download_dir(), function()
                 TextEntry.input{
                     title = I18N.T("download_dir"),
@@ -140,7 +142,7 @@ function M.show(api)
                 page:set_items(build(), true)
             end),
 
-            MenuUI.header(I18N.T("sync_section")),
+            MenuUI.section(I18N.T("sync_section"), { divider = true }),
             toggle_row(I18N.T("sync_progress"), State.setting("sync_progress", true), function()
                 State.set_setting("sync_progress", not State.setting("sync_progress", true))
                 page:set_items(build(), true)
@@ -164,10 +166,9 @@ function M.show(api)
                 page:set_items(build(), true)
             end),
 
-            MenuUI.header(I18N.T("about_section")),
+            MenuUI.section(I18N.T("about_section"), { divider = true }),
             value_row(I18N.T("version"), DeviceInfo.plugin_version()),
-            value_row(I18N.T("server_version"), server.version or "—"),
-            value_row(I18N.T("site_address"), server.site_url or "—"),
+            value_row(I18N.T("site_address"), "https://mybooks.top"),
             value_row(I18N.T("device_id"), State.device_id()),
             value_row(I18N.T("state_file"), Metrics.format_size(State.size())),
         }
