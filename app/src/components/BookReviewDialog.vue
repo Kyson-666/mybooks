@@ -25,8 +25,8 @@
                     dense
                     rows="3"
                     auto-grow
-                    counter="500"
-                    maxlength="500"
+                    counter="5000"
+                    maxlength="5000"
                     :label="$t('book.reviewCommentLabel')"
                     :placeholder="$t('book.reviewCommentPlaceholder')"
                 ></v-textarea>

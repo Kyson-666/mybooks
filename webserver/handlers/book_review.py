@@ -18,6 +18,7 @@ from webserver.models import BookReview, Reader
 from webserver.services.book_review_service import BookReviewService
 
 CONF = loader.get_settings()
+MAX_REVIEW_COMMENT_LENGTH = 5000
 
 
 def _reader_avatar_url(site_url: str, reader) -> str:
@@ -86,6 +87,8 @@ class BookReviewHandler(BaseHandler):
         if not isinstance(rating, int) or not (0 <= rating <= 10):
             return {"err": "params.invalid", "msg": _("评分不合法")}
         comment = (data.get("comment") or "").strip()
+        if len(comment) > MAX_REVIEW_COMMENT_LENGTH:
+            return {"err": "params.invalid", "msg": _("评价内容不能超过5000字")}
 
         row = BookReviewService.upsert(self.sqlite_session, int(id), self.user_id(), rating, comment)
         self.invalidate_recommendation()

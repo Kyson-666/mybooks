@@ -2431,9 +2431,9 @@ user.appearance为外观设置（顶栏品牌色、侧栏图标配色、深浅�
   - `id` (path, 必填): 图书ID
   - JSON Body：
     - `rating` (int, 必填): 0~10
-    - `comment` (string, 可选): 评价内容
+    - `comment` (string, 可选): 评价内容，最多 5000 字
 - **响应**：
-  - `err` (string): `ok` / `review.disabled`（评论功能未启用）/ `review.banned`（已被禁止评论）/ `params.book.invalid` / `params.invalid`（评分不合法）
+  - `err` (string): `ok` / `review.disabled`（评论功能未启用）/ `review.banned`（已被禁止评论）/ `params.book.invalid` / `params.invalid`（评分不合法或评价内容超过 5000 字）
   - `review` (object): 保存后的评价
 
 #### DELETE 删除我的评价

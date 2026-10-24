@@ -157,6 +157,16 @@ class TestBookReviewHandler(TestWithUserLogin):
         d = self.json("/api/book/%d/review" % BID_EPUB)
         self.assertEqual(d["review"]["comment"], "nice book")
 
+    def test_post_accepts_comment_up_to_5000_characters(self):
+        comment = "评" * 5000
+        d = self.json("/api/book/%d/review" % BID_EPUB, method="POST", body=json.dumps({"rating": 8, "comment": comment}))
+        self.assertEqual(d["err"], "ok")
+        self.assertEqual(d["review"]["comment"], comment)
+
+    def test_post_rejects_comment_over_5000_characters(self):
+        d = self.json("/api/book/%d/review" % BID_EPUB, method="POST", body=json.dumps({"rating": 8, "comment": "评" * 5001}))
+        self.assertEqual(d["err"], "params.invalid")
+
     def test_post_rejects_invalid_rating(self):
         d = self.json("/api/book/%d/review" % BID_EPUB, method="POST", body=json.dumps({"rating": 99}))
         self.assertEqual(d["err"], "params.invalid")
