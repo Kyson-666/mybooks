@@ -15,6 +15,8 @@ import threading
 import time
 from typing import Dict, List, Optional, Set, Tuple
 
+from sqlalchemy import case, func
+
 from webserver.models import BookShare
 
 GRANT_COOKIE = "share_grants"
@@ -139,11 +141,41 @@ class BookShareService:
         db.commit()
         cls.invalidate_cache()
 
+    # 管理页支持的服务端排序字段；未列出的字段一律回落到「更新时间倒序」。
+    SORTABLE_FIELDS = ("permissions", "state", "expire_time", "update_time")
+    # 永久有效（expire_time 为 NULL）按最晚到期参与排序，避免 NULL 在部分数据库里排在最前。
+    _PERMANENT_EXPIRE = datetime.datetime(9999, 12, 31, 23, 59, 59)
+
     @classmethod
-    def list_page(cls, start: int, limit: int) -> Tuple[List[BookShare], int]:
+    def _state_order(cls):
+        """状态是派生的，用 CASE 把状态映射为可排序的优先级（与 state_of 判断顺序一致）。"""
+        now = datetime.datetime.now()
+        return case(
+            (BookShare.status != BookShare.STATUS_ACTIVE, 3),  # cancelled
+            (BookShare.expire_time.isnot(None) & (BookShare.expire_time <= now), 1),  # expired
+            ((BookShare.max_views > 0) & (BookShare.view_count >= BookShare.max_views), 2),  # exhausted
+            else_=0,  # active
+        )
+
+    @classmethod
+    def _sort_columns(cls, sort: str) -> List:
+        if sort == "permissions":
+            return [BookShare.allow_download, BookShare.allow_read]
+        if sort == "state":
+            return [cls._state_order()]
+        if sort == "expire_time":
+            return [func.coalesce(BookShare.expire_time, cls._PERMANENT_EXPIRE)]
+        return [BookShare.update_time]
+
+    @classmethod
+    def list_page(cls, start: int, limit: int, sort: Optional[str] = None, descending: bool = True) -> Tuple[List[BookShare], int]:
         query = BookShare._session().query(BookShare)
         total = query.count()
-        rows = query.order_by(BookShare.update_time.desc(), BookShare.id.desc()).offset(start).limit(limit).all()
+        if sort in cls.SORTABLE_FIELDS:
+            order = [column.desc() if descending else column.asc() for column in cls._sort_columns(sort)]
+        else:  # 未知字段回落到默认的「更新时间倒序」
+            order = [BookShare.update_time.desc()]
+        rows = query.order_by(*order, BookShare.id.desc()).offset(start).limit(limit).all()
         return rows, total
 
     @classmethod

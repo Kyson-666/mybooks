@@ -124,7 +124,9 @@ class AdminShareListHandler(BaseHandler, ShareHandlerMixin):
             limit = max(1, min(int(self.get_argument("limit", "10")), MAX_PAGE_SIZE))
         except ValueError:
             limit = 10
-        rows, total = BookShareService.list_page(start, limit)
+        sort = (self.get_argument("sort", "") or "").strip().lower()
+        descending = self.get_argument("desc", "true") != "false"
+        rows, total = BookShareService.list_page(start, limit, sort, descending)
         titles = self.calibre_db_cache.all_field_for("title", {row.book_id for row in rows}, "") if rows else {}
         return {"err": "ok", "total": total, "shares": [self._share_dict(row, titles.get(row.book_id, "")) for row in rows]}
 

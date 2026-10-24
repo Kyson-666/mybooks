@@ -145,6 +145,50 @@ class TestCreateAndManage(ShareTestCase):
         self.assertEqual(total, 5)
         self.assertEqual([row.book_id for row in rows], [103, 102])
 
+    def test_list_page_unknown_sort_falls_back_to_update_time_desc(self):
+        for i in range(3):
+            self.make(200 + i)
+            time.sleep(0.002)
+        rows, _ = BookShareService.list_page(0, 10, "bogus", descending=False)
+        self.assertEqual([row.book_id for row in rows], [202, 201, 200])
+
+    def test_list_page_sort_by_update_time_ascending(self):
+        for i in range(3):
+            self.make(300 + i)
+            time.sleep(0.002)
+        rows, _ = BookShareService.list_page(0, 10, "update_time", descending=False)
+        self.assertEqual([row.book_id for row in rows], [300, 301, 302])
+
+    def test_list_page_sort_by_permissions(self):
+        self.make(400, allow_read=True, allow_download=False)
+        self.make(401, allow_read=True, allow_download=True)
+        rows, _ = BookShareService.list_page(0, 10, "permissions", descending=True)
+        self.assertEqual(rows[0].book_id, 401)
+        self.assertFalse(rows[-1].allow_download)
+
+    def test_list_page_sort_by_expire_time_keeps_permanent_last(self):
+        self.make(500, expire_days=0)  # 永久
+        self.make(501, expire_days=5)
+        self.make(502, expire_days=1)
+        rows, _ = BookShareService.list_page(0, 10, "expire_time", descending=False)
+        self.assertEqual([row.book_id for row in rows], [502, 501, 500])
+        rows, _ = BookShareService.list_page(0, 10, "expire_time", descending=True)
+        self.assertEqual([row.book_id for row in rows], [500, 501, 502])
+
+    def test_list_page_sort_by_state(self):
+        self.make(600)
+        expired = self.make(601, expire_days=1)
+        expired.expire_time = datetime.datetime.now() - datetime.timedelta(seconds=1)
+        exhausted = self.make(602, max_views=1)
+        exhausted.view_count = 1
+        cancelled = self.make(603)
+        self.session.commit()
+        BookShareService.cancel(cancelled.id)
+        rows, _ = BookShareService.list_page(0, 10, "state", descending=False)
+        self.assertEqual([row.book_id for row in rows], [600, 601, 602, 603])
+        rows, _ = BookShareService.list_page(0, 10, "state", descending=True)
+        self.assertEqual([row.book_id for row in rows], [603, 602, 601, 600])
+
     def test_get_by_token_rejects_garbage(self):
         self.assertIsNone(BookShareService.get_by_token(""))
         self.assertIsNone(BookShareService.get_by_token("x" * 100))

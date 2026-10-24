@@ -412,6 +412,50 @@ class TestShareGrantedReaderTools(unittest.TestCase):
                 self.assertEqual(handler.written[0]["err"], "user.need_login", path)
 
 
+class TestShareGuestWhoAmIBridge(unittest.TestCase):
+    """分享访客经 MyReader 内嵌阅读器取身份：/api/user/whoami 必须放行。
+
+    MyReader 的 pages/api/mybooks/whoami.ts 把浏览器 Cookie 转发给 MyBooks 的
+    GET /api/user/whoami。分享访客没有账号，WhoAmI 会按"持任意有效分享授权"返回
+    guest 身份；若门禁在这里按普通 /api/* 拦掉，WhoAmI 根本没机会执行，分享链接
+    点"在线阅读"后 MyReader 会停在"请先登录"（落地页能开、阅读进不去）。
+    """
+
+    def setUp(self):
+        self._saved = {k: CONF.get(k) for k in ("REQUIRE_LOGIN", "ENABLE_SHARE_LINK")}
+
+    def tearDown(self):
+        for key, value in self._saved.items():
+            CONF[key] = value
+
+    def _enable(self):
+        CONF["REQUIRE_LOGIN"] = True
+        CONF["ENABLE_SHARE_LINK"] = True
+
+    def test_whoami_passes_with_any_share_grant(self):
+        self._enable()
+        with mock.patch.object(BookShareService, "any_grant", return_value=True):
+            handler = _bare_handler("/api/user/whoami")
+            self.assertFalse(handler.should_be_logged_in())
+            self.assertEqual(handler.written, [])
+
+    def test_whoami_blocked_without_grant(self):
+        self._enable()
+        with mock.patch.object(BookShareService, "any_grant", return_value=False):
+            handler = _bare_handler("/api/user/whoami")
+            with self.assertRaises(web.Finish):
+                handler.should_be_logged_in()
+            self.assertEqual(handler.written[0]["err"], "user.need_login")
+
+    def test_whoami_blocked_when_share_link_disabled(self):
+        # 总开关关闭后，已授予 cookie 的一并失效，whoami 也不再放行
+        self._enable()
+        CONF["ENABLE_SHARE_LINK"] = False
+        with mock.patch.object(BookShareService, "any_grant", return_value=True):
+            with self.assertRaises(web.Finish):
+                _bare_handler("/api/user/whoami").should_be_logged_in()
+
+
 class TestInviteModeInteraction(unittest.TestCase):
     def setUp(self):
         self._saved = {k: CONF.get(k) for k in ("REQUIRE_LOGIN", "INVITE_MODE", "INVITE_CODE")}

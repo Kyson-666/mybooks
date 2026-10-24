@@ -132,6 +132,13 @@ _SHARE_ANY_READ_PATH_PATTERNS = (
     re.compile(r"^/api/tts/edge$"),
 )
 
+# 内嵌阅读器（MyReader）的身份桥接端点：MyReader 服务端把浏览器 Cookie 转发到
+# GET /api/user/whoami 换取身份。分享访客没有账号，WhoAmI 会按「持任意有效分享授权」
+# 返回 guest 身份（user.py 的 is_guest 分支）；若门禁不把这条路径放给分享访客，
+# 就会出现"分享落地页能开、点在线阅读后 MyReader 却卡在'请先登录'"的割裂
+# （设计见 myreader 仓库的 document/MyReader_Embedded_WebApp.md §5）。
+_SHARE_BRIDGE_PATHS = frozenset({"/api/user/whoami"})
+
 # 分享落地页在用户输入提取码之前就要显示封面（分享 API 直接返回封面/缩略图地址），
 # 所以这类图片只对"确实存在有效分享"的书籍放行，避免顺带公开未分享书籍的封面。
 _SHARE_COVER_PATH_RE = re.compile(r"^/get/(?:cover|thumb(?:_\d+_\d+)?)/(\d+)(?:\.[A-Za-z0-9]+)?$")
@@ -582,6 +589,10 @@ class BaseHandler(web.RequestHandler):
         for pattern in _SHARE_ANY_READ_PATH_PATTERNS:
             if pattern.match(path):
                 return BookAccessService.share_any_read_granted(self)
+        if path in _SHARE_BRIDGE_PATHS:
+            # 内嵌阅读器身份桥接（/api/user/whoami）：分享访客持任意有效分享授权即可
+            # 匿名调用，WhoAmI 会据此返回 guest 身份，供 MyReader 建立只读会话。
+            return BookAccessService.share_any_read_granted(self)
         match = _SHARE_COVER_PATH_RE.match(path)
         if match:
             if not BookAccessService.share_link_enabled():

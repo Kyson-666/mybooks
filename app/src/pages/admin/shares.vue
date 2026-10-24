@@ -107,11 +107,11 @@ export default {
     headers() {
       return [
         { text: this.$t('share.manage.colBook'), value: 'title', sortable: false },
-        { text: this.$t('share.manage.colPermissions'), value: 'permissions', sortable: false },
-        { text: this.$t('share.manage.colExpire'), value: 'expire_time', sortable: false },
+        { text: this.$t('share.manage.colPermissions'), value: 'permissions', sortable: true },
+        { text: this.$t('share.manage.colExpire'), value: 'expire_time', sortable: true },
         { text: this.$t('share.manage.colViews'), value: 'view_count', sortable: false },
-        { text: this.$t('share.manage.colState'), value: 'state', sortable: false },
-        { text: this.$t('share.manage.colUpdated'), value: 'update_time', sortable: false },
+        { text: this.$t('share.manage.colState'), value: 'state', sortable: true },
+        { text: this.$t('share.manage.colUpdated'), value: 'update_time', sortable: true },
         { text: this.$t('share.manage.colActions'), value: 'actions', sortable: false },
       ];
     },
@@ -140,7 +140,14 @@ export default {
       this.loading = true;
       const size = this.tableOptions.itemsPerPage || 10;
       const start = ((this.tableOptions.page || 1) - 1) * size;
-      this.$backend(`/admin/shares?start=${start}&limit=${size}`)
+      const sortBy = this.tableOptions.sortBy;
+      const sortDesc = this.tableOptions.sortDesc;
+      const sort = Array.isArray(sortBy) ? sortBy[0] : sortBy;
+      const desc = Array.isArray(sortDesc) ? sortDesc[0] : sortDesc;
+      const params = new URLSearchParams({ start: String(start), limit: String(size) });
+      if (sort) params.append('sort', sort);
+      if (desc !== undefined && desc !== null) params.append('desc', desc ? 'true' : 'false');
+      this.$backend(`/admin/shares?${params.toString()}`)
         .then((rsp) => {
           if (rsp.err !== 'ok') {
             this.$alert('error', rsp.msg);
