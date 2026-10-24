@@ -34,6 +34,17 @@ local function toggle_row(title, enabled, hit)
     }
 end
 
+local function language_label()
+    local value = State.setting("language", "auto")
+    if value == "zh" then
+        return I18N.T("lang_zh")
+    end
+    if value == "en" then
+        return I18N.T("lang_en")
+    end
+    return I18N.T("lang_auto")
+end
+
 function M.show(api)
     local page
     local function build()
@@ -63,6 +74,20 @@ function M.show(api)
                 end)
             end),
             MenuUI.header(I18N.T("password_plain_hint")),
+
+            MenuUI.header(I18N.T("interface_section")),
+            value_row(I18N.T("ui_language"), language_label(), function()
+                DialogUI.choose(I18N.T("ui_language"), {
+                    { text = I18N.T("lang_auto"), value = "auto" },
+                    { text = I18N.T("lang_zh"), value = "zh" },
+                    { text = I18N.T("lang_en"), value = "en" },
+                }, function(value)
+                    State.set_setting("language", value)
+                    I18N.reset()
+                    require("mybooks_page").close_all()
+                    require("mybooks_home").show(api)
+                end)
+            end),
 
             MenuUI.header(I18N.T("browse_settings")),
             value_row(I18N.T("view_mode"), I18N.T(State.setting("view_mode", "list") == "grid" and "view_grid" or "view_list"), function()

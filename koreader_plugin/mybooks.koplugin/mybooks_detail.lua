@@ -1,3 +1,4 @@
+local TextBoxWidget = require("ui/widget/textboxwidget")
 local UIManager = require("ui/uimanager")
 local logger = require("logger")
 
@@ -9,6 +10,7 @@ local Page = require("mybooks_page")
 local State = require("mybooks_state")
 local Thumbnails = require("mybooks_thumbnails")
 local Toast = require("mybooks_toast")
+local UI = require("mybooks_ui")
 
 local M = {}
 
@@ -65,19 +67,6 @@ local function as_text(value)
     return value
 end
 
-local function meta_item(label, value, hit)
-    if value == nil or value == "" then
-        return nil
-    end
-    return {
-        kind = "row",
-        title = I18N.T(label),
-        sub = tostring(as_text(value)),
-        small = true,
-        hit = hit,
-    }
-end
-
 function M.show(api, book)
     if not book or not book.id then
         return nil
@@ -118,6 +107,26 @@ function M.show(api, book)
                 h = Metrics.dp(164),
             },
         }
+        local stats = detail.reading_stats or {}
+        if #stats > 0 then
+            rows[#rows + 1] = MenuUI.header(I18N.T("reading_stats"))
+            for _, item in ipairs(stats) do
+                local finished = tonumber(item.state) == 1
+                local percent = finished and 100 or tonumber(item.progress_percent)
+                local parts = { Metrics.format_duration(item.total_seconds or 0) }
+                local stamp = finished and item.finish_time or item.start_time
+                if stamp and stamp ~= "" then
+                    parts[#parts + 1] = I18N.T(finished and "finished_on" or "started_on", stamp:sub(1, 10))
+                end
+                rows[#rows + 1] = {
+                    kind = "row",
+                    title = tostring(item.format or ""):upper(),
+                    sub = table.concat(parts, " · "),
+                    badge = percent and Metrics.format_percent(percent) or nil,
+                }
+            end
+        end
+
         local state = detail.state or {}
         local status = {}
         if state.favorite == true or state.favorite == 1 then
@@ -131,25 +140,46 @@ function M.show(api, book)
         elseif state.read_state == 2 then
             status[#status + 1] = I18N.T("finished")
         end
-        if #status > 0 then
-            rows[#rows + 1] = meta_item("status", table.concat(status, " · "))
-        end
 
+        local meta = {}
+        local function add_meta(label, value)
+            if value == nil or value == "" then
+                return
+            end
+            meta[#meta + 1] = TextBoxWidget.PTF_BOLD_START .. I18N.T(label) .. TextBoxWidget.PTF_BOLD_END
+                .. " : " .. tostring(as_text(value))
+        end
+        if #status > 0 then
+            add_meta("status", table.concat(status, " · "))
+        end
         local series = detail.series
         if series and series ~= "" then
             if detail.series_index then
                 series = string.format("%s #%s", series, detail.series_index)
             end
-            rows[#rows + 1] = meta_item("series", series)
+            add_meta("series", series)
         end
         if detail.rating and tonumber(detail.rating) and tonumber(detail.rating) > 0 then
-            rows[#rows + 1] = meta_item("rating", string.format("%d/10", tonumber(detail.rating)))
+            add_meta("rating", string.format("%d/10", tonumber(detail.rating)))
         end
-        rows[#rows + 1] = meta_item("tags", detail.tag)
-        rows[#rows + 1] = meta_item("publisher", detail.publisher)
-        rows[#rows + 1] = meta_item("published", detail.pubdate)
-        rows[#rows + 1] = meta_item("isbn", detail.isbn)
-        rows[#rows + 1] = meta_item("language", detail.languages)
+        add_meta("tags", detail.tag)
+        add_meta("publisher", detail.publisher)
+        add_meta("published", detail.pubdate)
+        add_meta("isbn", detail.isbn)
+        add_meta("language", detail.languages)
+
+        if #meta > 0 then
+            local text = TextBoxWidget.PTF_HEADER .. table.concat(meta, "\n")
+            local screen_w = Metrics.screen_size()
+            local width = screen_w - Metrics.dp(8) * 2
+            rows[#rows + 1] = {
+                kind = "text",
+                text = text,
+                face = Metrics.meta_face(),
+                color = Metrics.color.text,
+                h = UI.text_height(text, Metrics.meta_face(), width) + Metrics.dp(4),
+            }
+        end
 
         if #files > 0 then
             rows[#rows + 1] = MenuUI.header(I18N.T("formats"))
@@ -164,20 +194,6 @@ function M.show(api, book)
                 }
             end
         end
-        local stats = detail.reading_stats or {}
-        if #stats > 0 then
-            rows[#rows + 1] = MenuUI.header(I18N.T("reading_stats"))
-            for _, item in ipairs(stats) do
-                rows[#rows + 1] = {
-                    kind = "row",
-                    title = tostring(item.format or ""):upper(),
-                    sub = Metrics.format_percent(item.progress_percent or 0) .. " · " .. Metrics.format_duration(item.total_seconds or 0),
-                    percent = item.progress_percent or 0,
-                }
-            end
-        end
-
-        rows[#rows + 1] = MenuUI.header(I18N.T("description"))
         rows[#rows + 1] = {
             kind = "text",
             text = description ~= "" and description or I18N.T("description_empty"),

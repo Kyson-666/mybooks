@@ -10,6 +10,7 @@ local logger = require("logger")
 
 local Metrics = require("mybooks_metrics")
 local UI = require("mybooks_ui")
+local Button = require("ui.button")
 
 local Page = InputContainer:extend{
     title = "",
@@ -137,16 +138,20 @@ function Page:onCloseWidget()
     end
 end
 
-function Page:_draw_button(bb, btn, x, y, w, h)
-    local text = TextWidget:new{
-        text = btn.text or "",
-        face = btn.face or Metrics.body_face(),
-        fgcolor = Metrics.color.text,
-        padding = Metrics.dp(2),
-    }
-    local size = text:getSize()
-    text:paintTo(bb, x + math.floor((w - size.w) / 2), y + math.floor((h - size.h) / 2))
-    text:free()
+function Page:_draw_button(bb, btn, x, y, w, h, boxed)
+    if boxed then
+        Button.draw(bb, x, y, w, h, btn.text, { face = btn.face })
+    else
+        local text = TextWidget:new{
+            text = btn.text or "",
+            face = btn.face or Metrics.body_face(),
+            fgcolor = Metrics.color.text,
+            padding = Metrics.dp(2),
+        }
+        local size = text:getSize()
+        text:paintTo(bb, x + math.floor((w - size.w) / 2), y + math.floor((h - size.h) / 2))
+        text:free()
+    end
     if btn.hit then
         self.hit_buttons[#self.hit_buttons + 1] = UI.hit_rect(x, y, w, h, btn.hit)
     end
@@ -166,7 +171,7 @@ function Page:paintTo(bb, x, y)
     local note = nil
     local note_w = 0
     if self.header_note and self.header_note ~= "" then
-        note = UI.text(self.header_note, { face = Metrics.small_face(), color = Metrics.color.muted, padding = 0 })
+        note = UI.text(self.header_note, { face = Metrics.tiny_face(), color = Metrics.color.muted, padding = 0 })
         note_w = note:getSize().w + Metrics.dp(6)
     end
     local title = TextWidget:new{
@@ -240,7 +245,7 @@ function Page:paintTo(bb, x, y)
                     text:paintTo(bb, fx + math.floor((cell_w - size.w) / 2), row_y + math.floor((row_h - size.h) / 2))
                     text:free()
                 else
-                    self:_draw_button(bb, cell, fx, row_y, cell_w, row_h)
+                    self:_draw_button(bb, cell, fx, row_y, cell_w, row_h, true)
                 end
                 fx = fx + cell_w
             end
@@ -344,7 +349,7 @@ function Page:_paint_row(bb, item, x, y, w, h)
     local text_w = math.max(Metrics.dp(60), w - (left - x) - right_pad)
     local title = TextWidget:new{
         text = item.title or "",
-        face = item.small and Metrics.tiny_face() or Metrics.body_face(),
+        face = Metrics.body_face(),
         max_width = text_w,
         bold = item.bold,
     }
@@ -398,8 +403,10 @@ end
 function Page:grid_metrics()
     local pad = self.pad
     local cell_w = math.floor((self.dimen.w - pad * 3) / 2)
-    local cover_h = math.floor(cell_w * 1.4)
-    return cell_w, cover_h, cover_h + Metrics.dp(46)
+    local rows = math.max(1, self.grid_rows or 1)
+    local cell_h = math.floor(self.list_h / rows)
+    local cover_h = math.max(Metrics.dp(40), cell_h - Metrics.dp(52))
+    return cell_w, cover_h, cell_h
 end
 
 function Page:_paint_grid(bb, x, y)

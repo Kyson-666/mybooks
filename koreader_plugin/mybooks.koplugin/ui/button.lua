@@ -1,3 +1,8 @@
+--[[
+ Draw a button with text.
+ PoxenStudio@2026
+]]
+
 local Metrics = require("mybooks_metrics")
 local UI = require("mybooks_ui")
 

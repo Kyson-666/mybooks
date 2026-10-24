@@ -3,9 +3,9 @@ local logger = require("logger")
 
 local DeviceInfo = require("mybooks_device")
 local I18N = require("mybooks_i18n")
-local MenuUI = require("mybooks_menu_ui")
 local Metrics = require("mybooks_metrics")
 local Page = require("mybooks_page")
+local Panel = require("ui.panel")
 local State = require("mybooks_state")
 local Thumbnails = require("mybooks_thumbnails")
 local Toast = require("mybooks_toast")
@@ -341,12 +341,14 @@ function HomePage:paintContent(bb, x, y)
     local data = self.data or {}
     self.data = data
 
-    local row_h = Metrics.dp(48)
     local rows_count = 8
+    local cell_h = Panel.height()
+    local grid_rows = math.ceil(rows_count / 2)
+    local grid_h = grid_rows * cell_h + (grid_rows - 1) * pad
     local _, _, card_h = self:reading_metrics(w)
     local reading_h = Metrics.dp(30) + card_h
     local content_h = pad + self:stats_height() + self:divider_h() + reading_h
-        + Metrics.dp(8) + self:divider_h() + Metrics.dp(30) + rows_count * row_h + pad
+        + Metrics.dp(8) + self:divider_h() + Metrics.dp(30) + grid_h + pad
     self._content_h = content_h
     self.offset = math.min(self.offset, math.max(0, content_h - self.list_h))
 
@@ -364,11 +366,9 @@ function HomePage:paintContent(bb, x, y)
     section:free()
     top = top + header_h
 
-    local section_labels = {}
     local counts = {}
     for _, item in ipairs(data.sections or {}) do
         counts[item.kind] = item.count
-        section_labels[item.kind] = item.title
     end
 
     local rows = {
@@ -377,22 +377,24 @@ function HomePage:paintContent(bb, x, y)
         end },
     }
     for _, kind in ipairs({ "favorites", "wants", "read_done", "categories", "tags", "authors", "recent" }) do
+        local title = I18N.T(SECTION_LABELS[kind])
         rows[#rows + 1] = {
-            title = section_labels[kind] or I18N.T(SECTION_LABELS[kind]),
+            title = title,
             badge = counts[kind],
             action = function()
-                self:open_section(kind, section_labels[kind] or I18N.T(SECTION_LABELS[kind]))
+                self:open_section(kind, title)
             end,
         }
     end
 
-    local row_y = top
-    for _, row in ipairs(rows) do
-        local item = MenuUI.icon_row(nil, row.title, row.badge)
-        self:_paint_row(bb, item, x, row_y, w, row_h)
-        self.hit_rows[#self.hit_rows + 1] = UI.hit_rect(x, row_y, w, row_h, row.action)
-        bb:paintRect(x + pad, row_y + row_h - 1, w - pad * 2, 1, Metrics.color.line)
-        row_y = row_y + row_h
+    local cell_w = Panel.grid_width(w, pad, 2)
+    for index, row in ipairs(rows) do
+        local column = (index - 1) % 2
+        local line = math.floor((index - 1) / 2)
+        local cx = x + pad + column * (cell_w + pad)
+        local cy = top + line * (cell_h + pad)
+        Panel.draw(bb, cx, cy, cell_w, cell_h, { title = row.title, badge = row.badge })
+        self.hit_rows[#self.hit_rows + 1] = UI.hit_rect(cx, cy, cell_w, cell_h, row.action)
     end
 end
 

@@ -1,4 +1,5 @@
 local gettext = require("gettext")
+local State = require("mybooks_state")
 
 local M = {}
 
@@ -75,6 +76,10 @@ local strings = {
     view_mode = { zh = "列表样式", en = "View mode" },
     view_list = { zh = "列表", en = "List" },
     view_grid = { zh = "网格", en = "Grid" },
+    ui_language = { zh = "界面语言", en = "Interface language" },
+    lang_auto = { zh = "跟随 KOReader", en = "Follow KOReader" },
+    lang_zh = { zh = "中文", en = "Chinese" },
+    lang_en = { zh = "English", en = "English" },
     downloading = { zh = "正在下载 %s", en = "Downloading %s" },
     download_done = { zh = "下载完成", en = "Download complete" },
     download_exists = { zh = "文件已存在，是否覆盖？", en = "File already exists, overwrite?" },
@@ -131,6 +136,7 @@ local strings = {
     browse_section = { zh = "分类浏览", en = "Browse" },
     account_section = { zh = "账号", en = "Account" },
     browse_settings = { zh = "浏览", en = "Browsing" },
+    interface_section = { zh = "界面", en = "Interface" },
     download_settings = { zh = "下载", en = "Downloads" },
     about_section = { zh = "关于", en = "About" },
     connecting = { zh = "正在测试连接…", en = "Testing connection…" },
@@ -149,6 +155,8 @@ local strings = {
     device_id = { zh = "设备标识", en = "Device ID" },
     state_file = { zh = "状态文件", en = "State file" },
     reading_stats = { zh = "阅读统计", en = "Reading stats" },
+    started_on = { zh = "%s 开始", en = "Started %s" },
+    finished_on = { zh = "%s 完成", en = "Finished %s" },
     rating = { zh = "评分", en = "Rating" },
     status = { zh = "状态", en = "Status" },
     download_progress = { zh = "下载中 %d%%", en = "Downloading %d%%" },
@@ -162,22 +170,34 @@ local function detect_lang()
     if cached_lang then
         return cached_lang
     end
-    local lang
-    pcall(function()
-        if gettext.current_lang then
-            lang = tostring(gettext.current_lang)
-        end
+    local lang = nil
+    local ok, saved = pcall(function()
+        return State.setting("language", "auto")
     end)
-    if (not lang or lang == "") and G_reader_settings then
-        local ok, saved = pcall(function()
-            return G_reader_settings:readSetting("language")
+    if ok and (saved == "zh" or saved == "en") then
+        lang = saved
+    end
+    if not lang then
+        pcall(function()
+            if gettext.current_lang then
+                lang = tostring(gettext.current_lang)
+            end
         end)
-        if ok and saved then
-            lang = tostring(saved)
+        if (not lang or lang == "") and G_reader_settings then
+            local ok_saved, reader_lang = pcall(function()
+                return G_reader_settings:readSetting("language")
+            end)
+            if ok_saved and reader_lang then
+                lang = tostring(reader_lang)
+            end
         end
     end
     cached_lang = (lang and lang ~= "") and lang or "en"
     return cached_lang
+end
+
+function M.reset()
+    cached_lang = nil
 end
 
 function M.lang()

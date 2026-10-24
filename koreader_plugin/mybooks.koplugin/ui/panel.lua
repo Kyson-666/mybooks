@@ -1,3 +1,8 @@
+--[[
+ Draw a panel with a title and badge.
+ PoxenStudio@2026
+]]
+
 local Metrics = require("mybooks_metrics")
 local UI = require("mybooks_ui")
 

@@ -25,16 +25,8 @@ function M.error_text(err)
     return text
 end
 
-function M.capacity(mode)
-    local w, h = Metrics.screen_size()
-    local list_h = h - Metrics.dp(48) - Metrics.dp(34)
-    if mode == "grid" then
-        local pad = Metrics.dp(8)
-        local cell_w = math.floor((w - pad * 3) / 2)
-        local cell_h = math.floor(cell_w * 1.4) + Metrics.dp(46)
-        return math.max(2, math.floor(list_h / cell_h) * 2)
-    end
-    return math.max(3, math.floor(list_h / Metrics.row_height()))
+function M.capacity()
+    return 8
 end
 
 function M.show(opts)
@@ -47,9 +39,13 @@ function M.show(opts)
         on_close = opts.on_close,
     }
     page.list_h = page.dimen.h - page.header_h - page.footer_h
-    page.row_h = Metrics.row_height()
     local state = { page_no = opts.page or 1, total = 0, pages = 1, loading = false }
-    local size = opts.size or M.capacity(mode)
+    local size = opts.size or M.capacity()
+    if mode == "grid" then
+        page.grid_rows = math.ceil(size / 2)
+    else
+        page.row_h = math.max(Metrics.dp(32), math.floor(page.list_h / size))
+    end
 
     local function build_items(books)
         local items = {}

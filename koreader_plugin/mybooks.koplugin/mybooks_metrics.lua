@@ -46,6 +46,10 @@ function M.tiny_face()
     return M.face("xx_smallinfofont")
 end
 
+function M.meta_face()
+    return M.face("x_smallinfofont")
+end
+
 function M.row_height()
     local h = Screen:getHeight()
     return math.max(M.dp(56), math.floor(h * 0.11))

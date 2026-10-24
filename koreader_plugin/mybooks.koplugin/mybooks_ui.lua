@@ -1,4 +1,5 @@
 local ImageWidget = require("ui/widget/imagewidget")
+local TextBoxWidget = require("ui/widget/textboxwidget")
 local TextWidget = require("ui/widget/textwidget")
 
 local Metrics = require("mybooks_metrics")
@@ -15,6 +16,17 @@ function M.text(text, opts)
         fgcolor = opts.color or Metrics.color.text,
         padding = opts.padding or Metrics.dp(2),
     }
+end
+
+function M.text_height(text, face, width)
+    local box = TextBoxWidget:new{
+        text = tostring(text or ""),
+        face = face,
+        width = width,
+    }
+    local height = box:getSize().h
+    box:free()
+    return height
 end
 
 function M.cover(path, width, height)
