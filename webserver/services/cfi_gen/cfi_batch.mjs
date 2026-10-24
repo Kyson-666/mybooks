@@ -395,11 +395,14 @@ async function main() {
     return
   }
 
-  const { epubPath, onAmbiguous = 'error', anchors = [], xpointers = [] } = request
+  const { epubPath, onAmbiguous = 'error', anchors = [], xpointers = [], xpointerRanges = [] } = request
   if (!epubPath) fail('missing epubPath')
-  if (!Array.isArray(anchors) || !Array.isArray(xpointers)) fail('anchors/xpointers must be arrays')
-  if (anchors.length === 0 && xpointers.length === 0) fail('anchors or xpointers must be a non-empty array')
-  if (anchors.length + xpointers.length > MAX_ANCHORS) fail(`too many items: ${anchors.length + xpointers.length} > ${MAX_ANCHORS}`)
+  if (!Array.isArray(anchors) || !Array.isArray(xpointers) || !Array.isArray(xpointerRanges)) {
+    fail('anchors/xpointers/xpointerRanges must be arrays')
+  }
+  const total = anchors.length + xpointers.length + xpointerRanges.length
+  if (total === 0) fail('anchors/xpointers/xpointerRanges must be a non-empty array')
+  if (total > MAX_ANCHORS) fail(`too many items: ${total} > ${MAX_ANCHORS}`)
   if (onAmbiguous !== 'error' && onAmbiguous !== 'first_match') fail(`invalid onAmbiguous: ${onAmbiguous}`)
 
   let files, pkg
@@ -431,6 +434,13 @@ async function main() {
   }
 
   const results = []
+  for (const item of xpointerRanges) {
+    try {
+      results.push(resolveXPointerRange(item.id, item.start, item.end, pkg))
+    } catch (e) {
+      results.push({ id: item.id, status: 'error', error: e.message })
+    }
+  }
   for (const item of xpointers) {
     try {
       results.push(resolveXPointer(item.id, item.xpointer, pkg))
@@ -480,7 +490,7 @@ function findTextNodeAtOffset(root, target) {
   return { node: last, offset: last.nodeValue.length }
 }
 
-function resolveXPointer(id, xpointer, pkg) {
+function resolveXPointerNode(xpointer, pkg, sharedDoc) {
   const match = /^\/body(?:\[\d+\])?\/DocFragment\[(\d+)\]\/body(?:\[\d+\])?(.*)$/.exec(xpointer ?? '')
   if (!match) throw new Error(`invalid xpointer: ${xpointer}`)
   const spineIndex = parseInt(match[1], 10) - 1
@@ -497,7 +507,7 @@ function resolveXPointer(id, xpointer, pkg) {
     rest = rest.slice(0, textMatch.index)
   }
 
-  const doc = parseSectionDoc(pkg.files, item.zipPath)
+  const doc = sharedDoc ?? parseSectionDoc(pkg.files, item.zipPath)
   let element = doc.body
   for (const segment of rest.split('/').filter(Boolean)) {
     const step = /^(\w+)(?:\[(\d+)\])?$/.exec(segment)
@@ -524,12 +534,32 @@ function resolveXPointer(id, xpointer, pkg) {
       offset = found.offset
     }
   }
+  return { item, doc, node, offset }
+}
 
+function resolveXPointer(id, xpointer, pkg) {
+  const { item, doc, node, offset } = resolveXPointerNode(xpointer, pkg)
   const range = doc.createRange()
   range.setStart(node, offset)
   range.collapse(true)
   const cfi = CFI.joinIndir(item.baseCfi, CFI.fromRange(range))
   return { id, status: 'ok', cfi }
+}
+
+// KOReader reports a highlight as two xpointers (start/end). Both are
+// resolved against the same parsed section so a range CFI (not a collapsed
+// point) can be produced — the web reader needs the range to draw the
+// highlight and to compare/sort it against other annotations.
+function resolveXPointerRange(id, startXpointer, endXpointer, pkg) {
+  if (!startXpointer || !endXpointer) throw new Error('xpointer range needs start and end')
+  const start = resolveXPointerNode(startXpointer, pkg)
+  const end = resolveXPointerNode(endXpointer, pkg, start.doc)
+  if (start.item.index !== end.item.index) throw new Error('xpointer range spans multiple spine sections')
+  const range = start.doc.createRange()
+  range.setStart(start.node, start.offset)
+  range.setEnd(end.node, end.offset)
+  const cfi = CFI.joinIndir(start.item.baseCfi, CFI.fromRange(range))
+  return { id, status: 'ok', cfi, text: range.toString() }
 }
 
 function resolveTextAnchor(id, text, pkg, getSectionIndex, onAmbiguous) {

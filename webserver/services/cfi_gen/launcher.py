@@ -100,6 +100,23 @@ async def convert_xpointers(
     return await _run_batch(epub_path, request, len(xpointers), timeout, node_bin)
 
 
+async def convert_xpointer_ranges(
+    epub_path: str,
+    ranges: List[dict],
+    timeout: float = DEFAULT_TIMEOUT_SECONDS,
+    node_bin: Optional[str] = None,
+) -> List[CfiResult]:
+    """Converts KOReader highlight ranges (start/end xpointers) to *range*
+    epubcfi strings. Each item must contain `id`, `start` and `end`.
+    """
+    if not ranges:
+        return []
+    if len(ranges) > MAX_ANCHORS:
+        raise CfiBatchError(f"too many xpointer ranges: {len(ranges)} > {MAX_ANCHORS}")
+    request = {"epubPath": epub_path, "xpointerRanges": ranges}
+    return await _run_batch(epub_path, request, len(ranges), timeout, node_bin)
+
+
 async def _run_batch(
     epub_path: str,
     request_obj: dict,

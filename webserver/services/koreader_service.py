@@ -24,7 +24,12 @@ from webserver.models import (
 import tornado.ioloop
 
 from webserver.services import reading_dashboard_service
-from webserver.services.cfi_gen.launcher import CfiBatchError, convert_xpointers, generate_cfis
+from webserver.services.cfi_gen.launcher import (
+    CfiBatchError,
+    convert_xpointer_ranges,
+    convert_xpointers,
+    generate_cfis,
+)
 from webserver.services.reading_stats_service import FINISH_PROGRESS_THRESHOLD, MANUAL_READING_MAX_SECONDS, ReadingStatsService
 from webserver.services.sync_service import MyReaderSyncService
 from webserver.version import VERSION
@@ -864,17 +869,31 @@ async def exchange_annotations(handler, payload):
 
 
 async def _schedule_cfi(handler, uid, book_id, fmt, book_hash, notes):
+    ranges = []
+    points = []
     anchors = []
     stamps = {}
     for note in notes:
-        if not note.get("text") or note.get("cfi"):
+        note_id = note.get("id")
+        if not note_id or note.get("cfi"):
             continue
-        anchor = {"id": note["id"], "text": note.get("text") or ""}
-        if note.get("chapter"):
-            anchor["chapterHint"] = note["chapter"]
-        anchors.append(anchor)
-        stamps[note["id"]] = note.get("updated_at") or 0
-    if not anchors:
+        xpointer0 = note.get("xpointer0")
+        xpointer1 = note.get("xpointer1")
+        if xpointer0 and xpointer1:
+            # KOReader 的高亮带首尾 xpointer，直接转换成范围 CFI 最准确。
+            ranges.append({"id": note_id, "start": xpointer0, "end": xpointer1})
+        elif xpointer0:
+            points.append({"id": note_id, "xpointer": xpointer0})
+        elif note.get("text"):
+            # 没有 xpointer 的客户端才回退到文本搜索。
+            anchor = {"id": note_id, "text": note["text"]}
+            if note.get("chapter"):
+                anchor["chapterHint"] = note["chapter"]
+            anchors.append(anchor)
+        else:
+            continue
+        stamps[note_id] = note.get("updated_at") or 0
+    if not (ranges or points or anchors):
         return
 
     def _path():
@@ -890,23 +909,43 @@ async def _schedule_cfi(handler, uid, book_id, fmt, book_hash, notes):
     path = await handler.run_calibre_read_async(_path)
     if not path:
         return
-    tornado.ioloop.IOLoop.current().spawn_callback(_generate_cfis, uid, book_hash, path, anchors[:2000], stamps)
+    tornado.ioloop.IOLoop.current().spawn_callback(
+        _generate_cfis, uid, book_hash, path, ranges[:2000], points[:2000], anchors[:2000], stamps
+    )
 
 
-async def _generate_cfis(uid, book_hash, path, anchors, stamps):
-    try:
-        results = await generate_cfis(path, anchors)
-    except CfiBatchError as e:
-        logging.warning("[koreader] cfi generation failed for %s: %s", book_hash, e)
-        return
-    except Exception as e:
-        logging.warning("[koreader] cfi generation crashed for %s: %s", book_hash, e)
-        return
-    updates = [
-        {"id": result.get("id"), "uid": uid, "cfi": result["cfi"], "updated_at": stamps.get(result.get("id"), 0)}
-        for result in results
-        if result.get("status") == "ok" and result.get("cfi")
-    ]
+async def _generate_cfis(uid, book_hash, path, ranges, points, anchors, stamps):
+    async def _run(convert, items, kind):
+        if not items:
+            return []
+        try:
+            return await convert(path, items)
+        except CfiBatchError as e:
+            logging.warning("[koreader] %s cfi generation failed for %s: %s", kind, book_hash, e)
+        except Exception as e:
+            logging.warning("[koreader] %s cfi generation crashed for %s: %s", kind, book_hash, e)
+        return []
+
+    results = []
+    results += await _run(convert_xpointer_ranges, ranges, "xpointer-range")
+    results += await _run(convert_xpointers, points, "xpointer")
+    results += await _run(generate_cfis, anchors, "text")
+
+    updates = []
+    for result in results:
+        if result.get("status") == "ok" and result.get("cfi"):
+            updates.append(
+                {"id": result.get("id"), "uid": uid, "cfi": result["cfi"], "updated_at": stamps.get(result.get("id"), 0)}
+            )
+        else:
+            # 静默丢弃会让网页端拿到缺 cfi 的标注并崩溃，必须留下可排查的日志。
+            logging.warning(
+                "[koreader] cfi unresolved for note %s in %s: %s%s",
+                result.get("id"),
+                book_hash,
+                result.get("status") or "unknown",
+                f" ({result['error']})" if result.get("error") else "",
+            )
     if not updates:
         return
     db = ReadingRecord._session()
