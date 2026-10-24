@@ -3943,7 +3943,6 @@ class BookFilePath(BaseHandler):
 
 class TxtRead(BaseHandler):
     @js
-    @auth
     def get(self, bid):
         book = self.get_book(bid, raise_exception=False)
         if not book:
