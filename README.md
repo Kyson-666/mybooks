@@ -39,6 +39,8 @@ MyBooks特性包括:
 扩展工具：
 * 在Chromium系列浏览器，包括Chrome和Edge中安装扩展，可以快速方便进行查询和电子书上传，详情见[MyBooks Browser Extension](https://github.com/poxenstudio/extensions)。
 * 在AI工具，如OpenClaw、QClaw中集成[MyBooks Skill](https://clawhub.ai/poxenstudio/mybooks)[之前为Talebook Skill]。
+* KoReader插件：[mybooks-koreader-plugin](https://github.com/PoxenStudio/mybooks-koreader-plugin)
+
 
 目前提供的能力如下：
 ![architecture](document/architecture.png)
