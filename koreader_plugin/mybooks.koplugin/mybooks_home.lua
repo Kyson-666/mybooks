@@ -66,6 +66,7 @@ function HomePage:init()
     self.title = State.setting("site_title", I18N.T("app_title"))
     self.header_note = State.setting("site_version", "")
     self.version = "Rev: " .. DeviceInfo.plugin_version()
+    self.version_face = Metrics.face("cfont", 18)
     self.footer_h = 0
     self.list_h = self.dimen.h - self.header_h
     self.header_buttons = {
@@ -197,7 +198,7 @@ function HomePage:_paint_stats(bb, x, y, w)
     local avatar = math.floor(Metrics.dp(44))
     local path = DeviceInfo.cache_dir() .. "/avatar.jpg"
     if DeviceInfo.file_exists(path) then
-        UI.paint_cover(bb, path, x + pad, y, avatar, avatar)
+        UI.paint_round_image(bb, path, x + pad, y, avatar, avatar, math.floor(avatar / 2), Metrics.color.bg)
     else
         local cx = x + pad + math.floor(avatar / 2)
         UI.circle(bb, cx, y + math.floor(avatar / 2), math.floor(avatar / 2) - 1, Metrics.color.line)
@@ -281,7 +282,7 @@ end
 
 function HomePage:version_height()
     if not self._version_h then
-        local text = UI.text(self.version, { face = Metrics.small_face(), padding = 0 })
+        local text = UI.text(self.version, { face = self.version_face, padding = 0 })
         self._version_h = text:getSize().h
         text:free()
     end
@@ -423,7 +424,7 @@ function HomePage:paintContent(bb, x, y)
     top = top + grid_h
     top = top + self:_paint_divider(bb, x, top, w)
     local version = UI.text(self.version, {
-        face = Metrics.small_face(),
+        face = self.version_face,
         color = Metrics.color.muted,
         padding = 0,
     })

@@ -57,6 +57,33 @@ function M.paint_cover(bb, path, x, y, w, h)
     image:free()
 end
 
+-- Clips an image to a rounded rectangle (or a circle when radius is half its
+-- size) by painting the surrounding corners with the background color.
+function M.paint_round_image(bb, path, x, y, w, h, radius, bg)
+    M.paint_cover(bb, path, x, y, w, h)
+    x, y = math.floor(x), math.floor(y)
+    w, h = math.floor(w), math.floor(h)
+    radius = math.min(math.max(0, math.floor(radius or 0)), math.floor(math.min(w, h) / 2))
+    if radius <= 0 then
+        return
+    end
+    local fill = bg or Metrics.color.bg
+    for dy = 0, h - 1 do
+        local inset = 0
+        if dy < radius then
+            local d = radius - dy - 0.5
+            inset = radius - math.floor(math.sqrt(math.max(0, radius * radius - d * d)))
+        elseif dy >= h - radius then
+            local d = dy - (h - radius) + 0.5
+            inset = radius - math.floor(math.sqrt(math.max(0, radius * radius - d * d)))
+        end
+        if inset > 0 then
+            bb:paintRect(x, y + dy, inset, 1, fill)
+            bb:paintRect(x + w - inset, y + dy, inset, 1, fill)
+        end
+    end
+end
+
 function M.icon_path(name)
     return ICON_DIR .. "/icons/" .. tostring(name or "") .. ".svg"
 end

@@ -94,7 +94,6 @@ function M.show(api, book)
     logger.dbg("MyBooks: detail loaded", detail.id, #files)
 
     local page
-    local expanded = false
     local description = plain_text(detail.comments)
 
     local function build()
@@ -108,8 +107,10 @@ function M.show(api, book)
             },
         }
         local stats = detail.reading_stats or {}
+        local multi_format = #formats > 1
         if #stats > 0 then
             rows[#rows + 1] = MenuUI.header(I18N.T("reading_stats"))
+            local lines = {}
             for _, item in ipairs(stats) do
                 local finished = tonumber(item.state) == 1
                 local percent = finished and 100 or tonumber(item.progress_percent)
@@ -118,13 +119,25 @@ function M.show(api, book)
                 if stamp and stamp ~= "" then
                     parts[#parts + 1] = I18N.T(finished and "finished_on" or "started_on", stamp:sub(1, 10))
                 end
-                rows[#rows + 1] = {
-                    kind = "row",
-                    title = tostring(item.format or ""):upper(),
-                    sub = table.concat(parts, " · "),
-                    badge = percent and Metrics.format_percent(percent) or nil,
-                }
+                if percent then
+                    parts[#parts + 1] = Metrics.format_percent(percent)
+                end
+                local line = table.concat(parts, " · ")
+                if multi_format then
+                    line = TextBoxWidget.PTF_BOLD_START .. tostring(item.format or ""):upper()
+                        .. TextBoxWidget.PTF_BOLD_END .. " : " .. line
+                end
+                lines[#lines + 1] = line
             end
+            local text = TextBoxWidget.PTF_HEADER .. table.concat(lines, "\n")
+            local width = Metrics.screen_size() - Metrics.dp(8) * 2
+            rows[#rows + 1] = {
+                kind = "text",
+                text = text,
+                face = Metrics.meta_face(),
+                color = Metrics.color.text,
+                h = UI.text_height(text, Metrics.meta_face(), width) + Metrics.dp(4),
+            }
         end
 
         local state = detail.state or {}
@@ -167,6 +180,9 @@ function M.show(api, book)
         add_meta("published", detail.pubdate)
         add_meta("isbn", detail.isbn)
         add_meta("language", detail.languages)
+        if multi_format and #stats == 0 then
+            add_meta("formats", table.concat(formats, " / "))
+        end
 
         if #meta > 0 then
             local text = TextBoxWidget.PTF_HEADER .. table.concat(meta, "\n")
@@ -181,27 +197,11 @@ function M.show(api, book)
             }
         end
 
-        if #files > 0 then
-            rows[#rows + 1] = MenuUI.header(I18N.T("formats"))
-            for _, file in ipairs(files) do
-                rows[#rows + 1] = {
-                    kind = "row",
-                    title = tostring(file.format or ""):upper(),
-                    badge = Metrics.format_size(file.size or 0),
-                    hit = function()
-                        require("mybooks_download").start(api, detail, file.format)
-                    end,
-                }
-            end
-        end
+        local desc_text = description ~= "" and description or I18N.T("description_empty")
         rows[#rows + 1] = {
             kind = "text",
-            text = description ~= "" and description or I18N.T("description_empty"),
-            h = expanded and Metrics.dp(420) or Metrics.dp(120),
-            hit = function()
-                expanded = not expanded
-                page:set_items(build(), false)
-            end,
+            text = desc_text,
+            h = UI.text_height(desc_text, Metrics.body_face(), Metrics.screen_size() - Metrics.dp(8) * 2),
         }
         return rows
     end
