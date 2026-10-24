@@ -1,10 +1,14 @@
+local IconWidget = require("ui/widget/iconwidget")
 local ImageWidget = require("ui/widget/imagewidget")
 local TextBoxWidget = require("ui/widget/textboxwidget")
 local TextWidget = require("ui/widget/textwidget")
+local lfs = require("libs/libkoreader-lfs")
 
 local Metrics = require("mybooks_metrics")
 
 local M = {}
+
+local ICON_DIR = (debug.getinfo(1, "S").source or ""):match("^@(.*)[/\\]") or "."
 
 function M.text(text, opts)
     opts = opts or {}
@@ -51,6 +55,25 @@ function M.paint_cover(bb, path, x, y, w, h)
     local size = image:getSize()
     image:paintTo(bb, x + math.floor((w - size.w) / 2), y + math.floor((h - size.h) / 2))
     image:free()
+end
+
+function M.icon_path(name)
+    return ICON_DIR .. "/icons/" .. tostring(name or "") .. ".svg"
+end
+
+function M.paint_icon(bb, name, x, y, size)
+    local path = M.icon_path(name)
+    if lfs.attributes(path, "mode") ~= "file" then
+        return
+    end
+    local icon = IconWidget:new{
+        file = path,
+        width = size,
+        height = size,
+        alpha = true,
+    }
+    icon:paintTo(bb, x, y)
+    icon:free()
 end
 
 function M.circle(bb, cx, cy, radius, color)

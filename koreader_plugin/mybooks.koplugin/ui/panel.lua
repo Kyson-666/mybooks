@@ -25,6 +25,13 @@ function M.draw(bb, x, y, w, h, opts)
         shadow = false,
     })
     local inner = Metrics.dp(10)
+    local icon_size = 0
+    local icon_gap = 0
+    if opts.icon and opts.icon ~= "" then
+        icon_size = Metrics.dp(22)
+        icon_gap = Metrics.dp(10)
+        UI.paint_icon(bb, opts.icon, x + inner, y + math.floor((h - icon_size) / 2), icon_size)
+    end
     local badge = nil
     local badge_w = 0
     if opts.badge ~= nil and opts.badge ~= "" then
@@ -35,10 +42,10 @@ function M.draw(bb, x, y, w, h, opts)
         face = opts.face or Metrics.body_face(),
         color = opts.color,
         bold = opts.bold,
-        width = math.max(Metrics.dp(20), w - inner * 2 - badge_w),
+        width = math.max(Metrics.dp(20), w - inner * 2 - badge_w - icon_size - icon_gap),
     })
     local size = title:getSize()
-    title:paintTo(bb, x + inner, y + math.floor((h - size.h) / 2))
+    title:paintTo(bb, x + inner + icon_size + icon_gap, y + math.floor((h - size.h) / 2))
     title:free()
     if badge then
         local badge_size = badge:getSize()

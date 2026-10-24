@@ -29,6 +29,17 @@ local META_KINDS = {
     authors = "author",
 }
 
+local SECTION_ICONS = {
+    search = "search",
+    favorites = "favorites",
+    wants = "wants",
+    read_done = "read_done",
+    categories = "categories",
+    tags = "tags",
+    authors = "authors",
+    recent = "recent",
+}
+
 local HomePage = Page:extend{
     show_back = false,
 }
@@ -54,6 +65,7 @@ function HomePage:init()
     Page.init(self)
     self.title = State.setting("site_title", I18N.T("app_title"))
     self.header_note = State.setting("site_version", "")
+    self.version = "Rev: " .. DeviceInfo.plugin_version()
     self.footer_h = 0
     self.list_h = self.dimen.h - self.header_h
     self.header_buttons = {
@@ -267,6 +279,15 @@ function HomePage:divider_h()
     return Metrics.dp(20)
 end
 
+function HomePage:version_height()
+    if not self._version_h then
+        local text = UI.text(self.version, { face = Metrics.small_face(), padding = 0 })
+        self._version_h = text:getSize().h
+        text:free()
+    end
+    return self._version_h
+end
+
 function HomePage:_paint_divider(bb, x, y, w)
     UI.divider(bb, x + self.pad, y + Metrics.dp(8), w - self.pad * 2)
     return self:divider_h()
@@ -348,7 +369,8 @@ function HomePage:paintContent(bb, x, y)
     local _, _, card_h = self:reading_metrics(w)
     local reading_h = Metrics.dp(30) + card_h
     local content_h = pad + self:stats_height() + self:divider_h() + reading_h
-        + Metrics.dp(8) + self:divider_h() + Metrics.dp(30) + grid_h + pad
+        + Metrics.dp(8) + self:divider_h() + Metrics.dp(30) + grid_h
+        + self:divider_h() + Metrics.dp(4) + self:version_height() + pad
     self._content_h = content_h
     self.offset = math.min(self.offset, math.max(0, content_h - self.list_h))
 
@@ -372,7 +394,7 @@ function HomePage:paintContent(bb, x, y)
     end
 
     local rows = {
-        { title = I18N.T("search"), action = function()
+        { title = I18N.T("search"), icon = SECTION_ICONS.search, action = function()
             require("mybooks_browse").search(self.api)
         end },
     }
@@ -380,6 +402,7 @@ function HomePage:paintContent(bb, x, y)
         local title = I18N.T(SECTION_LABELS[kind])
         rows[#rows + 1] = {
             title = title,
+            icon = SECTION_ICONS[kind],
             badge = counts[kind],
             action = function()
                 self:open_section(kind, title)
@@ -393,9 +416,20 @@ function HomePage:paintContent(bb, x, y)
         local line = math.floor((index - 1) / 2)
         local cx = x + pad + column * (cell_w + pad)
         local cy = top + line * (cell_h + pad)
-        Panel.draw(bb, cx, cy, cell_w, cell_h, { title = row.title, badge = row.badge })
+        Panel.draw(bb, cx, cy, cell_w, cell_h, { title = row.title, icon = row.icon, badge = row.badge })
         self.hit_rows[#self.hit_rows + 1] = UI.hit_rect(cx, cy, cell_w, cell_h, row.action)
     end
+
+    top = top + grid_h
+    top = top + self:_paint_divider(bb, x, top, w)
+    local version = UI.text(self.version, {
+        face = Metrics.small_face(),
+        color = Metrics.color.muted,
+        padding = 0,
+    })
+    local version_size = version:getSize()
+    version:paintTo(bb, x + math.floor((w - version_size.w) / 2), top + Metrics.dp(4))
+    version:free()
 end
 
 function HomePage:scroll(delta)
