@@ -6,6 +6,8 @@ import os
 import logging
 import subprocess
 import sys
+import threading
+import time
 import traceback
 
 from webserver import loader
@@ -13,6 +15,35 @@ from webserver.services import AsyncService
 from webserver.plugins.parser.txt import TxtParser
 
 CONF = loader.get_settings()
+
+
+def load_txt_content_index(content_path):
+    """读取 TXT 阅读索引；文件写坏时删掉并返回 None，让调用方重新解析。
+
+    "content.json 存在"是阅读器唯一的就绪信号，一旦里面是半截 json（旧版本
+    非原子写入、进程被杀、磁盘写满），阅读接口就会永久 500 且没有任何自愈
+    路径。这里把"读不动"退化成"没解析过"，代价只是重扫一次。
+
+    读侧要与写侧（store_txt_content）用同一套判据：toc 不是非空 list 时前端
+    拿到的是 null，而文件存在就算"就绪"，那本书等于永远打不开。
+    """
+    if not os.path.isfile(content_path):
+        return None
+    try:
+        with open(content_path, 'r', encoding='utf8') as f:
+            meta = json.loads(f.read())
+        content = meta["toc"]
+        encoding = meta["encoding"]
+        if not isinstance(content, list) or not content:
+            raise ValueError("toc is not a non-empty list")
+        return {"content": content, "encoding": encoding}
+    except (OSError, ValueError, KeyError, TypeError) as e:
+        logging.warning("Broken txt content index, rebuilding: %s (%s)", content_path, e)
+        try:
+            os.remove(content_path)
+        except OSError:
+            pass
+        return None
 
 
 class ExtractService(AsyncService):
@@ -29,28 +60,118 @@ class ExtractService(AsyncService):
     TXT_PARSER_SCRIPT = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
                                      "plugins", "parser", "txt.py")
 
+    @staticmethod
+    def txt_content_path(bid):
+        """TXT 阅读器章节索引的落盘路径"""
+        return os.path.join(CONF["extract_path"], str(bid), "content.json")
+
+    def has_txt_content_index(self, bid):
+        """索引是否**可用** —— 不是"文件是否存在"。
+
+        坏索引（旧版本非原子写入 / 进程被杀 / 磁盘满）在 load_txt_content_index
+        里会被删掉并返回 None，等于顺手做完了自愈的第一步。调用方据此决定要不要
+        重排解析：只判 isfile 的话，这类书会被全库批量一直跳过，索引永远修不好，
+        "批量跑完打开即出目录"对它们不成立。
+        """
+        return load_txt_content_index(self.txt_content_path(bid)) is not None
+
+    def store_txt_content(self, bid, parsed, overwrite=False):
+        """把已解析出的目录写成阅读器索引。
+
+        单独抽出来是给目录提取复用：那边为了生成 #catalog 已经把整本扫过一遍，
+        拿到的 `{encoding, toc}` 与这里完全同构，直接落盘就不用再排一次解析。
+        overwrite=True 用于强制重新提取目录的场景 —— 此时手上就是刚解析出的
+        最新结果，旧的 start/end 偏移必须一起刷新，否则目录与正文会错位。
+
+        刻意不做 fsync：索引是可重建的缓存，掉电留下的空/半截文件会被
+        load_txt_content_index 删掉重建，比每次写入多付一次落盘代价划算。
+        """
+        # 阅读接口裸取 toc 直接给前端渲染：结构不对宁可写不进去，也别落一个
+        # content 为 null 的索引 —— 那个"就绪"信号会让阅读器永久打不开书。
+        if not parsed or not isinstance(parsed.get("toc"), list) or not parsed["toc"]:
+            return False
+        content_path = self.txt_content_path(bid)
+        if not overwrite and os.path.isfile(content_path):
+            logging.debug(f"书籍<{bid}>已有目录索引, {content_path} exists")
+            return False
+        # 每条写入用独立临时名：两个写入方（目录提取 / 阅读器首读）可能同时写同一本。
+        # 带上 pid：多个实例共享同一个 extract_path 时（NAS 上跑两份容器），
+        # 两进程的主线程 ident 常常相同，只靠 ident 会撞到同一个临时文件。
+        tmp = "%s.%d.%d.tmp" % (content_path, os.getpid(), threading.get_ident())
+        try:
+            os.makedirs(os.path.dirname(content_path), exist_ok=True)
+            with open(tmp, "w", encoding="utf8") as f:
+                json.dump(parsed, f, ensure_ascii=False)
+            # 原子替换：读方要么看到旧文件，要么看到完整的新文件。
+            # Windows 上读方正打开 content.json 时 replace 会 PermissionError
+            # （CPython 的 open 不共享 DELETE），短暂重试即可，别把刷新吞掉
+            for attempt in range(3):
+                try:
+                    os.replace(tmp, content_path)
+                    break
+                except OSError:
+                    if attempt == 2:
+                        raise
+                    time.sleep(0.05)
+            return True
+        except Exception as e:
+            logging.warning(f"Failed to store txt content for book {bid}: {e}")
+            return False
+        finally:
+            if os.path.exists(tmp):
+                try:
+                    os.remove(tmp)
+                except OSError:
+                    pass
+
     @AsyncService.register_service
     def parse_txt_content(self, bid, fpath):
-        '''从TXT文件中提取目录并存储为json'''
-        outDir = os.path.join(CONF["extract_path"], str(bid))  # 解压后的目录
-        content_path = os.path.join(outDir, "content.json")
-        if os.path.isfile(content_path):
-            logging.info(f"书籍<{bid}>已转换, {content_path} exists")
+        '''从TXT文件中提取目录并存储为json（读者首读走的通道）'''
+        # 判「可用」而不是「存在」：坏索引若因文件被占用/只读挂载而删不掉，
+        # 只看 isfile 会让这里立刻返回 False，读者端永远停在"解析中"。
+        # 走到下面的分支就说明没有可用索引，落盘用 overwrite 覆盖残骸。
+        if self.has_txt_content_index(bid):
+            logging.debug(f"书籍<{bid}>已有可用索引, {self.txt_content_path(bid)}")
             return False
-
-        if not os.path.exists(outDir):
-            os.mkdir(outDir)
 
         try:
             ret = self.parse_txt_toc(fpath)
-            content = json.dumps(ret, ensure_ascii=False)
-            with open(content_path, 'w', encoding="utf8") as f:
-                f.write(content)
-                return True
         except Exception as e:
             logging.info(f"TXT convert error: {e}")
             logging.error(traceback.format_exc())
             return False
+        return self.store_txt_content(bid, ret, overwrite=True)
+
+    @AsyncService.register_service
+    def preheat_txt_content(self, bid, fpath, force=False):
+        '''离线预热：给一本书生成阅读器目录索引，走预热专用队列
+
+        与 parse_txt_content 干同一件事，区别只在**队列**：那个服务是读者
+        首读时同步等待的对象，队列长度会直接回给前端（/api/book/txt/parser
+        的 que）。批量预热动辄几千本，挤进同一条单线程队列会让真实读者看到
+        「前方等待几千个」，实际等待按本数线性放大。
+
+        拆成独立服务还有第二个作用：极速模式（LITE_ONE_HEAVY_TASK）的全局
+        大任务锁是**按任务**获取释放的，一本一任务意味着读者请求最坏只等
+        一本的解析时间，而不是整批。
+
+        force=True 用于 TXT 文件刚被替换/追加的场景：旧索引里的 start/end
+        是旧文件的字节偏移，阅读器按它 seek 会读到别的段落，必须重算。
+
+        调用方（扫描导入 / 目录提取）已确认文件存在；这里再验一次是因为
+        排队期间书可能被删。
+        '''
+        if not force and self.has_txt_content_index(bid):
+            return False
+        if not fpath or not os.path.isfile(fpath):
+            return False
+        try:
+            ret = self.parse_txt_toc(fpath)
+        except Exception as e:
+            # 预热失败无人可报：留日志即可，读者首读时还会再试一次
+            logging.info(f"[preheat] txt index skipped book={bid}: {e}")
+            return False
+        return self.store_txt_content(bid, ret, overwrite=force)
 
     def txt_parse_timeout(self, fpath):
         """按文件体积放宽的子进程超时；解析耗时随体积线性增长，慢机器上大文件

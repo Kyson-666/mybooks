@@ -39,7 +39,7 @@ from webserver.services.ai_fillinfo import AIFillInfoService
 from webserver.services.catalog import CatalogExtractService
 from webserver.services.book_search import BookSearch
 from webserver.services.converter import ConverterService
-from webserver.services.extract import ExtractService
+from webserver.services.extract import ExtractService, load_txt_content_index
 from webserver.services.mail import MailService
 from webserver.handlers.base import BaseHandler, ListHandler, auth, js, throttle
 from webserver.models import BookReadingStats as BookFormatReadingStatsModel, Item, MyNexusBookAnalysis, Reading, ReadingState, Reader, ScanFile
@@ -2964,8 +2964,9 @@ class BookUpload(BaseHandler):
             return book_id
         if CONF.get(AUTO_FILL_META, False):
             AutoFillService().auto_fill_async(book_id)
+        # 目录提取会顺带给含 TXT 的书预热阅读索引，所以不再单独调 _prepare_txt_content
+        # —— 否则同一本新书会被两个线程各整本扫一遍。
         CatalogExtractService().extract_one_async(book_id)
-        self._prepare_txt_content(book_id)
 
         if CONF.get("SEND_MAIL_FOR_NEW_BOOKS", False) and mi.title:
             try:
@@ -2991,15 +2992,19 @@ class BookUpload(BaseHandler):
 
         return book_id
 
-    def _prepare_txt_content(self, book_id):
-        """为含 TXT 格式的书籍预生成章节索引，阅读器打开即可拿到目录。"""
+    def _prepare_txt_content(self, book_id, force=False):
+        """为含 TXT 格式的书籍预生成章节索引（走预热队列，不阻塞本次请求）。
+
+        force=True 用于 TXT 文件刚被替换的场景：旧索引的 start/end 是旧文件的
+        字节偏移，阅读器按它 seek 会读到别的段落，必须重算。
+        """
         try:
             formats = set(self.calibre_db_cache.formats(book_id, verify_formats=False) or [])
             if "TXT" not in formats:
                 return
             txt_path = self.calibre_db.format_abspath(book_id, "TXT", index_is_id=True)
             if txt_path:
-                ExtractService().parse_txt_content(book_id, txt_path)
+                ExtractService().preheat_txt_content(book_id, txt_path, force=force)
         except Exception as e:
             logging.warning("Failed to prepare txt content for book %s: %s", book_id, e)
 
@@ -3075,7 +3080,8 @@ class BookUpload(BaseHandler):
             logging.info(f"Successfully added {fmt.upper()} format to book {book_id}")
 
             if fmt == "txt":
-                self._prepare_txt_content(book_id)
+                # 换掉的 TXT 是另一份文件，旧索引的字节偏移全部失效，强制重算
+                self._prepare_txt_content(book_id, force=True)
 
             try:
                 if update_metadata and fmt in utils.meta_writable_formats():
@@ -3993,13 +3999,13 @@ class BookTxtParser(BaseHandler):
         fdir = os.path.join(CONF["extract_path"], str(book["id"]))
         # txt 解析出的目录文件
         content_path = fdir + "/content.json"
-        is_ready = os.path.isfile(content_path)
-        if is_ready:
-            with open(content_path, 'r', encoding='utf8') as f:
-                meta = json.loads(f.read())
+        # 坏索引（旧版本非原子写入 / 进程被杀 / 磁盘满）会在 load_txt_content_index
+        # 里被删掉并返回 None，于是这次读取退化成「没解析过」，由下面入队重建
+        cached = load_txt_content_index(content_path)
+        if cached:
             return {"err": "ok", "msg": _("parsed"), "data": {
-                "content": meta['toc'],
-                "encoding": meta['encoding'],
+                "content": cached["content"],
+                "encoding": cached["encoding"],
                 "name": book["title"]
             }}
         if test_ready != "0":
