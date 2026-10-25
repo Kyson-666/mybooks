@@ -11,7 +11,6 @@
 """
 import io
 import logging
-import math
 import os
 import re
 import threading
@@ -197,7 +196,6 @@ class EpubMergeTool(BaseTool):
             (lang for b in ok_books for lang in b["languages"]), "zho")
 
         description = epub_merge_lib.compose_description(
-            default_title,
             [{"title": b["title"], "comments": b["comments"]} for b in ok_books],
             isbns_union)
         truncated = False
@@ -342,30 +340,9 @@ class EpubMergeTool(BaseTool):
         return out
 
     def _make_cover_grid(self, images: list):
-        """前 9 张封面按最多 3 列拼图 → ("jpg", bytes)；无图/PIL 缺失返回 None。"""
-        try:
-            from PIL import Image
-        except ImportError:
-            return None
-        imgs = []
-        for raw in (images or [])[:9]:
-            try:
-                imgs.append(Image.open(io.BytesIO(raw)).convert("RGB"))
-            except Exception:
-                continue
-        if not imgs:
-            return None
-        cell = 360
-        cols = max(1, min(3, math.ceil(math.sqrt(len(imgs)))))
-        rows = math.ceil(len(imgs) / cols)
-        canvas = Image.new("RGB", (cols * cell, rows * cell), (255, 255, 255))
-        for i, img in enumerate(imgs):
-            img.thumbnail((cell, cell))
-            x = (i % cols) * cell + (cell - img.width) // 2
-            y = (i // cols) * cell + (cell - img.height) // 2
-            canvas.paste(img, (x, y))
-        data, _w, _h = self._encode_cover_jpeg(canvas)
-        return "jpg", data
+        """前 9 张封面拼图 → ("jpg", bytes)；无图/PIL 缺失返回 None（实现在 lib）。"""
+        data = epub_merge_lib.make_cover_grid(images or [])
+        return ("jpg", data) if data else None
 
     def _resolve_cover(self, cover: dict, book_ids: list) -> tuple:
         """决议封面字节。返回 ((ext, data) | None, warning | None)。

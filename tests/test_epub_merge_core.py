@@ -364,34 +364,119 @@ class TestIsbn(unittest.TestCase):
 class TestComposeDescription(unittest.TestCase):
     def test_basic(self):
         html_out = lib.compose_description(
-            "A，B合集",
             [{"title": "A", "comments": "<p>简介A</p>"},
              {"title": "B", "comments": ""}],
             isbns=["9780000000001"])
-        self.assertIn("<b>A，B合集</b>", html_out)
+        self.assertNotIn("合集", html_out)  # 合集标题不再写入简介（书名栏已有）
         self.assertIn("【A】", html_out)
         self.assertIn("<p>简介A</p>", html_out)
         self.assertIn("【B】", html_out)
         self.assertIn("暂无简介", html_out)
         self.assertNotIn("ISBN", html_out)
 
-    def test_title_escaped(self):
+    def test_item_title_escaped(self):
         html_out = lib.compose_description(
-            "<script>&", [{"title": "A<b>", "comments": "x"}])
-        self.assertIn("&lt;script&gt;&amp;", html_out)
-        self.assertIn("A&lt;b&gt;", html_out)
+            [{"title": "<script>&<b>", "comments": "x"}])
+        self.assertIn("【&lt;script&gt;&amp;&lt;b&gt;】", html_out)
         self.assertNotIn("<script>", html_out)
 
     def test_plain_text_comments_br(self):
         html_out = lib.compose_description(
-            "合集", [{"title": "A", "comments": "第一行\n第二行"}])
+            [{"title": "A", "comments": "第一行\n第二行"}])
         self.assertIn("第一行<br />第二行", html_out)
 
     def test_isbn_tail_multi(self):
         html_out = lib.compose_description(
-            "合集", [{"title": "A", "comments": "x"}],
+            [{"title": "A", "comments": "x"}],
             isbns=["9780000000001", "9780000000002"])
         self.assertIn("ISBN：9780000000001 / 9780000000002", html_out)
+
+
+class TestMakeCoverGrid(unittest.TestCase):
+    """make_cover_grid：2026-10-25 重做——统一列宽无缝拼图，不裁切不变形。"""
+
+    @staticmethod
+    def _jpg(w, h, color):
+        from PIL import Image
+        buf = io.BytesIO()
+        Image.new("RGB", (w, h), color).save(buf, "JPEG")
+        return buf.getvalue()
+
+    def _colors(self, n):
+        # 互异且远离白色的实心色，JPEG 重编码漂移不影响 seam 断言
+        return [(20 + 20 * (i % 9), 250 - 25 * (i % 9), 15 + 15 * (i % 9))
+                for i in range(n)]
+
+    def setUp(self):
+        try:
+            from PIL import Image
+        except ImportError:
+            self.skipTest("PIL 不可用")
+        self.Image = Image
+
+    def test_nine_seamless_grid(self):
+        colors = self._colors(9)
+        im = self.Image.open(io.BytesIO(
+            lib.make_cover_grid([self._jpg(600, 900, c) for c in colors])))
+        self.assertEqual(im.size, (1080, 1620))  # 3 列×360，9 张 2:3 → 竖版画布
+        px = im.load()
+
+        def near(a, b):
+            return all(abs(x - y) <= 24 for x, y in zip(a, b))
+
+        def white(p):
+            return all(ch > 245 for ch in p)
+
+        self.assertTrue(near(px[180, 270], colors[0]))   # 图内取样：整图呈现
+        self.assertTrue(near(px[900, 1350], colors[8]))
+        for seam in ((360, 270), (720, 270), (180, 540), (540, 810)):
+            self.assertFalse(white(px[seam]), "接缝 %s 出现白线" % (seam,))
+
+    def test_single_keeps_ratio(self):
+        im = self.Image.open(io.BytesIO(
+            lib.make_cover_grid([self._jpg(600, 900, (10, 20, 30))])))
+        self.assertEqual(im.size, (360, 540))  # 等比缩到列宽，无裁切无变形
+
+    def test_small_cover_not_upscaled(self):
+        raws = [self._jpg(300, 450, (10, 20, 30)),
+                self._jpg(600, 900, (40, 50, 60))]
+        im = self.Image.open(io.BytesIO(lib.make_cover_grid(raws)))
+        self.assertEqual(im.size, (600, 450))  # 列宽取最小图宽，不放大小图
+
+    def test_four_covers_two_by_two(self):
+        im = self.Image.open(io.BytesIO(
+            lib.make_cover_grid([self._jpg(600, 900, c) for c in self._colors(4)])))
+        self.assertEqual(im.size, (720, 1080))
+
+    def test_five_covers_last_row_centered(self):
+        colors = self._colors(5)
+        im = self.Image.open(io.BytesIO(
+            lib.make_cover_grid([self._jpg(600, 900, c) for c in colors])))
+        self.assertEqual(im.size, (1080, 1080))
+        px = im.load()
+
+        def near(a, b):
+            return all(abs(x - y) <= 24 for x, y in zip(a, b))
+
+        def white(p):
+            return all(ch > 245 for ch in p)
+
+        self.assertTrue(white(px[90, 810]))                   # 末行左侧空位
+        self.assertTrue(near(px[270, 810], colors[3]))        # 末行居中排布
+        self.assertTrue(white(px[990, 810]))                  # 末行右侧空位
+
+    def test_more_than_nine_truncated(self):
+        colors = self._colors(9)
+        im = self.Image.open(io.BytesIO(lib.make_cover_grid(
+            [self._jpg(600, 900, colors[i % 9]) for i in range(12)])))
+        self.assertEqual(im.size, (1080, 1620))  # 只取前 9 张
+
+    def test_empty_and_garbage(self):
+        self.assertIsNone(lib.make_cover_grid([]))
+        self.assertIsNone(lib.make_cover_grid([b"not-an-image"]))
+        ok = self._jpg(600, 900, (10, 20, 30))
+        im = self.Image.open(io.BytesIO(lib.make_cover_grid([ok, b"junk"])))
+        self.assertEqual(im.size, (360, 540))  # 坏图剔除，不影响好图
 
 
 class TestMerge(unittest.TestCase):
@@ -1707,13 +1792,13 @@ class TestPureHelpers(unittest.TestCase):
 class TestHtmlBlock(unittest.TestCase):
     def test_plain_text_with_lt_escaped(self):
         out = lib.compose_description(
-            "合集", [{"title": "卷一", "comments": "3 < 5"}])
+            [{"title": "卷一", "comments": "3 < 5"}])
         self.assertIn("3 &lt; 5", out)
         self.assertNotIn("3 < 5", out)
 
     def test_html_comments_kept(self):
         out = lib.compose_description(
-            "合集", [{"title": "卷一", "comments": "<p>简介</p>"}])
+            [{"title": "卷一", "comments": "<p>简介</p>"}])
         self.assertIn("<p>简介</p>", out)
 
 
