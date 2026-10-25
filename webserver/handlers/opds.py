@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:ai
+# PoxenStudio@2026
 
 __license__ = "GPL v3"
 __copyright__ = "2010, Kovid Goyal <kovid@kovidgoyal.net>"
@@ -26,10 +27,29 @@ from lxml import etree, html
 from lxml.builder import ElementMaker
 from tornado import web
 from webserver import loader
+from webserver.constants import (
+    CALIBRE_COLUMN_CATEGORY,
+    CALIBRE_COLUMN_EXT_LINK,
+    CALIBRE_COLUMN_FOLDER,
+    CALIBRE_COLUMN_LOCATION,
+    CALIBRE_COLUMN_TRANSLATORS,
+)
 from webserver.handlers.base import BaseHandler
 from webserver.models import Item
 
 CONF = loader.get_settings()
+
+# MyBooks 内置自定义列：按字段 key 固定可翻译名称，避免 calibre 中的显示名被改动后漏翻。
+CATEGORY_NAME_KEYS = {
+    CALIBRE_COLUMN_CATEGORY: "Book Category",
+    CALIBRE_COLUMN_FOLDER: "Book Folder",
+    CALIBRE_COLUMN_LOCATION: "Location",
+    CALIBRE_COLUMN_TRANSLATORS: "Translator",
+}
+
+
+def category_display_name(category, meta):
+    return CATEGORY_NAME_KEYS.get(category, meta.get("name", category))
 
 
 def custom_fields_to_display(db):
@@ -167,28 +187,53 @@ def NAVCATALOG_ENTRY(base_href, updated, title, description, query):
     )
 
 
+XHTML_NS = "http://www.w3.org/1999/xhtml"
+
+
+def _strip_undeclared_prefixes(root):
+    """去掉 HTML 片段里没有声明的命名空间前缀，避免生成非法 XML。
+
+    HTML 允许 ``xlink:href``、``<x:y>`` 这类名字，XML 则要求前缀先声明。
+    已声明的前缀（含 ``xml``/``xmlns``）保留，只清理无声明的那部分。
+    """
+    declared = {"xml"}
+    for node in root.iter():
+        for attr in node.attrib:
+            if attr.startswith("xmlns:"):
+                declared.add(attr[6:])
+    for node in root.iter():
+        for attr in [a for a in node.attrib if ":" in a]:
+            prefix = attr.split(":", 1)[0]
+            if prefix != "xmlns" and prefix not in declared:
+                del node.attrib[attr]
+        tag = node.tag
+        if isinstance(tag, str) and ":" in tag:
+            prefix, local = tag.split(":", 1)
+            if prefix not in declared:
+                node.tag = local
+
+
 def html_to_lxml(raw):
-    raw = u"<div>%s</div>" % raw
-    root = html.fragment_fromstring(raw)
-    root.set("xmlns", "http://www.w3.org/1999/xhtml")
-    raw = etree.tostring(root, pretty_print=True, encoding="utf-8", xml_declaration=True)
+    """把 HTML 片段转换成位于 XHTML 命名空间下的 lxml 元素。
+
+    ``comments_to_html()`` 等来源的 HTML 可能不规范，所以先用 HTML 解析器
+    （容错：补全标签、解码 ``&nbsp;`` 等），再序列化后按 XML 重新解析一次，
+    让整棵子树真正落在 XHTML 命名空间里；否则嵌入 Atom 文档时子元素会继承
+    Atom 的默认命名空间。返回的 ``<div>`` 可直接放进 ``<content type="xhtml">``。
+    """
+    root = html.fragment_fromstring("<div>%s</div>" % raw)
+    root.set("xmlns", XHTML_NS)
     try:
-        return etree.fromstring(raw)
-    except:
-        for x in root.iterdescendants():
-            remove = []
-            for attr in x.attrib:
-                if ":" in attr:
-                    remove.append(attr)
-            for a in remove:
-                del x.attrib[a]
-        raw = etree.tostring(root, pretty_print=True, encoding="utf-8", xml_declaration=True)
+        return etree.fromstring(etree.tostring(root, encoding="utf-8"))
+    except etree.XMLSyntaxError:
+        _strip_undeclared_prefixes(root)
+        data = etree.tostring(root, encoding="utf-8")
         try:
-            return etree.fromstring(raw)
-        except:
+            return etree.fromstring(data)
+        except etree.XMLSyntaxError:
             from calibre.ebooks.oeb.parse_utils import _html4_parse
 
-            return _html4_parse(raw)
+            return _html4_parse(data)
 
 
 def CATALOG_ENTRY(item, item_kind, base_href, updated, ignore_count=False, add_kind=False):
@@ -290,7 +335,9 @@ def ACQUISITION_ENTRY(item, db, updated, CFM, CKEYS, prefix):
     return ans
 
 
-default_feed_title = CONF['site_title'] + " " + _("Library")
+def default_feed_title():
+    # 站点语言由 BaseHandler.set_i18n() 按请求设置，不能在这里提前翻译成常量
+    return CONF['site_title'] + " " + _("Library")
 
 
 class Feed(object):
@@ -309,7 +356,7 @@ class Feed(object):
         self.base_href = url_for("opds")
 
         self.root = FEED(
-            TITLE(title or default_feed_title),
+            TITLE(title or default_feed_title()),
             AUTHOR(CONF['site_title'], uri="http://calibre-ebook.com"),
             ID(id_),
             ICON("/favicon.png"),
@@ -493,7 +540,7 @@ class OpdsHandler(BaseHandler):
         sort = "timestamp" if which == "newest" else "title"
         ascending = which == "title"
         feed_title = {"newest": _("Newest"), "title": _("Title")}.get(which, which)
-        feed_title = default_feed_title + " :: " + _("By {0}").format(feed_title)
+        feed_title = default_feed_title() + " :: " + _("By {0}").format(feed_title)
         ids = list(self.calibre_db_cache.search(""))
         return self.get_opds_acquisition_feed(
             ids,
@@ -523,9 +570,9 @@ class OpdsHandler(BaseHandler):
             raise web.HTTPError(404, reason="Category %r not found" % which)
         category_meta = self.calibre_db.field_metadata
         meta = category_meta.get(category, {})
-        category_name = meta.get("name", which)
+        category_name = category_display_name(category, meta)
         which = unhexlify(which)
-        feed_title = default_feed_title + " :: " + (_("By {0} :: {1}").format(category_name, which))
+        feed_title = default_feed_title() + " :: " + (_("By {0} :: {1}").format(_(category_name), which))
         owhich = hexlify("N" + which)
         up_url = url_for("opdsnavcatalog", which=owhich)
         items = categories[category]
@@ -589,8 +636,8 @@ class OpdsHandler(BaseHandler):
         updated = self.calibre_db.last_modified()
         category_meta = self.calibre_db.field_metadata
         meta = category_meta.get(which, {})
-        category_name = meta.get("name", which)
-        feed_title = default_feed_title + " :: " + _("By {0}").format(category_name)
+        category_name = category_display_name(which, meta)
+        feed_title = default_feed_title() + " :: " + _("By {0}").format(_(category_name))
 
         id_ = "calibre-category-feed:" + which
 
@@ -709,17 +756,25 @@ class OpdsHandler(BaseHandler):
             except KeyError:
                 return x
 
+        # 内部/辅助字段不对外暴露；External Link 只是书源的下载跳转，不作为 OPDS 目录。
+        # 目录浏览、实体书位置分别跟随对应功能开关。
+        hidden_categories = {"formats", "identifiers", CALIBRE_COLUMN_EXT_LINK}
+        if not CONF.get("ENABLE_FOLDER_BROWSE", False):
+            hidden_categories.add(CALIBRE_COLUMN_FOLDER)
+        if not CONF.get("ENABLE_PHYSICAL_BOOKS", True):
+            hidden_categories.add(CALIBRE_COLUMN_LOCATION)
+
         for category in sorted(categories, key=lambda x: sort_key(getter(x))):
             if len(categories[category]) == 0:
                 continue
-            if category in ("formats", "identifiers"):
+            if category in hidden_categories:
                 continue
             meta = category_meta.get(category, None)
             if meta is None:
                 continue
             if category_meta.is_ignorable_field(category) and category not in custom_fields_to_display(self.calibre_db):
                 continue
-            name = _(meta["name"])
+            name = _(category_display_name(category, meta))
             cats.append((name, name, "N" + category))
 
         updated = self.calibre_db.last_modified()

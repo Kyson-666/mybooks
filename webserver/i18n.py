@@ -8,6 +8,7 @@ import json
 import locale
 import logging
 import os
+import time
 from typing import Dict
 
 SUPPORTED_LANGUAGES = ("zh", "zh-TW", "en")
@@ -16,6 +17,10 @@ TEXT_DOMAIN = "messages"
 
 _current_language = contextvars.ContextVar("mybooks_i18n_language", default=None)
 _catalog_cache: Dict[str, Dict[str, str]] = {}
+_catalog_mtime: Dict[str, float] = {}
+_catalog_checked: Dict[str, float] = {}
+# 目录文件改动后最多等待这么久即可生效，不必重启服务
+_CATALOG_RECHECK_INTERVAL = 5.0
 
 _DEFAULT_SETTINGS_ZH = {
     "site_title": "MyBooks",
@@ -147,18 +152,27 @@ def detect_system_language() -> str:
 
 def _load_catalog(lang: str) -> Dict[str, str]:
     lang = normalize_language(lang) or DEFAULT_LANGUAGE
-    if lang in _catalog_cache:
-        return _catalog_cache[lang]
-
-    if lang == "zh":
-        _catalog_cache[lang] = {}
-        return _catalog_cache[lang]
+    now = time.monotonic()
+    cached = _catalog_cache.get(lang)
+    # 热路径只做一次 dict/浮点比较；每 5 秒最多 stat 一次文件
+    if cached is not None and now - _catalog_checked.get(lang, 0.0) < _CATALOG_RECHECK_INTERVAL:
+        return cached
 
     base_dir = os.path.join(os.path.dirname(__file__), "i18n")
     file_path = os.path.join(base_dir, f"{lang}.json")
-    if not os.path.exists(file_path):
+    try:
+        mtime = os.path.getmtime(file_path)
+    except OSError:
+        mtime = None
+
+    if cached is not None and mtime is not None and mtime == _catalog_mtime.get(lang):
+        _catalog_checked[lang] = now
+        return cached
+
+    if mtime is None:
         logging.warning("i18n catalog not found for language %s: %s", lang, file_path)
         _catalog_cache[lang] = {}
+        _catalog_checked[lang] = now
         return _catalog_cache[lang]
 
     try:
@@ -167,7 +181,9 @@ def _load_catalog(lang: str) -> Dict[str, str]:
         _catalog_cache[lang] = data if isinstance(data, dict) else {}
     except Exception:
         logging.exception("Failed to load i18n catalog: %s", file_path)
-        _catalog_cache[lang] = {}
+        _catalog_cache[lang] = cached or {}
+    _catalog_mtime[lang] = mtime
+    _catalog_checked[lang] = now
     return _catalog_cache[lang]
 
 
@@ -247,10 +263,10 @@ def get_default_settings(lang: str) -> dict:
 
 def gettext(message: str) -> str:
     lang = get_language()
-    if lang == "zh" or not message:
+    if not message:
         return message
     catalog = _load_catalog(lang)
-    # zh-TW falls back to zh (original) if no translation found
+    # 未命中的 key 回落到源码原文（简体中文或英文）
     return catalog.get(message, message)
 
 
