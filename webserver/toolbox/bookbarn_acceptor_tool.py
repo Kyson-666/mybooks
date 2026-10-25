@@ -42,7 +42,7 @@ class BookBarnAcceptorTool(BaseTool):
         return SettingsSaver().save_partial({"ENABLE_RECEIVING_BOOKS": bool(enabled)})
 
     def apply_token(self, os_name: str) -> str:
-        token = BookBarnClient().applyToken(os=os_name)
+        token = BookBarnClient().apply_token(os=os_name)
         SettingsSaver().save_partial({"BOOKBARN_TOKEN": token})
         return token
 

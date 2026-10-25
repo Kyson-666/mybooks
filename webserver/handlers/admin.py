@@ -1127,7 +1127,7 @@ class AdminBookbarnTokenApply(BaseHandler):
     def post(self):
         bookbarn = BookBarnClient()
         try:
-            token = bookbarn.applyToken(os=self.get_os())
+            token = bookbarn.apply_token(os=self.get_os())
             return {"err": "ok", "msg": _("Token申请成功"), "token": token}
         except Exception as e:
             logging.error(traceback.format_exc())
@@ -1817,7 +1817,7 @@ class AdminResources(BaseHandler):
             logging.info("[Resources]Use cached data")
             resources = AdminResources._cache_data
         else:
-            resources = await utils.run_in_threadpool(BookBarnClient().getResourceList, CONF.get("BOOKBARN_TOKEN", ""))
+            resources = await utils.run_in_threadpool(BookBarnClient().get_resource_list, CONF.get("BOOKBARN_TOKEN", ""))
             resources = (
                 resources if resources else AdminResources.CONF_DEFAULT_RESOURCES
             )

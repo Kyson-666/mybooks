@@ -79,7 +79,7 @@ class BookBarnClient:
             "MyBooks-Client": f"MyBooks/{VERSION}"
         }
 
-    def checkToken(self, token):
+    def check_token(self, token):
         params = {
             "version": VERSION,
             "token": token
@@ -103,7 +103,7 @@ class BookBarnClient:
             logging.error(f"[BARN]Failed to check token: {response.status_code} - {response.text}")
             return False, response.text
 
-    def applyToken(self, os=None):
+    def apply_token(self, os=None):
         # send post request with APPLY_TOKEN_API, json data with client_revision and os
         data = {
             "version": VERSION,
@@ -123,7 +123,7 @@ class BookBarnClient:
         else:
             raise Exception(f"[BARN]Failed to apply token: {response.status_code} - {response.text}")
 
-    def checkLatestRelease(self, token):
+    def check_latest_release(self, token):
         if not CONF.get("AUTO_CHECKING_NEW_VERSION", True):
             logging.debug("Auto checking new version is disabled, skip checking latest release.")
             return None
@@ -163,7 +163,7 @@ class BookBarnClient:
             logging.error("Exception occurred while checking latest release.")
         return result
 
-    def _updateAction(self, token, action):
+    def _update_action(self, token, action):
         data = {
             "version": VERSION,
             "token": token,
@@ -180,16 +180,16 @@ class BookBarnClient:
             logging.error(f"Failed to update action: {response.status_code} - {response.text}")
             return False
 
-    def setCheckingAction(self, token):
-        return self._updateAction(token, BookBarnClient.ACTION_CHECKING)
+    def set_checking_action(self, token):
+        return self._update_action(token, BookBarnClient.ACTION_CHECKING)
 
-    def resetChecking(self, token):
-        return self._updateAction(token, BookBarnClient.ACTION_NONE)
+    def reset_checking(self, token):
+        return self._update_action(token, BookBarnClient.ACTION_NONE)
 
-    def setCheckingDone(self, token):
-        return self._updateAction(token, BookBarnClient.ACTION_DONE)
+    def set_checking_done(self, token):
+        return self._update_action(token, BookBarnClient.ACTION_DONE)
 
-    def getBookList(self, token):
+    def get_book_list(self, token):
         # request GET_BOOKS_API with token & version as query string
         params = {
             "token": token,
@@ -204,15 +204,16 @@ class BookBarnClient:
         if response.status_code == 200:
             data = response.json().get("data")
             if data is not None:
+                logging.info(f"[BARN]:Received book list:{data}")
                 return data  # Return the list of books
             else:
-                logging.warning("No data found in the response.")
+                logging.warning("[BARN]No data found in the response.")
                 return []
         else:
-            logging.error(f"Failed to get book list: {response.status_code} - {response.text}")
+            logging.error(f"[BARN]Failed to get book list: {response.status_code} - {response.text}")
             return None
 
-    def getResourceList(self, token):
+    def get_resource_list(self, token):
         params = {
             "version": VERSION,
             "token": token,
@@ -246,7 +247,7 @@ class BookBarnClient:
             logging.error(f"Failed to get resource list: {response.status_code} - {response.text}")
             return None
 
-    def downloadFile(self, token, download_url, book_id, filename, filesize):
+    def download_file(self, token, download_url, book_id, filename, filesize):
         try:
             save_path = self.FILE_SAVE_PATH
             params = {
@@ -403,7 +404,7 @@ class BookBarnService(AsyncService):
         while True:
             if self.checked_release_time is None or self.checked_release_time < time.time():
                 self.checked_release_time = time.time() + 8 * 60 * 60
-                latest_release = self.client.checkLatestRelease(self.token)
+                latest_release = self.client.check_latest_release(self.token)
                 CONF[UPGRABLE_REVISION] = ""
                 if latest_release is not None:
                     logging.info(f"[BARN]New version available: {latest_release['rev']}, released on {latest_release['date']}")
@@ -418,6 +419,7 @@ class BookBarnService(AsyncService):
 
             if not CONF.get("ENABLE_BOOKBARN", False) or not CONF.get("ENABLE_RECEIVING_BOOKS", False):
                 time.sleep(30 * 60)
+                logging.info("[BARN]Not enabled bookbarn receiving")
                 continue
 
             if self.checked_day is not None:
@@ -446,7 +448,7 @@ class BookBarnService(AsyncService):
                 time.sleep(30 * 60)
                 continue
 
-            ok, err = self.client.checkToken(self.token)
+            ok, err = self.client.check_token(self.token)
             if not ok:
                 if not token_invalid_message:
                     token_invalid_message = True
@@ -460,15 +462,15 @@ class BookBarnService(AsyncService):
                 continue
 
             token_invalid_message = False
-            book_list = self.client.getBookList(self.token)
+            book_list = self.client.get_book_list(self.token)
             if book_list is None:
-                self.client.resetChecking(self.token)
+                self.client.reset_checking(self.token)
                 logging.info("[BARN] Not received any book, reset the checking")
             else:
                 logging.info(f"[BARN] Received {len(book_list)} books")
-                self.client.setCheckingAction(self.token)
+                self.client.set_checking_action(self.token)
                 self.process_daily_books(book_list)
-                self.client.setCheckingDone(self.token)
+                self.client.set_checking_done(self.token)
                 self.checked_day = datetime.datetime.now().strftime("%Y-%m-%d")
                 time.sleep(30 * 60)
         logging.info("Exit the daily books checking")
@@ -492,7 +494,7 @@ class BookBarnService(AsyncService):
         for book in book_list:
             count += 1
             if count % 2 == 0:
-                self.client.setCheckingAction(self.token)
+                self.client.set_checking_action(self.token)
 
             book_id = book.get("id")
             download_link = book.get("downloadLink")
@@ -513,7 +515,7 @@ class BookBarnService(AsyncService):
                 download_link = None
 
             # Download the book with download api
-            saved_file = self.client.downloadFile(self.token, download_link, book_id, filename, book_size)
+            saved_file = self.client.download_file(self.token, download_link, book_id, filename, book_size)
             if saved_file is None:
                 logging.error(f"[BARN]Failed to download book ID {book_id}")
                 continue
