@@ -831,7 +831,7 @@
     "sec_site_home_cards_desc": "控制首页显示哪些卡片、卡片顺序，以及添加作者、标签、丛书、语言、评分等自定义卡片。",
     "homepage_order_title": "卡片顺序",
     "homepage_custom": "自定义卡片",
-    "homepage_add_card": "添加自定义卡片",
+    "homepage_add_card": "添加自定义卡片 (指定条件筛选书籍)",
     "homepage_add_confirm": "添加",
     "homepage_card_delete": "删除",
     "homepage_card_no_value": "未填写内容",

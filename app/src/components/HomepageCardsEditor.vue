@@ -76,7 +76,7 @@
           </v-btn>
         </div>
         <v-row dense>
-          <v-col cols="12" sm="4">
+          <v-col cols="12" sm="2">
             <v-select
               v-model="draft.type"
               :items="typeOptions"
@@ -87,7 +87,7 @@
               @change="onTypeChange"
             ></v-select>
           </v-col>
-          <v-col cols="12" sm="8">
+          <v-col cols="12" sm="4">
             <v-combobox
               v-if="valueFromList"
               v-model="draft.value"
@@ -119,7 +119,7 @@
               hide-details
             ></v-select>
           </v-col>
-          <v-col cols="6" sm="6">
+          <v-col cols="6" sm="3">
             <v-select
               v-model="draft.sort"
               :items="sortOptions"
@@ -129,7 +129,7 @@
               hide-details
             ></v-select>
           </v-col>
-          <v-col cols="6" sm="6">
+          <v-col cols="6" sm="3">
             <v-select
               v-model="draft.limit"
               :items="limitOptions"
