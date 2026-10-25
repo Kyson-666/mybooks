@@ -18,7 +18,7 @@
   路径入参 + `out_path` 落盘），峰值与源书总数/输出大小无关。
 
 实现范围：读取（流式 / 全量 / lite 元数据）/ 定位 / 解码 / 分析 / ISBN /
-简介组合 / `merge_epubs` 拼接主体 / `validate_output` 输出守门。
+简介组合 / 封面拼图 / `merge_epubs` 拼接主体 / `validate_output` 输出守门。
 """
 
 import codecs
@@ -739,6 +739,48 @@ def extract_cover(source) -> tuple:
         return None, None
 
 
+def make_cover_grid(images: list) -> "bytes | None":
+    """前 9 张封面无缝拼图 → JPEG 字节；无图 / PIL 缺失 / 全部解析失败返回 None。
+
+    统一列宽（≤360px 且不放大小图）整图满贴：不裁切、不变形、图与图之间
+    零留白；同排高度取该排最大值（封面比例不一时短图下方或有细缝），
+    末行不满时整排水平居中；画布纵横比随本数与封面比例自然形成
+    （9 张 2:3 封面 → 1080×1620 竖版，贴近站内 11:15 书封展示槽）。
+    """
+    try:
+        from PIL import Image
+    except ImportError:
+        return None
+    imgs = []
+    for raw in (images or [])[:9]:
+        try:
+            imgs.append(Image.open(io.BytesIO(raw)).convert("RGB"))
+        except Exception:
+            continue
+    if not imgs:
+        return None
+    # 列数：1/2/3 本各占满一排、4 本 2×2、5 本起 3 列（避免 3 本出现空格子）
+    cols = 2 if len(imgs) == 4 else min(3, len(imgs))
+    col_w = min(360, min(im.width for im in imgs))
+    scaled = [
+        im.resize((col_w, max(1, round(im.height * col_w / im.width))), Image.LANCZOS)
+        for im in imgs
+    ]
+    rows = (len(scaled) + cols - 1) // cols
+    row_h = [max(s.height for s in scaled[r * cols:(r + 1) * cols]) for r in range(rows)]
+    canvas = Image.new("RGB", (cols * col_w, sum(row_h)), (255, 255, 255))
+    for i, im in enumerate(scaled):
+        r, c = divmod(i, cols)
+        x = c * col_w
+        last = len(scaled) - r * cols
+        if last < cols:  # 末行不满：整排水平居中，避免角上留空格
+            x += (cols - last) * col_w // 2
+        canvas.paste(im, (x, sum(row_h[:r])))
+    buf = io.BytesIO()
+    canvas.save(buf, "JPEG", quality=85, optimize=True)
+    return buf.getvalue()
+
+
 def is_valid_isbn(isbn: str) -> bool:
     """ISBN 弱校验（抄 `book_ai_client._is_valid_isbn`，仅长度+首字规则）。"""
     cleaned = (isbn or "").replace("-", "").replace(" ", "")
@@ -765,15 +807,16 @@ def _to_html_block(comments: str) -> str:
     return html.escape(text).replace("\n", "<br />")
 
 
-def compose_description(new_title: str, items: list, isbns=None) -> str:
-    """组合集简介 HTML：首行新标题 + 逐本【源书名】+简介 + ISBN 尾行。
+def compose_description(items: list, isbns=None) -> str:
+    """组合集简介 HTML：逐本【源书名】+简介 + ISBN 尾行。
 
-    :param new_title: 合集标题（会被转义）。
+    合集标题不写入简介——书名栏已有，正文重复一遍读起来冗余。
+
     :param items: [{"title": str, "comments": str}, ...]，顺序即展示顺序；
         comments 为空/空白时填“暂无简介”。
     :param isbns: ISBN 列表；多于 1 个时附末尾 `ISBN：a / b` 行。
     """
-    parts = ["<p><b>%s</b></p>" % html.escape(new_title or "")]
+    parts = []
     for item in items:
         parts.append("<p>【%s】</p>" % html.escape(item.get("title") or ""))
         parts.append(_to_html_block(item.get("comments")))
